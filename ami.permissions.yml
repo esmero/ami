@@ -1,0 +1,6 @@
+'Bulk Patch Strawberryfield':
+  title: 'JSON Patch Archipelago Digital Objects in Bulk using Views Batch Operations'
+  description: 'Allows JSON Patch actions to be executed against a "Strawberryfield" bearing Entity. Still on Patch time, individual permissions may apply and/or override this permission'
+'Multi Import Digital Objects':
+  title: 'Import or Update assets from remote sources or files using Archipelago Multi Importer'
+  description: 'Allows AMI to be used to import or update Digital Objects and assets. Still on import(create) and update time, individual permissions may apply and/or override this permission'

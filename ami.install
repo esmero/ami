@@ -1,0 +1,19 @@
+<?php
+/**
+ * @file
+ * Contains install and update functions for AMI.
+ */
+
+use Drupal\Core\Language\LanguageInterface;
+use Drupal\taxonomy\Entity\Vocabulary;
+use Drupal\taxonomy\Entity\Term;
+use Drupal\field\Entity\FieldStorageConfig;
+use Drupal\field\Entity\FieldConfig;
+
+/**
+ * Implements hook_install().
+ */
+
+function ami_install() {
+
+}

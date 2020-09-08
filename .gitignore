@@ -47,3 +47,10 @@
 /robots.txt
 /update.php
 /web.config
+.idea/$CACHE_FILE$
+.idea/ami.iml
+.idea/inspectionProfiles/profiles_settings.xml
+.idea/modules.xml
+.idea/php.xml
+.idea/vcs.xml
+.idea/workspace.xml
