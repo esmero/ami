@@ -1,0 +1,262 @@
+<?php
+
+namespace Drupal\ami\Plugin\Importer;
+
+use Drupal\Core\Batch\BatchBuilder;
+use Drupal\Core\File\FileSystemInterface;
+use Drupal\ami\Plugin\ImporterAdapterBase;
+use Drupal\Core\Messenger\MessengerTrait;
+
+/**
+ * Product importer from a JSON format.
+ *
+ * @ImporterAdapter(
+ *   id = "jsonapi",
+ *   label = @Translation("Remote JSON API Importer"),
+ *   remote = true
+ * )
+ */
+class JsonAPIImporter extends ImporterAdapterBase {
+
+  use MessengerTrait;
+  /**
+   * {@inheritdoc}
+   */
+  public function getConfigurationForm(\Drupal\ami\Entity\ImporterAdapterInterface $importer) {
+    $form = [];
+    $config = $importer->getPluginConfiguration();
+    $form['url'] = [
+      '#type' => 'url',
+      '#default_value' => isset($config['url']) ? $config['url'] : '',
+      '#title' => $this->t('Url'),
+      '#description' => $this->t('The URL to the import resource'),
+      '#required' => TRUE,
+    ];
+    return $form;
+  }
+
+
+  /**
+   * {@inheritdoc}
+   */
+  public function import() {
+    $data = $this->getData();
+    if (!$data) {
+      return FALSE;
+    }
+
+    if (!isset($data->products)) {
+      return FALSE;
+    }
+
+    $nodes = $data->products;
+
+    $batch_builder = (new BatchBuilder())
+      ->setTitle($this->t('Importing ADOs'))
+      ->setFinishCallback([$this, 'importNodesFinished']);
+
+    $batch_builder->addOperation([$this, 'clearMissing'], [$nodes]);
+    $batch_builder->addOperation([$this, 'importNodes'], [$nodes]);
+    batch_set($batch_builder->toArray());
+
+    if (PHP_SAPI == 'cli') {
+      drush_backend_batch_process();
+    }
+
+    return TRUE;
+  }
+
+  /**
+   * Batch operation to remove the products which are no longer in the list of
+   * products coming from the JSON file.
+   *
+   * @param $nodes
+   * @param $context
+   */
+  public function clearMissing($nodes, &$context) {
+    if (!isset($context['results']['cleared'])) {
+      $context['results']['cleared'] = [];
+    }
+
+    if (!$nodes) {
+      return;
+    }
+
+    $ids = [];
+    foreach ($nodes as $node) {
+      $ids[] = $node->id;
+    }
+
+    $ids = $this->entityTypeManager->getStorage('node')->getQuery()
+      ->condition('remote_id', $ids, 'NOT IN')
+      ->execute();
+    if (!$ids) {
+      $context['results']['cleared'] = [];
+      return;
+    }
+
+    $entities = $this->entityTypeManager->getStorage('node')->loadMultiple($ids);
+
+    /** @var \Drupal\ami\Entity\ProductInterface $entity */
+    foreach ($entities as $entity) {
+      $context['results']['cleared'][] = $entity->getName();
+    }
+    $context['message'] = $this->t('Removing @count ADOs', ['@count' => count($entities)]);
+    $this->entityTypeManager->getStorage('product')->delete($entities);
+  }
+
+  /**
+   * Batch operation to import the products from the JSON file.
+   *
+   * @param $nodes
+   * @param $context
+   */
+  public function importNodes($nodes, &$context) {
+    if (!isset($context['results']['imported'])) {
+      $context['results']['imported'] = [];
+    }
+
+    if (!$nodes) {
+      return;
+    }
+
+    $sandbox = &$context['sandbox'];
+    if (!$sandbox) {
+      $sandbox['progress'] = 0;
+      $sandbox['max'] = count($nodes);
+      $sandbox['products'] = $nodes;
+    }
+
+    $slice = array_splice($sandbox['products'], 0, 3);
+    foreach ($slice as $node) {
+      $context['message'] = $this->t('Importing product @name', ['@name' => $node->name]);
+      $this->persistEntity($node);
+      $context['results']['imported'][] = $node->name;
+      $sandbox['progress']++;
+    }
+
+    $context['finished'] = $sandbox['progress'] / $sandbox['max'];
+  }
+
+  /**
+   * Callback for when the batch processing completes.
+   *
+   * @param $success
+   * @param $results
+   * @param $operations
+   */
+  public function importNodesFinished($success, $results, $operations) {
+    if (!$success) {
+      $this->messenger()->addmessage($this->t('There was a problem with the batch'), 'error');
+      return;
+    }
+
+    $cleared = count($results['cleared']);
+    if ($cleared == 0) {
+      $this->messenger()->addmessage($this->t('No ADO had to be deleted.'));
+    }
+    else {
+      $this->messenger()->addmessage($this->formatPlural($cleared, '1 ADO had to be deleted.', '@count ADOs had to be deleted.'));
+    }
+
+    $imported = count($results['imported']);
+    if ($imported == 0) {
+      $this->messenger()->addmessage($this->t('No ADOs found to be imported.'));
+    }
+    else {
+      $this->messenger()->addmessage($this->formatPlural($imported, '1 ADO imported.', '@count ADOs imported.'));
+    }
+  }
+
+  /**
+   * Loads the product data from the remote URL.
+   *
+   * @return \stdClass
+   */
+  private function getData() {
+    /** @var \Drupal\ami\Entity\ImporterAdapterInterface $importer_config */
+    $importer_config = $this->configuration['config'];
+    $config = $importer_config->getPluginConfiguration();
+    $getArguments =  $url = isset($config['getargs']) ? $config['getargs'] : NULL;
+    $url = isset($config['url']) ? $config['url'] : NULL;
+    if (!$url) {
+      return NULL;
+    }
+
+    $request = $this->httpClient->get($url);
+    $string = $request->getBody()->getContents();
+    return json_decode($string);
+  }
+
+  /**
+   * Saves a NODE entity from the remote data.
+   *
+   * @param \stdClass $data
+   */
+  public function persistEntity($data) {
+    /** @var \Drupal\ami\Entity\ImporterAdapterInterface $config */
+    $config = $this->configuration['config'];
+
+    $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $data->uuid]);
+
+    if (!$existing) {
+      $nodeValues = [
+        'uuid' => $data->uuid,
+        'type' => $data->bundle,
+        'status' => 1,
+        'title' => $data->label,
+        'field_custom_field' => $decode['something'],
+      ];
+
+      /** @var \Drupal\Core\Entity\ContentEntityBase $node */
+      $node = $this->entityTypeManager->getStorage('node')->create($nodeValues);
+      // Create a node.
+      $storage = $this->entityTypeManager->getStorage('node');
+      $node = $storage->create($nodeValues);
+      $node->save();
+
+
+      $node->setName($data->name);
+      $node->setProductNumber($data->number);
+      $this->handleProductImage($data, $node);
+      $node->save();
+      return;
+    }
+
+    if (!$config->updateExisting()) {
+      return;
+    }
+
+    /** @var \Drupal\ami\Entity\ProductInterface $node */
+    $node = reset($existing);
+    $node->setName($data->name);
+    $node->setProductNumber($data->number);
+    $this->handleNodeFiles($data, $node);
+    $node->save();
+  }
+
+  /**
+   * Imports the image of the product and adds it to the Product entity.
+   *
+   * @param $data
+   * @param \Drupal\ami\Entity\ProductInterface $node
+   */
+  private function handleNodeFiles($data, ProductInterface $node) {
+    $name = $data->image;
+    $image = file_get_contents('products://' . $name);
+    if (!$image) {
+      // Perhaps log something.
+      return;
+    }
+
+    /** @var \Drupal\file\FileInterface $file */
+    $file = file_save_data($image, 'public://product_images/' . $name, FileSystemInterface::EXISTS_REPLACE);
+    if (!$file) {
+      // Something went wrong, perhaps log it.
+      return;
+    }
+
+    $node->setImage($file->id());
+  }
+
+}

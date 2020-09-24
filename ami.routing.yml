@@ -1,0 +1,23 @@
+ami.multistep_import:
+  path: '/admin/ami-batch'
+  defaults:
+    _title: 'Import Archipelago Objects'
+    _form: '\Drupal\ami\Form\AmiMultiStepIngest'
+  options:
+    _admin_route: TRUE
+  requirements:
+    _permission: 'Multi Import Digital Objects'
+    _csrf_token: 'TRUE'
+
+ami.multistep_import_parent:
+  path: '/ami/{entity_type}/{entity}'
+  defaults:
+    _form: '\Drupal\ami\Form\AmiMultiStepIngest'
+    _title: 'Import Archipelago Objects'
+  requirements:
+    _permission: 'Multi Import Digital Objects'
+    _entity_access: 'entity.update'
+  options:
+    parameters:
+      entity:
+        type: entity:{entity_type}

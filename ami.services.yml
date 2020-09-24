@@ -1,0 +1,5 @@
+services:
+  ami.importeradapter_manager:
+    class: Drupal\ami\Plugin\ImporterAdapterManager
+    parent: default_plugin_manager
+    arguments: ['@entity_type.manager']

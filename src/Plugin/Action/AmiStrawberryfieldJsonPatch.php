@@ -2,21 +2,11 @@
 
 namespace Drupal\ami\Plugin\Action;
 
-use Drupal\Component\Plugin\ConfigurableInterface;
-use Drupal\Core\Access\AccessResult;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
-use Drupal\Core\TempStore\PrivateTempStoreFactory;
-use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Drupal\views\ViewExecutable;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
 use Drupal\Core\Plugin\PluginFormInterface;
 use Drupal\strawberryfield\Plugin\Action\StrawberryfieldJsonPatch;
-use Swaggest\JsonDiff\Exception as JsonDiffException;
-use Symfony\Component\DependencyInjection\ContainerInterface;
-use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
-use Swaggest\JsonDiff\JsonPatch;
 
 /**
  * Provides an action that can Modify Entity attached SBFs via JSON Patch.

@@ -1,0 +1,7 @@
+# Importer entity menu items
+entity.importeradapter.collection:
+  title: 'AMI Importer Adapters'
+  route_name: entity.importeradapter.collection
+  description: 'List Importer Adapter entities used by the Archipelago Multi Importer'
+  parent: system.admin_structure
+  weight: 99
