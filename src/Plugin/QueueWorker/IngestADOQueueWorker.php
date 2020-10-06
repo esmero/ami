@@ -85,7 +85,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $plugin_id,
       $plugin_definition,
       $container->get('entity_type.manager'),
-      $container->get('logger.factory')
+      $container->get('logger.factory'),
       $container->get('strawberryfield.utility')
     );
   }
