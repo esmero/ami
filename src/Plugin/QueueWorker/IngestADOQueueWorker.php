@@ -41,6 +41,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @var \Drupal\strawberryfield\StrawberryfieldUtilityService
    */
   protected $strawberryfieldUtility;
+
   /**
    * Constructor.
    *
@@ -49,8 +50,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param mixed $plugin_definition
    * @param \Drupal\Core\Entity\EntityTypeManager $entity_field_manager
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager,  LoggerChannelFactoryInterface $logger_factory,
-    StrawberryfieldUtilityService $strawberryfield_utility_service) {
+  public function __construct(
+    array $configuration,
+    $plugin_id,
+    $plugin_definition,
+    EntityTypeManagerInterface $entity_type_manager,
+    LoggerChannelFactoryInterface $logger_factory,
+    StrawberryfieldUtilityService $strawberryfield_utility_service
+  ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
     $this->loggerFactory = $logger_factory;
@@ -67,14 +74,19 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @return static
    */
-  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
+  public static function create(
+    ContainerInterface $container,
+    array $configuration,
+    $plugin_id,
+    $plugin_definition
+  ) {
     return new static(
       empty($configuration) ? [] : $configuration,
       $plugin_id,
       $plugin_definition,
       $container->get('entity_type.manager'),
-      $container->get('strawberryfield.utility'),
       $container->get('logger.factory')
+      $container->get('strawberryfield.utility')
     );
   }
 
@@ -94,7 +106,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   private function persistEntity($data) {
 
-    $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $data->uuid]);
+    $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
+      ['uuid' => $data->uuid]
+    );
     //@TODO field_descriptive_metadata  is passed from the Configuration
     if (!$existing) {
       $nodeValues = [
@@ -109,4 +123,5 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $node = $this->entityTypeManager->getStorage('node')->create($nodeValues);
       $node->save();
     }
+  }
 }
