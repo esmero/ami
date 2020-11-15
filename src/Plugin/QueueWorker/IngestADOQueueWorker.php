@@ -109,7 +109,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->uuid]
     );
-    //@TODO field_descriptive_metadata  is passed from the Configuration
+    //@TODO field_descriptive_metadata is passed from the Configuration
     if (!$existing) {
       $nodeValues = [
         'uuid' => $data->uuid,
