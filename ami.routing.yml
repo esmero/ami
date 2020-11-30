@@ -7,7 +7,6 @@ ami.multistep_import:
     _admin_route: TRUE
   requirements:
     _permission: 'Multi Import Digital Objects'
-    _csrf_token: 'TRUE'
 
 ami.multistep_import_parent:
   path: '/ami/{entity_type}/{entity}'

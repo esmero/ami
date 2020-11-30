@@ -1,14 +1,22 @@
 <?php
 
-namespace Drupal\ami\Plugin\Importer;
+namespace Drupal\ami\Plugin\ImporterAdapter;
+
+use Drupal\ami\Plugin\ImporterAdapter\SpreadsheetImporter;
+use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Messenger\MessengerInterface;
+use Drupal\Core\Messenger\MessengerTrait;
+use Drupal\google_api_client\GoogleApiClientInterface;
 use Drupal\google_api_client\Service\GoogleApiClientService;
 use Google_Service_Sheets;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
-use Drupal\ami\Plugin\ImporterAdapterBase;
 use GuzzleHttp\ClientInterface;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\ami\AmiUtilityService;
+use Google_Service_Exception;
 
 /**
  * Product importer from a CSV format.
@@ -21,11 +29,18 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 class GoogleSheetImporter extends SpreadsheetImporter {
 
+  use StringTranslationTrait;
+  use MessengerTrait;
+
   /**
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
    */
   protected $streamWrapperManager;
 
+  /**
+   * @var \GuzzleHttp\ClientInterface
+   */
+  protected $httpClient;
 
   /**
    * @var \Drupal\google_api_client\Service\GoogleApiClientService
@@ -33,12 +48,28 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   protected $googleApiClientService;
 
   /**
-   * {@inheritdoc}
+   * @var \Drupal\ami\AmiUtilityService
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager, ClientInterface $httpClient, StreamWrapperManagerInterface $streamWrapperManager, GoogleApiClientService $google_api_client_service) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $httpClient);
+  protected $AmiUtilityService;
+
+  /**
+   * GoogleSheetImporter constructor.
+   *
+   * @param array $configuration
+   * @param $plugin_id
+   * @param $plugin_definition
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
+   * @param \GuzzleHttp\ClientInterface $httpClient
+   * @param \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface $streamWrapperManager
+   * @param \Drupal\google_api_client\Service\GoogleApiClientService $google_api_client_service
+   * @param \Drupal\ami\AmiUtilityService $ami_utility
+   */
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager, ClientInterface $httpClient, StreamWrapperManagerInterface $streamWrapperManager, GoogleApiClientService $google_api_client_service, AmiUtilityService $ami_utility) {
+    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $streamWrapperManager);
     $this->streamWrapperManager = $streamWrapperManager;
     $this->googleApiClientService = $google_api_client_service;
+    $this->httpClient = $httpClient;
+    $this->AmiUtilityService = $ami_utility;
   }
 
   /**
@@ -52,28 +83,21 @@ class GoogleSheetImporter extends SpreadsheetImporter {
       $container->get('entity_type.manager'),
       $container->get('http_client'),
       $container->get('stream_wrapper_manager'),
-      $container->get('google_api_client.client')
+      $container->get('google_api_client.client'),
+      $container->get('ami.utility')
     );
   }
 
 
-  use StringTranslationTrait;
 
   /**
    * {@inheritdoc}
    */
-  public function getConfigurationForm(\Drupal\ami\Entity\ImporterAdapterInterface $importer) {
+  public function interactiveForm(array $parents, FormStateInterface $form_state):array {
+    // None of the interactive Form elements should be persisted as Config elements
+    // Here.
+    // Maybe we should have some annotation that says which ones for other plugins?
     $form = [];
-    $config = $importer->getPluginConfiguration();
-    $stored_defaults = array('spreadsheet_id' => '', 'spreadsheet_range' => 'Sheet1!A1:B10');
-
-    if (isset($form_state['storage']['values']['step'.$form_state['storage']['step']])) {
-      $stored_defaults['spreadsheet_id'] = $form_state['storage']['values']['step'.$form_state['storage']['step']]['google_api']['spreadsheet_id'];
-      $stored_defaults['spreadsheet_range'] = $form_state['storage']['values']['step'.$form_state['storage']['step']]['google_api']['spreadsheet_range'];
-    }
-
-   //$form = \Drupal::formBuilder()->getForm('Drupal\custom_module\Form\CustomModuleForm',$parameter);
-
     $form['google_api']= array(
       '#prefix' => '<div id="ami-googleapi">',
       '#suffix' => '</div>',
@@ -83,14 +107,16 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         '#required' => TRUE,
         '#title' => $this->t('ID of your Google Sheet'),
         '#description' => 'Example: https://docs.google.com/spreadsheets/d/aaBAccEEFfC_aBC-aBc0d1EF/edit, use aaBAccEEFfC_aBC-aBc0d1EF portion as the ID or full URL',
-        '#default_value' => $stored_defaults['spreadsheet_id'],
+        '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_id'])),
+        '#element_validate' => [[get_called_class(), 'validateSpreadsheetId']]
       ),
       'spreadsheet_range' => array(
         '#type' => 'textfield',
         '#required' => TRUE,
         '#title' =>  $this->t('Cell Range'),
         '#description' => t('Cell Range for your Google Sheet, in the form of SheetName!A1:B10'),
-        '#default_value' => $stored_defaults['spreadsheet_range'],
+        '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_range'])),
+        '#element_validate' => [[get_called_class(),'::validateRange']]
       ),
     );
     /*
@@ -108,69 +134,136 @@ class GoogleSheetImporter extends SpreadsheetImporter {
     return $form;
   }
 
+  public static function validateSpreadsheetId($element, FormStateInterface $form_state, array $form) {
+    error_log('called validateSpreadsheetId');
+    //@TODO Google Sheet validation by calling Google and checking if we can read it
+
+    if (
+    !preg_match('#https?://docs.google.com/spreadsheets/d/(.+)/edit(\#gid=(\d+))?#', $form_state->getValue($element['#parents']), $matches)
+    ) {
+      $form_state->setError($element, t('Please provide a valid Google Sheet URL.'));
+    }
+  }
+
+
+  public function validateRange($element, FormStateInterface $form_state, array $form) {
+    //@TODO implement range Validation
+  }
 
   /**
    * {@inheritdoc}
    */
-  public function import() {
-    $entities = $this->getData();
-    if (!$entities) {
-      return FALSE;
+  public function getData(
+    array $config,
+    $page = 0,
+    $per_page = 20
+  ):array {
+    $spreadsheetId = $config['google_api']['spreadsheet_id'];
+    $range = $config['google_api']['spreadsheet_range'];
+    $range = trim(
+      $range
+    );
+      // Parse the ID from the URL if a full URL was provided.
+      // @author of following chunk is Mark Mcfate @McFateM!
+      if ($parsed = parse_url($spreadsheetId)) {
+        if (isset($parsed['scheme'])) {
+          $parts = explode('/', $parsed['path']);
+          $spreadsheetId = $parts[3];
+        }
+      }
+
+    $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0];
+
+    // Load the account
+    $offset = $page * $per_page;
+    /* @var $google_api_clients \Drupal\google_api_client\GoogleApiClientInterface[] | NULL */
+    $google_api_clients = $this->entityTypeManager->getStorage('google_api_client')->loadByProperties(['name'=> 'AMI']);
+    foreach ($google_api_clients as $google_api_client) {
+      if ($google_api_client->getAuthenticated()) {
+        $scopes =  $google_api_client->getScopes();
+        if (in_array('https://www.googleapis.com/auth/spreadsheets.readonly',$scopes )) {
+          $chosen_google_api_client = $google_api_client;
+        }
+      }
     }
+    dpm($google_api_client);
+    if ($chosen_google_api_client) {
+      // Get the service.
+      // Apply the account to the service
+      $this->googleApiClientService->setGoogleApiClient($chosen_google_api_client);
 
-    foreach ($entities as $entity) {
-      $this->persistEntity($entity);
-    }
+      // Fetch Client
+      $client = $this->googleApiClientService->googleClient;
 
-    return TRUE;
-  }
+      // Establish a connection first
+      try {
+        $service = new Google_Service_Sheets($client);
+        $response = $service->spreadsheets_values->get($spreadsheetId, $range);
+        $sp_data = $response->getValues();
+        // Empty value? just return
+        if (($sp_data == NULL) or empty($sp_data)) {
+          $this->messenger()->addMessage(
+            t('Nothing to read, check your Data source content'),
+            MessengerInterface::TYPE_ERROR
+          );
+          return $tabdata;
 
-  /**
-   * Loads the product data from the remote URL.
-   *
-   * @return array
-   */
-  private function getData() {
-    /** @var \Drupal\ami\Entity\ImporterAdapterInterface $importer_config */
-    $importer_config = $this->configuration['config'];
-    $config = $importer_config->getPluginConfiguration();
+        }
+      } catch (Google_Service_Exception $e) {
+        $this->messenger()->addMessage(
+          t('Google API Error: @e', ['@e' => $e->getMessage()]),
+          MessengerInterface::TYPE_ERROR
+        );
+        return $tabdata;
+      }
+      $table = [];
+      $headers = [];
+      $maxRow = 0;
+      $highestRow = count($sp_data);
 
+      $rowHeaders = $sp_data[0];
+      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
+      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
 
-    return $entity;
-  }
+      $headercount = count($rowHeaders);
 
+      if (($highestRow) >= 1) {
+        // Returns Row Headers.
 
-  /**
-   * Saves a Node entity from the remote data.
-   *
-   * @param \stdClass $data
-   */
-  public function persistEntity($data) {
-    /** @var \Drupal\ami\Entity\ImporterAdapterInterface $config */
-    $config = $this->configuration['config'];
+        $maxRow = 1; // at least until here.
+        foreach ($sp_data as $rowindex => $row) {
 
-    $existing = $this->entityTypeManager->getStorage('product')->loadByProperties(['remote_id' => $data->id]);
-    if (!$existing) {
-      $values = [
-        'remote_id' => $data->id,
-        'type' => $config->getBundle(),
+          // Google Spreadsheets start with Index 0. But PHPSPREADSHEET
+          // public function does with 1.
+          // To keep both public function responses in sync using the same params, i will compensate offsets here:
+          if (($rowindex >= 1) && ($rowindex > ($offset - 1)) && (($rowindex <= ($offset + $per_page)) || $per_page == -1)) {
+
+            $flat = trim(implode('', $row));
+            //check for empty row...if found stop there.
+            if (strlen($flat) == 0) {
+              $maxRow = $rowindex;
+              break;
+            }
+            $row = $this->AmiUtilityService->array_equallyseize(
+              $headercount,
+              $row
+            );
+            $table[$rowindex] = $row;
+          }
+          $maxRow = $rowindex;
+        }
+      }
+      $tabdata = [
+        'headers' => $rowHeaders_utf8,
+        'data' => $table,
+        'totalrows' => $maxRow,
       ];
-      /** @var \Drupal\ami\Entity\ProductInterface $product */
-      $product = $this->entityTypeManager->getStorage('product')->create($values);
-      $product->setName($data->name);
-      $product->setProductNumber($data->number);
-      $product->save();
-      return;
     }
-
-    if (!$config->updateExisting()) {
-      return;
-    }
-
-    /** @var \Drupal\ami\Entity\ProductInterface $product */
-    $product = reset($existing);
-    $product->setName($data->name);
-    $product->setProductNumber($data->number);
-    $product->save();
+    return $tabdata;
   }
+
+
+
 }

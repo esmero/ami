@@ -1,6 +1,7 @@
 <?php
 
-namespace Drupal\ami\Plugin\Importer;
+namespace Drupal\ami\Plugin\ImporterAdapter;
+
 use Drupal\google_api_client\Service\GoogleApiClientService;
 use Google_Service_Sheets;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
@@ -8,6 +9,7 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Plugin\ImporterAdapterBase;
 use GuzzleHttp\ClientInterface;
+use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -35,10 +37,9 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   /**
    * {@inheritdoc}
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager, ClientInterface $httpClient, StreamWrapperManagerInterface $streamWrapperManager, GoogleApiClientService $google_api_client_service) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $httpClient);
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  StreamWrapperManagerInterface $streamWrapperManager) {
+    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager);
     $this->streamWrapperManager = $streamWrapperManager;
-    $this->googleApiClientService = $google_api_client_service;
   }
 
   /**
@@ -50,9 +51,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
       $plugin_id,
       $plugin_definition,
       $container->get('entity_type.manager'),
-      $container->get('http_client'),
-      $container->get('stream_wrapper_manager'),
-      $container->get('google_api_client.client')
+      $container->get('stream_wrapper_manager')
     );
   }
 
@@ -69,7 +68,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
       '#type' => 'managed_file',
       '#default_value' => isset($config['file']) ? $config['file'] : '',
       '#title' => $this->t('File'),
-      '#description' => $this->t('The CSV file containing the product records.'),
+      '#description' => $this->t('The CSV file containing your ADO records.'),
       '#required' => TRUE,
       '#upload_location' => 'public://',
       '#upload_validators' => [
@@ -84,31 +83,85 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   /**
    * {@inheritdoc}
    */
-  public function import() {
-    $products = $this->getData();
-    if (!$products) {
-      return FALSE;
-    }
+  public function getData(array $config, $page = 0, $per_page = 20): array {
+    $data = parent::getData($config,$page, $per_page);
+    $file_path = $config['file_path'];
+    $offset = $page * $per_page;
 
-    foreach ($products as $product) {
-      $this->persistProduct($product);
-    }
+      $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0];
+      try {
+        $inputFileType = IOFactory::identify($file_path);
 
-    return TRUE;
-  }
+        $objReader = IOFactory::createReader($inputFileType);
 
-  /**
-   * Loads the product data from the remote URL.
-   *
-   * @return array
-   */
-  private function getData() {
+        $objReader->setReadDataOnly(TRUE);
+        $objPHPExcel = $objReader->load($file_path);
+      } catch (Exception $e) {
+        $this->messenger()->addMessage(
+          t(
+            'Could not parse file with error: @error',
+            ['@error' => $e->getMessage()]
+          )
+        );
+        return $tabdata;
+      }
+      $table = [];
+      $headers = [];
+      $maxRow = 0;
+      $worksheet = $objPHPExcel->getActiveSheet();
+      $highestRow = $worksheet->getHighestRow();
+      $highestColumn = $worksheet->getHighestColumn();
+      if (($highestRow) > 1) {
+        // Returns Row Headers.
+        $rowHeaders = $worksheet->rangeToArray(
+          'A1:' . $highestColumn . '1',
+          NULL,
+          TRUE,
+          TRUE,
+          FALSE
+        );
+        $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders[0]);
+        $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+        $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
+        $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+        foreach ($worksheet->getRowIterator() as $row) {
+          $rowindex = $row->getRowIndex();
+          if (($rowindex > 1) && ($rowindex > ($offset)) && (($rowindex <= ($offset + $per_page + 1)) || $per_page == -1)) {
+            $rowdata = [];
+            // gets one row data
+            $datarow = $worksheet->rangeToArray(
+              "A{$rowindex}:" . $highestColumn . $rowindex,
+              NULL,
+              TRUE,
+              TRUE,
+              FALSE
+            );//Devuelve los titulos de cada columna
+            $flat = trim(implode('', $datarow[0]));
+            //check for empty row...if found stop there.
+            if (strlen($flat) == 0) {
+              $maxRow = $rowindex;
+              break;
+            }
+            $table[$rowindex] = $datarow[0];
+          }
+          $maxRow = $rowindex;
+        }
+      }
+      $tabdata = [
+        'headers' => $rowHeaders_utf8,
+        'data' => $table,
+        'totalrows' => $maxRow,
+      ];
+      $objPHPExcel->disconnectWorksheets();
+      return $tabdata;
+
+    //@TODO we are going to use SplFileObject when actually ingesting.
     /** @var \Drupal\ami\Entity\ImporterAdapterInterface $importer_config */
     $importer_config = $this->configuration['config'];
     $config = $importer_config->getPluginConfiguration();
     $fids = isset($config['file']) ? $config['file'] : [];
     if (!$fids) {
-      return NULL;
+      return [];
     }
 
     $fid = reset($fids);
@@ -116,7 +169,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
     $file = $this->entityTypeManager->getStorage('file')->load($fid);
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
-      return NULL;
+      return [];
     }
 
     $url = $wrapper->realpath();
@@ -150,7 +203,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
 
 
   /**
-   * Saves a Product entity from the remote data.
+   * Saves an ADO.
    *
    * @param \stdClass $data
    */

@@ -94,7 +94,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
-
     // Decode the JSON that was captured.
     $this->persistEntity($data);
   }
@@ -105,11 +104,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param \stdClass $data
    */
   private function persistEntity($data) {
-
+    //@TODO persist needs to update too.
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->uuid]
     );
-    //@TODO field_descriptive_metadata  is passed from the Configuration
+    //@TODO make field_descriptive_metadata passed from the Configuration
     if (!$existing) {
       $nodeValues = [
         'uuid' => $data->uuid,

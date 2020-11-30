@@ -54,3 +54,6 @@
 .idea/php.xml
 .idea/vcs.xml
 .idea/workspace.xml
+src/.DS_Store
+.idea/codeStyles/codeStyleConfig.xml
+.DS_Store

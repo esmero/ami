@@ -89,7 +89,14 @@ class ImporterAdapter extends ConfigEntityBase implements ImporterAdapterInterfa
    *
    * @var array
    */
-  protected $plugin_configuration;
+  protected $plugin_configuration = [];
+
+  /**
+   * The CSV ADO mappings.
+   *
+   * @var array
+   */
+  protected $ado_mapping;
 
   /**
    * {@inheritdoc}
@@ -105,32 +112,33 @@ class ImporterAdapter extends ConfigEntityBase implements ImporterAdapterInterfa
     return $this->update_existing;
   }
 
-
   /**
-   * Returns target Entity Types.
-   *
-   * @return array
-   *   The target entity types / Node bundles.
+   * {@inheritdoc}
    */
   public function getTargetEntityTypes(): array {
     return $this->target_entity_types;
   }
 
   /**
-   * Target Entity Types setter.
-   *
-   * @param array $target_entity_types
-   *   A list of Node Types or Bundle names.
+   * {@inheritdoc}
    */
   public function setTargetEntityTypes(array $target_entity_types): void {
     $this->target_entity_types = $target_entity_types;
   }
 
+
   /**
    * {@inheritdoc}
    */
-  public function getPluginConfiguration() {
+  public function getPluginConfiguration():array {
     return $this->plugin_configuration;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function setPluginconfig(array $pluginconfig):void {
+    $this->plugin_configuration = $pluginconfig;
   }
 
   /**
@@ -152,5 +160,14 @@ class ImporterAdapter extends ConfigEntityBase implements ImporterAdapterInterfa
   public function setActive(bool $active): void {
     $this->active = $active;
   }
+
+  public function setAdoMappings(array $mappings): void {
+    $this->ado_mapping = $mappings;
+  }
+
+  public function getAdoMappings(): array {
+    return  $this->ado_mapping;
+  }
+
 
 }

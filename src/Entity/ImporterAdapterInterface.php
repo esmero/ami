@@ -15,7 +15,13 @@ interface ImporterAdapterInterface extends ConfigEntityInterface {
    *
    * @return array
    */
-  public function getPluginConfiguration();
+  public function getPluginConfiguration(): array;
+
+  /**
+   * @param array $pluginconfig
+   */
+  public function setPluginconfig(array $pluginconfig): void;
+
 
   /**
    * Returns the ImporterAdapter plugin ID to be used by this importer.
@@ -25,26 +31,27 @@ interface ImporterAdapterInterface extends ConfigEntityInterface {
   public function getPluginId();
 
   /**
-   * Whether or not to update existing products if they have already been imported.
+   * Whether or not to update existing ADOs if they have already been imported.
+   * @TODO check if this is needed, because we may want a FULL CRUD option
    *
    * @return bool
    */
   public function updateExisting();
 
+
   /**
-   * Returns the Product type that needs to be created.
+   * Sets the CVS to ADO mapping configs
+   *
+   * @return void
+   */
+  public function setAdoMappings(array $mappings): void;
+
+  /**
+   * Gets the CVS to ADO mapping configs
    *
    * @return array
    */
-  public function getTargetEntityTypes();
-
-  /**
-   * Target Entity Types setter.
-   *
-   * @param array $target_entity_types
-   *   A list of Node Types or Bundle names.
-   */
-  public function setTargetEntityTypes(array $target_entity_types): void;
+  public function getAdoMappings(): array;
 
   /**
    * Checks if this Config is active.
@@ -61,5 +68,20 @@ interface ImporterAdapterInterface extends ConfigEntityInterface {
    *   True to set Active.
    */
   public function setActive(bool $active): void;
+
+  /**
+   * Returns the ADO types this config can operate on.
+   *
+   * @return array
+   */
+  public function getTargetEntityTypes();
+
+  /**
+   * Target Entity Types setter.
+   *
+   * @param array $target_entity_types
+   *   A list of Node Types or Bundle names.
+   */
+  public function setTargetEntityTypes(array $target_entity_types): void;
 
 }

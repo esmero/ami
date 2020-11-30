@@ -1,6 +1,6 @@
 <?php
 
-namespace Drupal\ami\Plugin\Importer;
+namespace Drupal\ami\Plugin\ImporterAdapter;
 
 use Drupal\ami\Plugin\ImporterAdapterBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;

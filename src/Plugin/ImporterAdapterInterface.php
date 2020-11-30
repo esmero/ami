@@ -3,18 +3,18 @@
 namespace Drupal\ami\Plugin;
 
 use Drupal\Component\Plugin\PluginInspectionInterface;
+use Drupal\Core\Form\FormStateInterface;
 
 /**
  * Defines an interface for ImporterAdapter plugins.
+ *
+ * Importer Adapters only Fetch data, clean,preprocess
+ * and expose data as CSV back to the module.
+ *
+ * @see \Drupal\ami\Annotation\ImporterAdapter
+ *
  */
 interface ImporterAdapterInterface extends PluginInspectionInterface {
-
-  /**
-   * Performs the import. Returns TRUE if the import was successful or FALSE otherwise.
-   *
-   * @return bool
-   */
-  public function import();
 
   /**
    * Returns the ImporterAdapter configuration entity.
@@ -24,20 +24,48 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
   public function getConfig();
 
   /**
-   * Returns the form array for configuring this plugin.
+   * Returns the settings form for this ImporterAdapter
    *
-   * @param \Drupal\ami\Entity\ImporterAdapterInterface $importer
+   * This form is used when not in interactive mode to prepare a preset.
+   *
+   * @param array $parents
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
    *
    * @return array
    */
-  public function getConfigurationForm(\Drupal\ami\Entity\ImporterAdapterInterface $importer);
+  public function settingsForm(array $parents, FormStateInterface $form_state): array;
 
 
   /**
-   * Saves a SBF bearing entity from the remote data.
+   * Returns the form for this ImporterAdapter during Ingest process
    *
-   * @param \stdClass $data
+   * Each plugin is responsible for using this form during an AMI ingest setup
+   *
+   * @param array $parents
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   *
+   * @return array
    */
-  public function persistEntity($data);
+  public function interactiveForm(array $parents, FormStateInterface $form_state): array;
+
+
+  /**
+   * Get Data from the source
+   *
+   * @param array $config
+   * @param int $page
+   *   which page, defaults to 0.
+   * @param int $per_page
+   *   number of records per page, -1 means all.
+   *
+   * @return array
+   *   array of associative arrays containing header and data as header =>
+   *   value pairs
+   */
+  public function getData(
+    array $config,
+    $page = 0,
+    $per_page = 20
+  ):array;
 
 }
