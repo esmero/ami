@@ -109,6 +109,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       ['uuid' => $data->uuid]
     );
     //@TODO make field_descriptive_metadata passed from the Configuration
+    //@TODO status, and UID should also get settings
+    //@TODO persist can be update, so that changes things.
+    // We may want to test if there is a JSON:DIFF before saving. That way
+    // WE save space and do not add extra DB inserts/updates to things that
+    // Are not changing
+    // Also Log. We need to Log a lot here, like crazy.
     if (!$existing) {
       $nodeValues = [
         'uuid' => $data->uuid,
