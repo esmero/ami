@@ -25,7 +25,6 @@ use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\file\FileUsage\FileUsageInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\HttpFoundation\File\MimeType\ExtensionGuesser;
-use Google_Service_Sheets;
 use Ramsey\Uuid\Uuid;
 
 class AmiUtilityService {
@@ -441,261 +440,6 @@ class AmiUtilityService {
     return 'thing';
   }
 
-  /**
-   * Wrapper/Chooser for Data source
-   *
-   * @param array $form_state
-   *   $form_state with valid src. options.
-   * @param int $page
-   *   which page, defaults to 0.
-   * @param int $per_page
-   *   number of records per page, -1 means all.
-   *
-   * @return array
-   *   array of associative arrays containing header and data as header =>
-   *   value pairs
-   */
-  public function datasource_loader(
-    array $form_state,
-    $page = 0,
-    $per_page = 20
-  ) {
-    //dpm($form_state);
-    if ($form_state['storage']['values']['step0']['data_source'] == 'google' && !empty($form_state['storage']['values']['step2']['google_api']['spreadsheet_id'])) {
-      $spreadsheetId = trim(
-        $form_state['storage']['values']['step2']['google_api']['spreadsheet_id']
-      );
-      // Parse the ID from the URL if a full URL was provided.
-      // @author of following chunk is Mark Mcfate @McFateM!
-      if ($parsed = parse_url($spreadsheetId)) {
-        if (isset($parsed['scheme'])) {
-          $parts = explode('/', $parsed['path']);
-          $spreadsheetId = $parts[3];
-        }
-      }
-      $range = trim(
-        $form_state['storage']['values']['step2']['google_api']['spreadsheet_range']
-      );
-      //dpm($range);
-      $file_data = $this->read_googledata(
-        $spreadsheetId,
-        $range,
-        $per_page,
-        $page * $per_page
-      );
-
-    }
-    else {
-      $file = $this->entityTypeManager->getStorage('file')->load(
-        $form_state['storage']['values']['step1']['file']
-      );
-      $file_path = $this->fileSystem->realpath($file->uri);
-      $file_data = $this->read_filedata(
-        $file_path,
-        $per_page,
-        $page * $per_page
-      );
-    }
-    return $file_data;
-  }
-
-  /**
-   * Read Tabulated data from file into array.
-   *
-   * @param url $file_path
-   *   Path to file
-   * @param int $numrows
-   *   Number of rows to return, -1 magic number means all
-   * @param int $offset
-   *   Offset for rows to return
-   *
-   * @return array
-   *   array of associative arrays containing header and data as header =>
-   *   value pairs
-   */
-  public function read_filedata(
-    $file_path,
-    $numrows = 20,
-    $offset = 0
-  ) {
-
-    $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0];
-    try {
-      $inputFileType = PHPExcel_IOFactory::identify($file_path);
-
-      $objReader = PHPExcel_IOFactory::createReader($inputFileType);
-
-      $objReader->setReadDataOnly(TRUE);
-      $objPHPExcel = $objReader->load($file_path);
-    } catch (Exception $e) {
-      $this->messenger()->addMessage(
-        t(
-          'Could not parse file with error: @error',
-          ['@error' => $e->getMessage()]
-        )
-      );
-      return $tabdata;
-    }
-    $table = [];
-    $headers = [];
-    $maxRow = 0;
-    $worksheet = $objPHPExcel->getActiveSheet();
-    $highestRow = $worksheet->getHighestRow();
-    $highestColumn = $worksheet->getHighestColumn();
-    if (($highestRow) > 1) {
-      // Returns Row Headers.
-      $rowHeaders = $worksheet->rangeToArray(
-        'A1:' . $highestColumn . '1',
-        NULL,
-        TRUE,
-        TRUE,
-        FALSE
-      );
-      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders[0]);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
-      foreach ($worksheet->getRowIterator() as $row) {
-        $rowindex = $row->getRowIndex();
-        if (($rowindex > 1) && ($rowindex > ($offset)) && (($rowindex <= ($offset + $numrows + 1)) || $numrows == -1)) {
-          $rowdata = [];
-          // gets one row data
-          $datarow = $worksheet->rangeToArray(
-            "A{$rowindex}:" . $highestColumn . $rowindex,
-            NULL,
-            TRUE,
-            TRUE,
-            FALSE
-          );//Devuelve los titulos de cada columna
-          $flat = trim(implode('', $datarow[0]));
-          //check for empty row...if found stop there.
-          if (strlen($flat) == 0) {
-            $maxRow = $rowindex;
-            // @TODO check if this is not being overriden at line 64
-            break;
-          }
-          $table[$rowindex] = $datarow[0];
-        }
-        $maxRow = $rowindex;
-      }
-    }
-    $tabdata = [
-      'headers' => $rowHeaders_utf8,
-      'data' => $table,
-      'totalrows' => $maxRow,
-    ];
-    $objPHPExcel->disconnectWorksheets();
-    return $tabdata;
-  }
-
-  /**
-   * Read Tabulated data coming from Google into array.
-   *
-   * @param url $file_path
-   *   Path to file
-   * @param string $range ,
-   *   Google API`s expected Range value in the form of 'Sheet1!A1:B10'.
-   * @param int $numrows
-   *   Number of rows to return, -1 magic number means all
-   * @param int $offset
-   *   Offset for rows to return
-   *
-   * @return array
-   *   array of associative arrays containing header and data as header =>
-   *   value pairs
-   */
-  public function read_googledata(
-    $spreadsheetId,
-    $range = 'Sheet1!A1:B10',
-    $numrows = 20,
-    $offset = 0
-  ) {
-    $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0];
-    $sp_data = [];
-    $rowdata = [];
-    // Load the account
-    $google_api_client = \Drupal::entityTypeManager()->getStorage('google_api_client')->load('AMI');
-
-    // Get the service.
-    $googleService = \Drupal::service('google_api_client.client');
-    // Apply the account to the service
-    $googleService->setGoogleApiClient($google_api_client);
-
-    // Fetch Client
-    $client = $googleService->googleClient;
-
-    // Establish a connection first
-    try {
-      $service = new Google_Service_Sheets($client);
-
-      $response = $service->spreadsheets_values->get($spreadsheetId, $range);
-      $sp_data = $response->getValues();
-      // Empty value? just return
-      if (($sp_data == NULL) or empty($sp_data)) {
-        $this->messenger()->addMessage(
-          t('Nothing to read, check your Data source content'),
-          MessengerInterface::TYPE_ERROR
-        );
-        return $tabdata;
-
-      }
-    } catch (Google_Service_Exception $e) {
-      $this->messenger()->addMessage(
-        t('Google API Error: @e', ['@e' => $e->getMessage()]),
-        MessengerInterface::TYPE_ERROR
-      );
-      return $tabdata;
-    }
-    $table = [];
-    $headers = [];
-    $maxRow = 0;
-    $highestRow = count($sp_data);
-
-    $rowHeaders = $sp_data[0];
-    $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
-    $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-    $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-    $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
-
-    $headercount = count($rowHeaders);
-
-    if (($highestRow) >= 1) {
-      // Returns Row Headers.
-
-      $maxRow = 1; // at least until here.
-      foreach ($sp_data as $rowindex => $row) {
-
-        // Google Spreadsheets start with Index 0. But PHPEXCEL, parent`s
-        // public function does with 1.
-        // To keep both public function responses in sync using the same params, i will compensate offsets here: 
-
-        if (($rowindex >= 1) && ($rowindex > ($offset - 1)) && (($rowindex <= ($offset + $numrows)) || $numrows == -1)) {
-          $rowdata = [];
-          // gets one row data
-
-          $flat = trim(implode('', $row));
-          //check for empty row...if found stop there.
-          if (strlen($flat) == 0) {
-            $maxRow = $rowindex;
-            break;
-          }
-          $row = $this->array_equallyseize(
-            $headercount,
-            $row
-          );
-          $table[$rowindex] = $row;
-        }
-        $maxRow = $rowindex;
-      }
-    }
-    $tabdata = [
-      'headers' => $rowHeaders_utf8,
-      'data' => $table,
-      'totalrows' => $maxRow,
-    ];
-
-    return $tabdata;
-  }
 
   /**
    * Checks if an URI from spreadsheet is remote or local and returns a file
@@ -718,10 +462,10 @@ class AmiUtilityService {
         ))) {
       // If local file, engage any hook_remote_file_get and return the real path.
       $path = [];
-      $path = module_invoke_all(
+      /*$path = module_invoke_all(
         'remote_file_get',
         $url
-      );
+      );*/
       // get only the first path.
       if (!empty($path)) {
         if ($path[0]) {
@@ -841,7 +585,7 @@ class AmiUtilityService {
       }
     }
     // File is being made managed and permanent here, will be marked as
-    // temporary once it is processed AND/OR associated with a SET 
+    // temporary once it is processed AND/OR associated with a SET
     $localfile = file_save_data($result->data, $path, $replace);
     if (!$localfile) {
       $this->messenger()->addError(
@@ -886,7 +630,6 @@ class AmiUtilityService {
         'cache' => $this->fileSystem->realpath('private://'),
       ]
     );
-    $twig->addExtension(new Jasny\Twig\PcreExtension());
 
     //We won't validate here. We are here because our form did that
     $output = $twig->render($twig_input['name'], $twig_input['data']);
@@ -905,7 +648,7 @@ class AmiUtilityService {
    */
   public function csv_save(array $data) {
     global $user;
-    $path = 'public:///islandora-multi-importer/csv/';
+    $path = 'temp:///ami/csv/';
     $filename = $user->uid . '-' . uniqid() . '.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
@@ -974,7 +717,7 @@ class AmiUtilityService {
    * @return array
    * combined array
    */
-  public function islandora_multi_importer_array_combine_special(
+  public function ami_array_combine_special(
     $header,
     $row
   ) {
