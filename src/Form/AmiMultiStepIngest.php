@@ -122,6 +122,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $data = $this->store->get('data');
       $column_keys = $data['headers'];
       $mapping = $this->store->get('mapping');
+      dpm($mapping);
 
       $metadata = [
         'direct' => 'Direct ',
@@ -165,7 +166,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#options' => $global_metadata_options,
         '#description' => $this->t('How your source data will be transformed into ADOs Metadata.'),
         '#required' => TRUE,
-        '#empty_option' => $this->t(' - Please select an approach -'),
       ];
       $newelements_global = $element_conditional;
       foreach ($newelements_global as $key => &$subelement) {
@@ -383,14 +383,21 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       }
     }
     if ($this->step == 4) {
-      $globalmapping = $form_state->getValue('globalmapping');
-      $custommapping = $form_state->getValue('custommapping');
-      $this->store->set('mapping', ['globalmapping' => $globalmapping, 'custommapping' => $custommapping]);
+      if ($form_state->getTriggeringElement()['#name'] !== 'prev') {
+        $globalmapping = $form_state->getValue('globalmapping');
+        $custommapping = $form_state->getValue('custommapping');
+        $this->store->set('mapping', [
+          'globalmapping' => $globalmapping,
+          'custommapping' => $custommapping
+        ]);
+      }
     }
     if ($this->step == 5) {
-      dpm( $form_state->getValue('adomapping'));
-      $adomapping = $form_state->getValue('adomapping');
-      $this->store->set('adomapping', $adomapping);
+      if ($form_state->getTriggeringElement()['#name'] !== 'prev') {
+        dpm($form_state->getValue('adomapping'));
+        $adomapping = $form_state->getValue('adomapping');
+        $this->store->set('adomapping', $adomapping);
+      }
     }
 
     // Parent already sets rebuild but better to not trust our own base classes
