@@ -12,7 +12,9 @@ namespace Drupal\ami;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
@@ -122,6 +124,19 @@ class AmiUtilityService {
   protected $strawberryfieldUtility;
 
   /**
+   * The Entity field manager service
+   *
+   * @var \Drupal\Core\Entity\EntityFieldManagerInterface $entityFieldManager;
+
+   */
+  protected $entityFieldManager;
+
+  /**
+   * @var \Drupal\Core\Entity\EntityTypeBundleInfoInterface
+   */
+  protected $entityTypeBundleInfo;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -134,7 +149,10 @@ class AmiUtilityService {
    * @param \Drupal\Core\Language\LanguageManagerInterface $language_manager
    * @param \Drupal\Component\Transliteration\TransliterationInterface $transliteration
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
+   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
    * @param StrawberryfieldUtilityService $strawberryfield_utility_service ,
+   * @param \Drupal\Core\Entity\EntityFieldManagerInterface $entity_field_manager
+   * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -148,7 +166,9 @@ class AmiUtilityService {
     TransliterationInterface $transliteration,
     ModuleHandlerInterface $module_handler,
     LoggerChannelFactoryInterface $logger_factory,
-    StrawberryfieldUtilityService $strawberryfield_utility_service
+    StrawberryfieldUtilityService $strawberryfield_utility_service,
+    EntityFieldManagerInterface $entity_field_manager,
+    EntityTypeBundleInfoInterface $entity_type_bundle_info
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -167,6 +187,8 @@ class AmiUtilityService {
     $this->moduleHandler = $module_handler;
     $this->loggerFactory = $logger_factory;
     $this->strawberryfieldUtility = $strawberryfield_utility_service;
+    $this->entityFieldManager = $entity_field_manager;
+    $this->entityTypeBundleInfo = $entity_type_bundle_info;
   }
 
   /**
@@ -728,7 +750,6 @@ class AmiUtilityService {
       for ($i = 0; $i < $more; $i++) {
         $row[] = "";
       }
-
     }
     else {
       if ($headercount < $rowcount) {
@@ -772,5 +793,154 @@ class AmiUtilityService {
     }
 
     return $row;
+  }
+
+  /**
+   * For a given Numeric Column index, get all different normalized values
+   *
+   * @param array $data
+   * @param int $key
+   *
+   * @return array
+   */
+  public function getDifferentValuesfromColumn(array $data, int $key):array {
+    $unique = [];
+    $all = array_column($data['data'], $key);
+    $unique = array_map('trim', $all);
+    $unique = array_unique($unique, SORT_STRING);
+    return $unique;
+  }
+
+  public function getMetadataDisplays() {
+
+    $result = [];
+    $query = $this->entityTypeManager->getStorage('metadatadisplay_entity')->getQuery();
+
+    $metadatadisplay_ids = $query
+      ->condition("mimetype" , "application/json")
+      ->sort('name', 'ASC')
+      ->execute();
+    if (count($metadatadisplay_ids)) {
+      $metadatadisplays = $this->entityTypeManager->getStorage('metadatadisplay_entity')->loadMultiple($metadatadisplay_ids);
+      foreach($metadatadisplays as $id => $metadatadisplay) {
+        $result[$id] = $metadatadisplay->label();
+      }
+    }
+
+    return $result;
+  }
+
+  public function getWebforms() {
+
+    $result = [];
+    $query = $this->entityTypeManager->getStorage('webform')->getQuery();
+
+    $webform_ids = $query
+      ->condition("status" , "open")
+      ->sort('title', 'ASC')
+      ->execute();
+    if (count($webform_ids)) {
+      $webforms= $this->entityTypeManager->getStorage('webform')->loadMultiple($webform_ids);
+      foreach($webforms as $id => $webform) {
+        /* @var \Drupal\webform\Entity\Webform $webform */
+        $handlercollection = $webform->getHandlers('strawberryField_webform_handler',TRUE);
+        if ($handlercollection->count()) {
+          $result[$id] = $webform->label();
+        }
+        // We check if \Drupal\webform_strawberryfield\Plugin\WebformHandler\strawberryFieldharvester is being user
+        // In the future this may change?
+        // We can also check for dependencies and see if the form has one against Webform Strawberryfield
+        // That would work now but not for sure in the future if we add specialty handles
+      }
+    }
+
+    return $result;
+  }
+
+
+  public function getBundlesAndFields() {
+    $bundle_options = [];
+    //Only node bundles with a strawberry field are allowed
+    /**************************************************************************/
+    // Node types with Strawberry fields
+    /**************************************************************************/
+    $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
+    $access = FALSE;
+
+    $bundles = $this->entityTypeBundleInfo->getBundleInfo('node');
+    foreach ($bundles as $bundle => $bundle_info) {
+      if ($this->strawberryfieldUtility->bundleHasStrawberryfield($bundle)) {
+        dpm($bundle);
+        $access = $this->checkNodeAccess($bundle);
+        if ($access && $access->isAllowed()) {
+          foreach($this->checkFieldAccess($bundle) as $key => $value) {
+            $bundle_options[$key] = $value. ' for '. $bundle_info['label'];
+          }
+        }
+      }
+    }
+    return $bundle_options;
+  }
+
+  /**
+   * Checks if a User can Create a Given Bundle type
+   *
+   * @param string $bundle
+   * @param \Drupal\Core\Session\AccountInterface|null $account
+   * @param null $entity_id
+   *
+   * @return \Drupal\Core\Access\AccessResultInterface|bool
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function checkNodeAccess(string $bundle, AccountInterface $account = NULL, $entity_id = NULL) {
+    try {
+      $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
+      /*$storage = $this->entityTypeManager->getStorage('node');
+      /*if (!empty($parameters['revision_id'])) {
+        $entity = $storage->loadRevision($parameters['revision_id']);
+        $entity_access = $access_handler->access($entity, 'update', $account, TRUE);
+      }
+
+      elseif ($parameters['entity_id']) {
+        $entity = $storage->load($parameters['entity_id']);
+        $entity_access = $access_handler->access($entity, 'update', $account, TRUE);
+      }
+      */
+
+      return $access_handler->createAccess($bundle, $account, [], TRUE);
+      }
+    catch (\Exception $exception) {
+      // Means the Bundles does not exist?
+      // User is wrong?
+      // etc. Simply no access is easier to return
+      return FALSE;
+    }
+
+  }
+
+  /**
+   * Checks if User can edit a given SBF field
+   *
+   * @TODO content of a field could override access. Add a per entity check.
+   *
+   * @param string $entity_type_id
+   * @param \Drupal\Core\Session\AccountInterface|null $account
+   * @param $bundle
+   *
+   * @return bool
+   */
+  public function checkFieldAccess($bundle, AccountInterface $account = NULL) {
+    $fields = [];
+    $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
+    $field_definitions = $this->strawberryfieldUtility->getStrawberryfieldDefinitionsForBundle($bundle);
+
+    foreach ($field_definitions as $field_definition) {
+        $field_access = $access_handler->fieldAccess('edit', $field_definition, $account, NULL, TRUE);
+        if($field_access->isAllowed()) {
+          $fields[$bundle.':'.$field_definition->getName()] = $field_definition->getLabel();
+        }
+    }
+    return $fields;
   }
 }

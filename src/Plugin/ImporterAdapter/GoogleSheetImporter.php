@@ -19,7 +19,7 @@ use Drupal\ami\AmiUtilityService;
 use Google_Service_Exception;
 
 /**
- * Product importer from a CSV format.
+ * ADO importer from a remote Google Spreadsheet.
  *
  * @ImporterAdapter(
  *   id = "googlesheet",
@@ -88,16 +88,14 @@ class GoogleSheetImporter extends SpreadsheetImporter {
     );
   }
 
-
-
   /**
    * {@inheritdoc}
    */
-  public function interactiveForm(array $parents, FormStateInterface $form_state):array {
+  public function interactiveForm(array $parents = [], FormStateInterface $form_state):array {
     // None of the interactive Form elements should be persisted as Config elements
     // Here.
     // Maybe we should have some annotation that says which ones for other plugins?
-    $form = [];
+    $form = parent::interactiveForm($parents,$form_state);
     $form['google_api']= array(
       '#prefix' => '<div id="ami-googleapi">',
       '#suffix' => '</div>',
@@ -106,7 +104,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         '#type' => 'textfield',
         '#required' => TRUE,
         '#title' => $this->t('ID of your Google Sheet'),
-        '#description' => 'Example: https://docs.google.com/spreadsheets/d/aaBAccEEFfC_aBC-aBc0d1EF/edit, use aaBAccEEFfC_aBC-aBc0d1EF portion as the ID or full URL',
+        '#description' => 'Example: https://docs.google.com/spreadsheets/d/aaBAccEEFfC_aBC-aBc0d1EF/edit, use that same full URL',
         '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_id'])),
         '#element_validate' => [[get_called_class(), 'validateSpreadsheetId']]
       ),
@@ -119,18 +117,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         '#element_validate' => [[get_called_class(),'::validateRange']]
       ),
     );
-    /*
-    if (
-      !preg_match('#https?://docs.google.com/spreadsheets/d/(.+)/edit(\#gid=(\d+))?#', $form_state->getValue('spreadsheet_url'), $matches)
-    ) {
-      $form_state->setErrorByName('googlesheets][spreadsheet_url', $this->t('Please provide a valid Google Sheet URL.'));
-    }
-    else {
-      $form_state->setValue('spreadsheet_id', $matches[1]);
-      $form_state->setValue('spreadsheet_sheet_id', !empty($matches[3]) ? $matches[3] : 0);
-    }
-  }
-*/
+
     return $form;
   }
 
@@ -186,7 +173,6 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         }
       }
     }
-    dpm($google_api_client);
     if ($chosen_google_api_client) {
       // Get the service.
       // Apply the account to the service
@@ -260,6 +246,11 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         'data' => $table,
         'totalrows' => $maxRow,
       ];
+    } else {
+      $this->messenger()->addMessage(
+        t('Your Google API Client is not properly setup. Please make sure it is labeled AMI, it is authenticated and it has spreadsheets.readonly as permission setup'),
+        MessengerInterface::TYPE_ERROR
+      );
     }
     return $tabdata;
   }

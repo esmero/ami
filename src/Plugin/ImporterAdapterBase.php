@@ -47,10 +47,7 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
   public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entityTypeManager;
-    /*$this->httpClient = $httpClient;
-    $this->formBuilder = $formBuilder;
-    $this->queue_factory = $queue_factory;
-    $this->queue_manager = $queue_manager; */
+
     //@TODO we do not need always a new config.
     // Configs can be empty/unsaved.
     if (!is_array($configuration) && !isset($configuration['config'])) {
@@ -71,9 +68,6 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
       $plugin_id,
       $plugin_definition,
       $container->get('entity_type.manager')
-     /* $container->get('form_builder'),
-      $container->get('queue'),
-      $container->get('plugin.manager.queue_worker') */
     );
   }
 
@@ -88,14 +82,27 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
    * {@inheritdoc}
    */
   public function settingsForm(array $parents, FormStateInterface $form_state): array {
-    return [];
   }
 
   /**
    * {@inheritdoc}
    */
-  public function interactiveForm(array $parents, FormStateInterface $form_state): array {
-    return [];
+  public function interactiveForm(array $parents = [], FormStateInterface $form_state): array {
+    $form['op'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Operation'),
+      '#options' => [
+        'create' => 'Create New ADOs',
+        'update' => 'Update existing ADOs',
+        'patch' => 'Patch existing ADOs',
+        'delete' => 'Delete existing ADOs',
+      ],
+      '#description' => $this->t('The desired Operation'),
+      '#required' => TRUE,
+      '#default_value' =>  $form_state->getValue(array_merge($parents , ['op'])),
+      '#empty_option' => $this->t('- Please select an Operation -'),
+    ];
+    return $form;
   }
 
   /**

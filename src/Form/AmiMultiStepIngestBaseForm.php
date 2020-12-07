@@ -6,11 +6,14 @@
 
 namespace Drupal\ami\Form;
 
+use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Plugin\ImporterAdapterManager;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Language\LanguageInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Session\SessionManagerInterface;
+use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -26,7 +29,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
   /**
    * @var int
    */
-  protected $lastStep = 4;
+  protected $lastStep = 6;
 
   /**
    * @var \Drupal\Core\Session\SessionManagerInterface
@@ -49,18 +52,34 @@ class AmiMultiStepIngestBaseForm extends FormBase {
   protected $importerManager;
 
   /**
+   * @var \Drupal\ami\AmiUtilityService
+   */
+  protected $AmiUtilityService;
+
+  /**
+   * The transliteration service.
+   *
+   * @var \Drupal\Component\Transliteration\TransliterationInterface
+   */
+  protected $transliteration;
+
+  /**
    * Constructs a AmiMultiStepIngestBaseForm.
    *
    * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
    * @param \Drupal\Core\Session\SessionManagerInterface $session_manager
    * @param \Drupal\Core\Session\AccountInterface $current_user
    * @param \Drupal\ami\Plugin\ImporterAdapterManager $importerManager
+   * @param \Drupal\ami\AmiUtilityService $ami_utility
    */
-  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager) {
+  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility, TransliterationInterface $transliteration) {
     $this->sessionManager = $session_manager;
     $this->currentUser = $current_user;
     $this->store = $temp_store_factory->get('ami_multistep_data');
     $this->importerManager = $importerManager;
+    $this->AmiUtilityService = $ami_utility;
+    $this->transliteration = $transliteration;
+
   }
 
   /**
@@ -71,7 +90,9 @@ class AmiMultiStepIngestBaseForm extends FormBase {
       $container->get('user.private_tempstore'),
       $container->get('session_manager'),
       $container->get('current_user'),
-      $container->get('ami.importeradapter_manager')
+      $container->get('ami.importeradapter_manager'),
+      $container->get('ami.utility'),
+      $container->get('transliteration')
     );
   }
 
@@ -163,10 +184,8 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     dpm($form_state->getTriggeringElement()['#ajax']);
     error_log('validateForm');
     if ($form_state->getTriggeringElement()['#name'] == 'prev') {
-      dpm('No validation');
-
+      // No validation my friends.
     } else {
-
       //@TODO each step has its own validation.
       return parent::validateForm($form, $form_state);
     }
@@ -192,5 +211,19 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     foreach ($keys as $key) {
       $this->store->delete($key);
     }
+  }
+  /**
+   * {@inheritdoc}
+   */
+  protected function getMachineNameSuggestion(string $string) {
+    // @TODO maybe move into ami.service?
+    // This is basically the same as what is done in
+    // \Drupal\system\MachineNameController::transliterate()
+    $transliterated = $this->transliteration->transliterate($string, LanguageInterface::LANGCODE_DEFAULT, '_');
+    $transliterated = mb_strtolower($transliterated);
+
+    $transliterated = preg_replace('@[^a-z0-9_.]+@', '', $transliterated);
+
+    return $transliterated;
   }
 }
