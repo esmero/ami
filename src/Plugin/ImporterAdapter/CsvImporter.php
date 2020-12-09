@@ -93,7 +93,7 @@ class CsvImporter extends ImporterAdapterBase {
    *
    * @return array
    */
-  private function getData() {
+  public function getData() {
     /** @var \Drupal\ami\Entity\ImporterAdapterInterface $importer_config */
     $importer_config = $this->configuration['config'];
     $config = $importer_config->getPluginConfiguration();

@@ -384,6 +384,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     // First data fetch step
     if ($this->step == 3) {
+      $this->store->delete('data');
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
@@ -439,7 +440,9 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         $amisetdata->column_keys = $data['headers'];
         $amisetdata->total_rows = $data['totalrows'];
         // WE should probably add the UUIDs here right now.
-        $uuid_key = isset($adomapping['uuid']['uuid']) && !empty($adomapping['uuid']['uuid']) ? $adomapping['uuid']['uuid'] : 'uuid_node';
+        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'uuid_node';
+        // WE want to reset this value now
+        $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
         $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
         if (isset($fileid)) {
           $amisetdata->csv = $fileid;
@@ -447,6 +450,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           if ($id) {
             $url = Url::fromRoute('entity.ami_set_entity.canonical', ['ami_set_entity' => $id]);
             $this->messenger()->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>', ['@url' => $url->toString()]));
+            $this->store->delete('data');
           }
         }
         else {

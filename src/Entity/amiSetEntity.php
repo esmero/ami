@@ -98,6 +98,7 @@ use Drupal\Component\Utility\Environment;
  *   links = {
  *     "canonical" = "/amiset/{ami_set_entity}",
  *     "edit-form" = "/amiset/{ami_set_entity}/edit",
+ *     "process-form" = "/amiset/{ami_set_entity}/process",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
  *     "collection" = "/amiset/list"
  *   },

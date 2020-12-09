@@ -24,6 +24,7 @@ use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Drupal\webform_strawberryfield\Element\WebformMetadataCsvFile;
@@ -129,8 +130,7 @@ class AmiUtilityService {
   /**
    * The Entity field manager service
    *
-   * @var \Drupal\Core\Entity\EntityFieldManagerInterface $entityFieldManager;
-
+   * @var \Drupal\Core\Entity\EntityFieldManagerInterface $entityFieldManager ;
    */
   protected $entityFieldManager;
 
@@ -241,215 +241,11 @@ class AmiUtilityService {
     return FALSE;
   }
 
-
-  public function getIngestInfo($file_path, $config) {
-    error_log('Running  AMI getIngestInfo');
-
-    $file_data_all = $this->read_filedata(
-      $file_path,
-      -1,
-      $offset = 0
-    );
-    $config['data']['headers'] = $file_data_all['headers'];
-
-    $namespace_hash = [];
-    // Keeps track of all parents and child that don't have a PID assigned.
-    $parent_hash = [];
-    $namespace_count = [];
-    $info = [];
-    // Keeps track of invalid rows.
-    $invalid = [];
-    foreach ($file_data_all['data'] as $index => $row) {
-      // Each row will be an object.
-      $objectInfo = [];
-      $objectInfo['type'] = trim(
-        $row[$this->parameters['type_source_field_index']]
-      );
-      // Lets start by grouping by parents, namespaces and generate uuids
-      // namespaces are inherited, so we just need to find collection
-      // objects in parent uuid column.
-      $objectInfo['parent'] = trim(
-        $row[$this->parameters['object_maping']['parentmap']]
-      );
-      $possiblePID = "";
-
-      $objectInfo['data'] = $row;
-
-
-      $possibleUUID = trim($row[$this->parameters['object_maping']['uuidmap']]);
-
-      if (\Drupal\Component\Uuid\Uuid::isValid($possibleUUID)) {
-        $objectInfo['uuid'] = $possibleUUID;
-        // Now be more strict for action = update
-        if (in_array(
-          $row[$this->parameters['object_maping']['crudmap']],
-          ['create', 'update', 'delete']
-        )) {
-          $existing_object = $this->entityTypeManager->getStorage('node')
-            ->loadByProperties(['uuid' => $objectInfo['uuid']]);
-          //@TODO field_descriptive_metadata  is passed from the Configuration
-          if (!$existing_object) {
-            unset($objectInfo);
-            $invalid = $invalid + [$index => $index];
-          }
-        }
-      }
-      if (!isset($objectInfo['uuid'])) {
-        unset($objectInfo);
-        $invalid = $invalid + [$index => $index];
-      }
-
-      if (isset($objectInfo)) {
-        if (\Drupal\Component\Uuid\Uuid::isValid($objectInfo['parent'])) {
-          // If valid PID, let's try to fetch a valid namespace for current type
-          // we will store all this stuff in a temp hash to avoid hitting
-          // this again and again.
-          $objectInfo['parent_type'] = $this->getParentType(
-            $objectInfo['parent']
-          );
-          if ($objectInfo['parent_type']) {
-            if (!isset($objectInfo['uuid'])) { //Only do this if no UUID assigned yet
-              $objectInfo['namespace'] = 'genericnamespace';
-            }
-            else {
-              // we have a PID but i still want my objectInfo['namespace']
-              // NO worries about checking if uuidparts is in fact lenght of 2
-              // PID was checked for sanity a little bit earlier
-              $objectInfo['namespace'] ='genericnamespace';
-            }
-          }
-          else {
-            // No parent type, no object, can't create.
-            unset($objectInfo);
-            $invalid = $invalid + [$index => $index];
-          }
-        }
-        else {
-          // Means our parent object is a ROW index
-          // (referencing another row in the spreadsheet)
-          // So a different strategy is needed. We will need recurse
-          // until we find a non numeric parent or none! Because
-          // in Archipelago we allow the none option for sure!
-          $notUUID = TRUE;
-          $parent = $objectInfo['parent'];
-          $parent_hash[$parent][$index] = $index;
-          $parentchilds = [];
-          // Lets check if the index actually exists before going crazy.
-
-          if (!isset($file_data_all['data'][$parent])) {
-            $invalid[$parent] = $parent;
-            $invalid[$index] = $index;
-          }
-
-          if ((!isset($invalid[$index])) && (!isset($invalid[$parent]))) {
-            // Only traverse if we don't have this index or the parent one
-            // in the invalid register.
-            $objectInfo['parent_type'] = $file_data_all['data'][$parent][$this->parameters['type_source_field_index']];
-            $parentchilds = [];
-            $i = 0;
-            while ($notUUID) {
-              $parentup = $file_data_all['data'][$parent][$this->parameters['object_maping']['parentmap_row']['parentmap']];
-
-              // The Simplest approach for breaking a knot /infinite loop,
-              // is invalidating the whole parentship chain for good.
-              $inaloop = isset($parentchilds[$parentup]);
-              // If $inaloop === true means we already traversed this branch
-              // so we are in a loop and all our original child and it's
-              // parent objects are invalid.
-              if ($inaloop) {
-                $invalid = $invalid + $parentchilds;
-                unset($objectInfo);
-                $notUUID = FALSE;
-                break;
-              }
-
-              $parentchilds[$parentup] = $parentup;
-              if (\Drupal\Component\Uuid\Uuid::isValid(trim($parentup))) {
-                if (!isset($objectInfo['uuid'])) { //Only do this if no PID assigned yet
-                  $namespace = 'genericnamespace';
-                  $objectInfo['namespace'] = $namespace;
-                }
-                else {
-                  $objectInfo['namespace'] = 'genericnamespace';
-                }
-
-                $notUUID = FALSE;
-                break;
-              }
-              elseif (empty(trim($parent))) {
-
-                // We can't continue here
-                // means there must be an error
-                // This will fail for any child object that is
-                // child of any of these parents.
-                $invalid = $invalid + $parentchilds + [$objectInfo['parent'] => $objectInfo['parent']];
-                unset($objectInfo);
-                $notUUID = FALSE;
-              }
-              else {
-                // This a simple accumulator, means all is well,
-                // parent is still an index.
-                $parent_hash[$parentup][$parent] = $parent;
-              }
-              $parent = $parentup;
-            }
-          }
-          else {
-            unset($objectInfo);
-          }
-        }
-      }
-      if (isset($objectInfo) and !empty($objectInfo)) {
-        $info[$index] = $objectInfo;
-      }
-    }
-    // Ok, maybe this is expensive, so let's try it first so.
-    // TODO: optimize maybe?
-    /*Uuid::uuid5(
-      Uuid::NAMESPACE_URL,
-      'https://www.php.net'
-    );*/
-    // Using UUID5 we can make sure that given a certain NameSpace URL (which would
-    // be a distributeable UUID amongst many repos and a passed URL, we get always
-    // the same UUID.
-    //e.g if the source is a remote URL or we get a HANDLE URL per record
-    // WE can always generate the SAME URL and that way avoid
-    // Duplicated ingests!
-
-    // New first pass: ensure parents have always a PID first
-    // since rows/parent/child order could be arbitrary
-    foreach ($parent_hash as $parent => $children) {
-      if (isset($info[$parent])) {
-        $namespace = $info[$parent]['namespace'];
-        $info[$parent]['uuid'] = isset($info[$parent]['uuid']) ? $info[$parent]['uuid'] : Uuid::uuid4();
-      }
-    }
-
-    // Now the real pass, iterate over every row.
-    foreach ($info as $index => &$objectInfo) {
-      $namespace = $objectInfo['namespace'];
-      $objectInfo['uuid'] = isset($objectInfo['uuid']) ? $objectInfo['uuid'] : Uuid::uuid4();
-
-      // Is this object parent of someone?
-      if (isset($parent_hash[$objectInfo['parent']])) {
-        $objectInfo['parent'] = $info[$objectInfo['parent']]['uuid'];
-      }
-    }
-    // Keep track of what could be processed and which ones not.
-    $this->processedObjectsInfo = [
-      'success' => array_keys($info),
-      MessengerInterface::TYPE_ERROR => array_keys($invalid),
-      'fatal' => [],
-    ];
-
-    return $info;
-  }
-
   public function getParentType($uuid) {
     // This is the same as format_strawberry \format_strawberryfield_entity_view_mode_alter
     // @TODO refactor into a reusable method inside strawberryfieldUtility!
     $entity = $this->entityTypeManager->getStorage('node')
-      ->loadByProperties(['uuid' =>$uuid]);
+      ->loadByProperties(['uuid' => $uuid]);
     if ($sbf_fields = $this->strawberryfieldUtility->bearsStrawberryfield($entity)) {
       foreach ($sbf_fields as $field_name) {
         /* @var $field StrawberryFieldItem */
@@ -701,7 +497,7 @@ class AmiUtilityService {
       return;
     }
     // Ensure the file
-    $file = file_save_data('', $path .'/'. $filename, FileSystemInterface::EXISTS_REPLACE);
+    $file = file_save_data('', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE);
     if (!$file) {
       $this->messenger()->addError(
         $this->t('Unable to create AMI CSV file. Verify permissions please.')
@@ -723,15 +519,14 @@ class AmiUtilityService {
       array_unshift($data['headers'], $uuid_key);
     }
 
-
-
     $fh->fputcsv($data['headers']);
 
     foreach ($data['data'] as $row) {
       if ($haskey === FALSE) {
-        array_unshift($data['headers'], $uuid_key);
+        array_unshift($row, $uuid_key);
         $row[0] = Uuid::uuid4();
-      } else {
+      }
+      else {
         if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
           $row[$haskey] = Uuid::uuid4();
         }
@@ -744,7 +539,7 @@ class AmiUtilityService {
     clearstatcache(TRUE, $realpath);
     $size = $fh->getSize();
     // This is how you close a \SplFileObject
-    $fh =  NULL;
+    $fh = NULL;
     // Notify the filesystem of the size change
     $file->setSize($size);
     $file->setPermanent();
@@ -763,6 +558,73 @@ class AmiUtilityService {
 
     return $file->id();
   }
+
+
+  public function csv_read(File $file) {
+
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
+
+    $url = $wrapper->realpath();
+    $spl = new \SplFileObject($url, 'r');
+    $data = [];
+    while (!$spl->eof()) {
+      $data[] = $spl->fgetcsv();
+    }
+
+    $table = [];
+    $maxRow = 0;
+
+    $highestRow = count($data);
+
+    $rowHeaders = $data[0];
+    $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
+    $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+    $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
+    $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+
+    $headercount = count($rowHeaders);
+
+    if (($highestRow) >= 1) {
+      // Returns Row Headers.
+
+      $maxRow = 1; // at least until here.
+      foreach ($data as $rowindex => $row) {
+        if ($rowindex == 0) {
+          // Skip header
+          continue;
+        }
+        $flat = trim(implode('', $row));
+        //check for empty row...if found stop there.
+        if (strlen($flat) == 0) {
+          $maxRow = $rowindex;
+          break;
+        }
+        // This was done already by the Import Plugin but since users
+        // Could eventually reupload the spreadsheet better so
+        $row = $this->array_equallyseize(
+          $headercount,
+          $row
+        );
+        $table[$rowindex] = $row;
+      }
+      $maxRow = $rowindex;
+    }
+
+    $tabdata = [
+      'headers' => $rowHeaders_utf8,
+      'data' => $table,
+      'totalrows' => $maxRow,
+    ];
+
+    return $tabdata;
+
+  }
+
+
+
 
   /**
    * Deal with different sized arrays for combining
@@ -945,7 +807,7 @@ class AmiUtilityService {
       */
 
       return $access_handler->createAccess($bundle, $account, [], TRUE);
-      }
+    }
     catch (\Exception $exception) {
       // Means the Bundles does not exist?
       // User is wrong?
@@ -972,15 +834,15 @@ class AmiUtilityService {
     $field_definitions = $this->strawberryfieldUtility->getStrawberryfieldDefinitionsForBundle($bundle);
 
     foreach ($field_definitions as $field_definition) {
-        $field_access = $access_handler->fieldAccess('edit', $field_definition, $account, NULL, TRUE);
-        if($field_access->isAllowed()) {
-          $fields[$bundle.':'.$field_definition->getName()] = $field_definition->getLabel();
-        }
+      $field_access = $access_handler->fieldAccess('edit', $field_definition, $account, NULL, TRUE);
+      if($field_access->isAllowed()) {
+        $fields[$bundle.':'.$field_definition->getName()] = $field_definition->getLabel();
+      }
     }
     return $fields;
   }
 
-public function createAmiSet(\stdClass $data) {
+  public function createAmiSet(\stdClass $data) {
     // See \Drupal\ami\Entity\amiSetEntity
     $current_user_name = $this->currentUser->getDisplayName();
     $set = [
@@ -991,6 +853,7 @@ public function createAmiSet(\stdClass $data) {
       'plugin' =>  $data->plugin,
       'pluginconfig' =>  $data->pluginconfig,
       'column_keys' => $data->column_keys,
+      'total_rows' => $data->total_rows,
     ];
     $jsonvalue = json_encode($set, JSON_PRETTY_PRINT);
     /* @var \Drupal\ami\Entity\amiSetEntity $entity */
@@ -1011,7 +874,187 @@ public function createAmiSet(\stdClass $data) {
       return $entity->id();
     }
 
-}
+  }
+
+  public function preprocessAmiSet(File $file, \stdClass $data) {
+    dpm('Running preprocessAmiSet');
+
+    $file_data_all = $this->csv_read($file);
+    dpm($file_data_all);
+    // we may want to check if saved metadata headers == csv ones first.
+    // $data->column_keys
+    $config['data']['headers'] = $file_data_all['headers'];
+    // In old times we totally depended on position, now we are going to do something different, we will combine
+    // Headers and keys.
+    $data->mapping->type_key = isset($data->mapping->type_key) ? $data->mapping->type_key : 'type';
+
+    // Keeps track of all parents and child that don't have a PID assigned.
+    $parent_hash = [];
+    $info = [];
+    // Keeps track of invalid rows.
+    $invalid = [];
+    foreach ($file_data_all['data'] as $index => $keyedrow) {
+      // This makes tracking of values more consistent and easier for the actual processing via
+      // twig templates, webforms or direct
+      $row = array_combine($config['data']['headers'], $keyedrow);
+      dpm($row);
+      // Each row will be an object.
+      $ado = [];
+      $ado['type'] = trim(
+        $row[$data->mapping->type_key]
+      );
+      dpm($ado);
+      // Lets start by grouping by parents, namespaces and generate uuids
+      // namespaces are inherited, so we just need to find collection
+      // objects in parent uuid column.
+
+      // We may have multiple parents
+      // @dmer deal with files as parents of a node in a next iteration.
+      // So, we will here simply track also any parent
+      foreach($data->adomapping->parents as $parent_key) {
+        // Used to access parent columns using numerical indexes for when looking back inside $file_data_all
+        $parent_to_index[$parent_key] = array_search($parent_key, $config['data']['headers']);
+
+        dpm('parent keys');
+        dpm($parent_key);
+        $ado['parent'][$parent_key] = trim(
+          $row[$parent_key]
+        );
+        $ado['anyparent'][] = $row[$parent_key];
+      }
+      dpm($ado['parent']);
+      dpm($ado['anyparent']);
+
+      $ado['data'] = $row;
+      dpm($ado);
+
+      // UUIDs are already assigned by this time
+      dpm($data->adomapping->uuid->uuid);
+      $possibleUUID = trim($row[$data->adomapping->uuid->uuid]);
+      dpm($possibleUUID);
+      // Double check? User may be tricking us!
+      if (Uuid::isValid($possibleUUID)) {
+        $ado['uuid'] = $possibleUUID;
+        // Now be more strict for action = update
+        if ($data->pluginconfig->op ==! "create")
+        {
+          $existing_object = $this->entityTypeManager->getStorage('node')
+            ->loadByProperties(['uuid' => $ado['uuid']]);
+          //@TODO field_descriptive_metadata  is passed from the Configuration
+          if (!$existing_object) {
+            unset($ado);
+            $invalid = $invalid + [$index => $index];
+          }
+        }
+      }
+      dpm($ado);
+      if (!isset($ado['uuid'])) {
+        dpm('NO UUID! removing'.$index);
+        unset($ado);
+        $invalid = $invalid + [$index => $index];
+      }
+
+      if (isset($ado)) {
+        // CHECK. Different to IMI. we have multiple relationships
+        foreach($ado['parent'] as $parent_key => $parent_ado) {
+          if (!Uuid::isValid($parent_ado) && (is_integer($parent_ado)  && ($parent_ado > 1)) ) {
+            dpm('its a row');
+            dpm($parent_ado);
+
+            // Means our parent object is a ROW index
+            // (referencing another row in the spreadsheet)
+            // So a different strategy is needed. We will need recurse
+            // until we find a non numeric parent or none! Because
+            // in Archipelago we allow the none option for sure!
+            $notUUID = TRUE;
+            // SUPER IMPORTANT. SINCE PEOPLE ARE LOOKING AT A SPREADSHEET THEIR PARENT NUMBER WILL INCLUDE THE HEADER
+            // SO WE ARE OFFSET by 1, substract 1
+            $parent_numeric = $parent_ado - 1 ;
+            $parent_hash[$parent_key][$parent_numeric][$index] = $index;
+            $parentchilds = [];
+            // Lets check if the index actually exists before going crazy.
+
+            // If parent is empty that is OK here. WE are Ok with no membership!
+            if (!isset($file_data_all['data'][$parent_numeric])) {
+              dpm('parent row does not exist!');
+              $invalid[$parent_numeric] = $parent_numeric;
+              $invalid[$index] = $index;
+            }
+
+            if ((!isset($invalid[$index])) && (!isset($invalid[$parent_numeric]))) {
+              // Only traverse if we don't have this index or the parent one
+              // in the invalid register.
+              $parentchilds = [];
+              $i = 0;
+              while ($notUUID) {
+                dpm('while');
+                dpm($parent_numeric);
+                dpm($parent_to_index[$parent_key]);
+
+                $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
+
+                // The Simplest approach for breaking a knot /infinite loop,
+                // is invalidating the whole parentship chain for good.
+                $inaloop = isset($parentchilds[$parentup]);
+                // If $inaloop === true means we already traversed this branch
+                // so we are in a loop and all our original child and it's
+                // parent objects are invalid.
+                if ($inaloop) {
+                  dpm('we are in a loop!');
+                  $invalid = $invalid + $parentchilds;
+                  unset($ado);
+                  $notUUID = FALSE;
+                  // Means this object is already doomed. We break any attempt
+                  // to get relationships for this one.
+                  break 2;
+                }
+
+                $parentchilds[$parentup] = $parentup;
+                // If this parent is either a UUID or empty means we reached the root
+                if (Uuid::isValid(trim($parentup))) {
+                  $notUUID = FALSE;
+                  break;
+                }
+                else {
+                  // This a simple accumulator, means all is well,
+                  // parent is still an index.
+                  $parent_hash[$parent_key][$parentup][$parent_numeric] = $parent_numeric;
+                }
+                $parent_numeric = $parentup;
+              }
+            }
+            else {
+              unset($ado);
+            }
+          }
+        }
+      }
+      if (isset($ado) and !empty($ado)) {
+        $info[$index] = $ado;
+      }
+    }
+
+
+    // New first pass: ensure parents have always a PID first
+    // since rows/parent/child order could be arbitrary
+    dpm($info);
+    dpm($parent_hash);
+    // Now the real pass, iterate over every row.
+    foreach ($info as $index => &$ado) {
+      //$ado['uuid'] = isset($ado['uuid']) ? $ado['uuid'] : Uuid::uuid4();
+      foreach($data->adomapping->parents as $parent_key) {
+        // Is this object parent of someone?
+        if (isset($parent_hash[$parent_key][$ado['parent'][$parent_key]])) {
+          $ado['parent'][$parent_key] = $info[$ado['parent']]['uuid'];
+        }
+      }
+    }
+
+    dpm($info);
+    return $info;
+  }
+
+
 
 
 
