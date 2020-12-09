@@ -980,6 +980,40 @@ class AmiUtilityService {
     return $fields;
   }
 
+public function createAmiSet(\stdClass $data) {
+    // See \Drupal\ami\Entity\amiSetEntity
+    $current_user_name = $this->currentUser->getDisplayName();
+    $set = [
+      'mapping' => $data->mapping,
+      'adomapping' => $data->adomapping,
+      'zip' => $data->zip,
+      'csv' => $data->csv,
+      'plugin' =>  $data->plugin,
+      'pluginconfig' =>  $data->pluginconfig,
+      'column_keys' => $data->column_keys,
+    ];
+    $jsonvalue = json_encode($set, JSON_PRETTY_PRINT);
+    /* @var \Drupal\ami\Entity\amiSetEntity $entity */
+    $entity = $this->entityTypeManager->getStorage('ami_set_entity')->create(['name' => 'AMI Set of '.$current_user_name]);
+    $entity->set('set', $jsonvalue);
+    $entity->set('source_data', [$data->csv]);
+    $entity->set('zip_file', [$data->zip]);
+    $entity->set('status' , 'ready');
+    try {
+      $result = $entity->save();
+    }
+    catch (\Exception $exception) {
+      dpm($exception);
+      $this->messenger()->addError(t('Ami Set entity Failed to be persisted because of @message', ['@message' => $exception->getMessage()]));
+      return NULL;
+    }
+    if ($result == SAVED_NEW) {
+      return $entity->id();
+    }
+
+}
+
+
 
   public function processMetadataDisplay($data) {
 

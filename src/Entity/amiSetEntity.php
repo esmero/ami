@@ -84,7 +84,7 @@ use Drupal\Component\Utility\Environment;
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteados" = "Drupal\ami\Form\amiSetEntityDeleteAdosForm",
  *     },
- *     "access" = "Drupal\ami\amiSetEntityAccessControlHandler",
+ *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
  *   base_table = "ami_setentity",
  *   admin_permission = "administer amiset entity",
@@ -376,7 +376,34 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ])
       ->setDisplayConfigurable('view', TRUE)
       ->setDisplayConfigurable('form', FALSE);
-
+    $validatorszip = [
+      'file_validate_extensions' => ['zip'],
+      'file_validate_size' => [Environment::getUploadMaxSize()],
+    ];
+    $fields['zip_file'] = BaseFieldDefinition::create('file')
+      ->setLabel(t('Attached ZIP file'))
+      ->setDescription(t('A Zip file containing accompanying Files for the Source Data'))
+      ->setSetting('file_extensions', 'zip')
+      ->setSetting('upload_validators', $validatorszip)
+      ->setRequired(TRUE)
+      ->setDisplayOptions('view', [
+        'label' => 'above',
+        'type' => 'file',
+        'weight' => -3,
+      ])
+      ->setDisplayOptions('form', [
+        'type' => 'file',
+        'description' => [
+          'theme' => 'file_upload_help',
+          'description' => t('Source Files for this Set')
+        ],
+        'settings' => [
+          'upload_validators' => $validatorszip,
+        ],
+        'weight' => -3,
+      ])
+      ->setDisplayConfigurable('view', TRUE)
+      ->setDisplayConfigurable('form', TRUE);
     return $fields;
   }
 }

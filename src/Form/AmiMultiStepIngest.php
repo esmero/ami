@@ -20,6 +20,7 @@ use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\Component\Serialization\Json;
 use Drupal\node\Entity\Node;
+use Drupal\Core\Url;
 
 /**
  * Provides a form for that invokes Importer Adapter Plugins and batch imports data
@@ -419,11 +420,14 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ->load($form_state->getValue('zip')[0]); // Just FYI. The file id will be stored as an array
       // And you can access every field you need via standard method
       $this->store->set('zip', $file->id());
-      dpm($file->get('filename')->value);
-      dpm($this->store->get('mapping'));
-      $adomapping = $this->store->get('adomapping');
-      dpm($this->store->get('pluginconfig'));
-      dpm($this->store->get('plugininstance'));
+
+      $amisetdata = new \stdClass();
+
+      $amisetdata->plugin = $this->store->get('plugin');
+      $amisetdata->pluginconfig = $this->store->get('pluginconfig');
+      $amisetdata->mapping = $this->store->get('mapping');
+      $amisetdata->adomapping = $this->store->get('adomapping');
+      $amisetdata->zip = $this->store->get('zip');
 
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
@@ -432,9 +436,22 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         // @TODO investigate how to run a batch and end in the same form different step?
         // Idea is batch is only needed if there is a certain max number, e.g 5000 rows?
         $data = $plugin_instance->getData($this->store->get('pluginconfig'), 0, -1);
+        $amisetdata->column_keys = $data['headers'];
+        $amisetdata->total_rows = $data['totalrows'];
         // WE should probably add the UUIDs here right now.
         $uuid_key = isset($adomapping['uuid']['uuid']) && !empty($adomapping['uuid']['uuid']) ? $adomapping['uuid']['uuid'] : 'uuid_node';
-        $this->AmiUtilityService->csv_save($data, $uuid_key);
+        $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
+        if (isset($fileid)) {
+          $amisetdata->csv = $fileid;
+          $id = $this->AmiUtilityService->createAmiSet($amisetdata);
+          if ($id) {
+            $url = Url::fromRoute('entity.ami_set_entity.canonical', ['ami_set_entity' => $id]);
+            $this->messenger()->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>', ['@url' => $url->toString()]));
+          }
+        }
+        else {
+          $this->messenger()->addError('Ups. Something went wrong when generating your full source data as CSV.');
+        }
       }
       else {
         // Explain why

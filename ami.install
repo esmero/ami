@@ -9,6 +9,9 @@ use Drupal\taxonomy\Entity\Vocabulary;
 use Drupal\taxonomy\Entity\Term;
 use Drupal\field\Entity\FieldStorageConfig;
 use Drupal\field\Entity\FieldConfig;
+use Drupal\Component\Utility\Environment;
+use Drupal\Core\Field\BaseFieldDefinition;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 
 /**
  * Implements hook_install().
@@ -31,4 +34,39 @@ function ami_update_8001() {
   else {
     return 'AMI Set entity already exists';
   }
+}
+/**
+ * Update 8001 - Add ZIP file Field for AMI Set entity.
+ */
+function ami_update_8002() {
+  $validators = [
+      'file_validate_extensions' => ['zip'],
+      'file_validate_size' => [Environment::getUploadMaxSize()],
+    ];
+  $storage_definition = BaseFieldDefinition::create('file')
+    ->setLabel(new TranslatableMarkup('Attached ZIP file'))
+    ->setDescription(new TranslatableMarkup('A Zip file containing accompanying Files for the Source Data'))
+    ->setSetting('file_extensions', 'zip')
+    ->setSetting('upload_validators', $validators)
+    ->setRequired(TRUE)
+    ->setDisplayOptions('view', [
+      'label' => 'above',
+      'type' => 'file',
+      'weight' => -3,
+    ])
+    ->setDisplayOptions('form', [
+      'type' => 'file',
+      'description' => [
+      'theme' => 'file_upload_help',
+      'description' => new TranslatableMarkup('Source Files for this Set')
+      ],
+      'settings' => [
+        'upload_validators' => $validators,
+      ],
+      'weight' => -3,
+    ])
+    ->setDisplayConfigurable('view', TRUE)
+    ->setDisplayConfigurable('form', TRUE);
+
+  \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('zip_file', 'ami_set_entity', 'ami', $storage_definition);
 }

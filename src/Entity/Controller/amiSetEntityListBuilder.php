@@ -45,7 +45,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     $header['id'] = $this->t('Set ID');
     $header['name'] = $this->t('Name');
     $header['last update'] = $this->t('Last update');
-    $header['status'] = $this->t('Status');
+    //$header['status'] = $this->t('Status');
     return $header + parent::buildHeader();
   }
 
@@ -58,7 +58,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     $row['id'] = $entity->id();
     $row['name'] = $entity->toLink();
     $row['last update'] = \Drupal::service('date.formatter')->format($entity->changed->value, 'custom', 'd/m/Y');
-    $row['status'] = $entity->getStatus();
+    //$row['status'] = $entity->getStatus();
     return $row + parent::buildRow($entity);
   }
 

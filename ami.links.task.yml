@@ -1,0 +1,28 @@
+# Menu Action items for the Metadata Display Content Entities
+# Define the 'local' links for the module
+
+ami_set_entity.settings_tab:
+  route_name: ami.amisetentity_settings
+  title: Settings
+  base_route: ami.amisetentity_settings
+
+ami_set_entity.view:
+  route_name: entity.ami_set_entity.canonical
+  base_route: entity.ami_set_entity.canonical
+  title: View
+
+ami_set_entity.page_edit:
+  route_name: entity.ami_set_entity.edit_form
+  base_route: entity.ami_set_entity.canonical
+  title: Edit
+
+ami_set_entity.delete_confirm:
+  route_name:  entity.ami_set_entity.delete_form
+  base_route:  entity.ami_set_entity.canonical
+  title: Delete
+  weight: 10
+
+ami_set_entity.admin:
+  title: AMI Sets
+  route_name: entity.ami_set_entity.collection
+  base_route: system.admin_content

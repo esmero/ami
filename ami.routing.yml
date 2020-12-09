@@ -56,7 +56,7 @@ entity.ami_set_entity.add:
     _entity_create_access: 'ami_set_entity'
 
 entity.ami_set_entity.edit_form:
-  path: '/metadatadisplay/{ami_set_entity}/edit'
+  path: '/amiset/{ami_set_entity}/edit'
   defaults:
     _entity_form: ami_set_entity.edit
     _title: 'Edit Ami Set'
@@ -64,7 +64,7 @@ entity.ami_set_entity.edit_form:
     _entity_access: 'ami_set_entity.edit'
 
 entity.ami_set_entity.delete_form:
-  path: '/metadatadisplay/{ami_set_entity}/delete'
+  path: '/amiset/{ami_set_entity}/delete'
   defaults:
     _entity_form: ami_set_entity.delete
     _title: 'Delete Ami Set'
