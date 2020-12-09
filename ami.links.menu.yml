@@ -5,3 +5,9 @@ entity.importeradapter.collection:
   description: 'List Importer Adapter entities used by the Archipelago Multi Importer'
   parent: system.admin_structure
   weight: 99
+entity.ami_set_entity.collection:
+  title: 'AMI Sets'
+  route_name: entity.ami_set_entity.collection
+  description: 'List AMI Sets '
+  parent: system.admin_content
+  weight: 12

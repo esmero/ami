@@ -26,13 +26,16 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\file\FileUsage\FileUsageInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
+use Drupal\webform_strawberryfield\Element\WebformMetadataCsvFile;
 use Symfony\Component\HttpFoundation\File\MimeType\ExtensionGuesser;
 use Ramsey\Uuid\Uuid;
+use Symfony\Component\Translation\Dumper\CsvFileDumper;
 
 class AmiUtilityService {
 
   use StringTranslationTrait;
   use MessengerTrait;
+  use StringTranslationTrait;
 
   /**
    * @var array
@@ -137,6 +140,11 @@ class AmiUtilityService {
   protected $entityTypeBundleInfo;
 
   /**
+   * @var \Drupal\Core\Session\AccountInterface
+   */
+  protected $currentUser;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -189,7 +197,9 @@ class AmiUtilityService {
     $this->strawberryfieldUtility = $strawberryfield_utility_service;
     $this->entityFieldManager = $entity_field_manager;
     $this->entityTypeBundleInfo = $entity_type_bundle_info;
+    $this->currentUser = $current_user;
   }
+
 
   /**
    * Checks if value is prefixed entity or an UUID.
@@ -232,7 +242,7 @@ class AmiUtilityService {
   }
 
 
-  public function getIngestInfo($file_path) {
+  public function getIngestInfo($file_path, $config) {
     error_log('Running  AMI getIngestInfo');
 
     $file_data_all = $this->read_filedata(
@@ -240,7 +250,7 @@ class AmiUtilityService {
       -1,
       $offset = 0
     );
-    $this->parameters['data']['headers'] = $file_data_all['headers'];
+    $config['data']['headers'] = $file_data_all['headers'];
 
     $namespace_hash = [];
     // Keeps track of all parents and child that don't have a PID assigned.
@@ -668,64 +678,90 @@ class AmiUtilityService {
    *
    * @return file
    */
-  public function csv_save(array $data) {
-    global $user;
-    $path = 'temp:///ami/csv/';
-    $filename = $user->uid . '-' . uniqid() . '.csv';
+  public function csv_save(array $data, $uuid_key = 'node_uuid') {
+
+    //$temporary_directory = $this->fileSystem->getTempDirectory();
+    // We should be allowing downloads for this from temp
+    // But drupal refuses to serve files that are not referenced by an entity?
+    // Read this and be astonished!!
+    // https://api.drupal.org/api/drupal/core%21modules%21file%21src%21FileAccessControlHandler.php/class/FileAccessControlHandler/9.1.x
+    // We just get a lot of access denied in temporary:// and in private://
+    // Solution either attach to an entity SOFORT so permissions can be
+    // inherited or create a custom endpoint like '\Drupal\format_strawberryfield\Controller\IiifBinaryController::servetempfile'
+    $path = 'public://ami/csv';
+    $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
       $path,
       FileSystemInterface::CREATE_DIRECTORY
     )) {
-      $this->messenger()->addMessage(
-        t('Unable to create directory for CSV file. Verify permissions please'),
-        MessengerInterface::TYPE_ERROR
+      $this->messenger()->addError(
+        $this->t('Unable to create directory for CSV file. Verify permissions please')
       );
       return;
     }
     // Ensure the file
-    $file = file_save_data('', $path . $filename);
+    $file = file_save_data('', $path .'/'. $filename, FileSystemInterface::EXISTS_REPLACE);
     if (!$file) {
-      $this->messenger()->addMessage(
-        t('Unable to create CSV file . Verify permissions please.'),
-        MessengerInterface::TYPE_ERROR
+      $this->messenger()->addError(
+        $this->t('Unable to create AMI CSV file. Verify permissions please.')
       );
       return;
     }
-    $fh = fopen($file->uri, 'w');
+    $realpath = $this->fileSystem->realpath($file->getFileUri());
+    $fh = new \SplFileObject($realpath, 'w');
     if (!$fh) {
-      $this->messenger()->addMessage(
-        t('Error reading back the just written file!.'),
-        MessengerInterface::TYPE_ERROR
+      $this->messenger()->addError(
+        $this->t('Error reading back the just written file!.')
       );
       return;
     }
     array_walk($data['headers'], 'htmlspecialchars');
-    fputcsv($fh, $data['headers']);
+    // How we want to get the key number that contains the $uuid_key
+    $haskey = array_search($uuid_key, $data['headers']);
+    if ($haskey === FALSE) {
+      array_unshift($data['headers'], $uuid_key);
+    }
+
+
+
+    $fh->fputcsv($data['headers']);
 
     foreach ($data['data'] as $row) {
+      if ($haskey === FALSE) {
+        array_unshift($data['headers'], $uuid_key);
+        $row[0] = Uuid::uuid4();
+      } else {
+        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+          $row[$haskey] = Uuid::uuid4();
+        }
+      }
+
       array_walk($row, 'htmlspecialchars');
-      fputcsv($fh, $row);
+      $fh->fputcsv($row);
     }
-    fclose($fh);
+    // PHP Bug! This should happen automatically
+    clearstatcache(TRUE, $realpath);
+    $size = $fh->getSize();
+    // This is how you close a \SplFileObject
+    $fh =  NULL;
     // Notify the filesystem of the size change
-    $file->filesize = filesize($file->uri);
-    $file->status = ~FILE_STATUS_PERMANENT;
-    file_save($file);
+    $file->setSize($size);
+    $file->setPermanent();
+    $file->save();
 
-    // Tell the user where we stuck it
-
+    // Tell the user where we have it.
     $this->messenger()->addMessage(
-      t(
-        'CSV file saved and available at. <a href="!url">!filename</a>.',
+      $this->t(
+        'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
         [
-          '!url' => file_create_url($file->uri),
-          '!filename' => $filename,
+          '@url' => file_create_url($file->getFileUri()),
+          '@filename' => $file->getFilename(),
         ]
       )
     );
 
-    return $file->fid;
+    return $file->id();
   }
 
   /**
@@ -943,4 +979,39 @@ class AmiUtilityService {
     }
     return $fields;
   }
+
+
+  public function processMetadataDisplay($data) {
+
+
+  }
+
+  public function processWebform($data) {
+
+
+  }
+
+
+  public function ingestAdo($data) {
+
+  }
+
+
+
+
+
+  public function updateAdo($data) {
+
+  }
+
+  public function patchAdo($data) {
+
+  }
+
+  public function deleteAdo($data) {
+
+  }
+
+
+
 }

@@ -20,3 +20,53 @@ ami.multistep_import_parent:
     parameters:
       entity:
         type: entity:{entity_type}
+
+# All Routes for the AMI Set Entity that will Batch Sets
+
+ami.amisetentity_settings:
+  path: 'admin/structure/amiset_entity_settings'
+  defaults:
+    _form: '\Drupal\ami\Form\amiSetSettingsForm'
+    _title: 'AMI Set Entity Settings'
+  requirements:
+    _permission: 'administer amiset entity'
+
+entity.ami_set_entity.collection:
+  path: '/amiset/list'
+  defaults:
+    _entity_list: 'ami_set_entity'
+    _title: 'AMI Set Display List'
+  requirements:
+    _permission: 'administer amiset entity'
+
+entity.ami_set_entity.canonical:
+  path: '/amiset/{ami_set_entity}'
+  defaults:
+    _entity_view: 'ami_set_entity'
+    _title: 'Ami Set'
+  requirements:
+    _entity_access: 'ami_set_entity.view'
+
+entity.ami_set_entity.add:
+  path: '/amiset/add'
+  defaults:
+    _entity_form: ami_set_entity.add
+    _title: 'Add Ami Set'
+  requirements:
+    _entity_create_access: 'ami_set_entity'
+
+entity.ami_set_entity.edit_form:
+  path: '/metadatadisplay/{ami_set_entity}/edit'
+  defaults:
+    _entity_form: ami_set_entity.edit
+    _title: 'Edit Ami Set'
+  requirements:
+    _entity_access: 'ami_set_entity.edit'
+
+entity.ami_set_entity.delete_form:
+  path: '/metadatadisplay/{ami_set_entity}/delete'
+  defaults:
+    _entity_form: ami_set_entity.delete
+    _title: 'Delete Ami Set'
+  requirements:
+    _entity_access: 'ami_set_entity.delete'

@@ -11,6 +11,7 @@ use Drupal\ami\Entity\ImporterAdapter;
 use Drupal\ami\Plugin\ImporterAdapterManager;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Config\Entity\ConfigEntityListBuilder;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
@@ -64,8 +65,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     return 'ami_multistep_import_form';
   }
 
-  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility, TransliterationInterface $transliteration) {
-    parent::__construct($temp_store_factory, $session_manager, $current_user, $importerManager, $ami_utility, $transliteration);
+  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility,  EntityTypeManagerInterface $entity_type_manager, TransliterationInterface $transliteration) {
+    parent::__construct($temp_store_factory, $session_manager, $current_user, $importerManager, $ami_utility,  $entity_type_manager, $transliteration);
     $this->metadatadisplays = $this->AmiUtilityService->getMetadataDisplays();
     $this->webforms = $this->AmiUtilityService->getWebforms();
     $this->bundlesAndFields = $this->AmiUtilityService->getBundlesAndFields();
@@ -350,7 +351,22 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#destination' => $column_options
       ];
     }
-
+    if ($this->step == 5) {
+      $fileid = $this->store->get('zip');
+      dpm($fileid);
+      $form['zip'] = [
+        '#type' => 'managed_file',
+        '#title' => $this->t('Provide an ZIP file'),
+        '#required' => false,
+        '#multiple' => false,
+        '#default_value' => isset($fileid) ? [$fileid] : NULL,
+        '#description' => $this->t('Provide an optional ZIP file containing your assets.'),
+        '#upload_location' => 'temporary://ami',
+        '#upload_validators' => [
+          'file_validate_extensions' => ['zip'],
+        ],
+      ];
+    }
     return $form;
   }
 
@@ -394,9 +410,35 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     if ($this->step == 5) {
       if ($form_state->getTriggeringElement()['#name'] !== 'prev') {
-        dpm($form_state->getValue('adomapping'));
         $adomapping = $form_state->getValue('adomapping');
         $this->store->set('adomapping', $adomapping);
+      }
+    }
+    if ($this->step == 6) {
+      $file = $this->entityTypeManager->getStorage('file')
+        ->load($form_state->getValue('zip')[0]); // Just FYI. The file id will be stored as an array
+      // And you can access every field you need via standard method
+      $this->store->set('zip', $file->id());
+      dpm($file->get('filename')->value);
+      dpm($this->store->get('mapping'));
+      $adomapping = $this->store->get('adomapping');
+      dpm($this->store->get('pluginconfig'));
+      dpm($this->store->get('plugininstance'));
+
+      /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
+      $plugin_instance = $this->store->get('plugininstance');
+      if ($plugin_instance) {
+        // We may want to run a batch here?
+        // @TODO investigate how to run a batch and end in the same form different step?
+        // Idea is batch is only needed if there is a certain max number, e.g 5000 rows?
+        $data = $plugin_instance->getData($this->store->get('pluginconfig'), 0, -1);
+        // WE should probably add the UUIDs here right now.
+        $uuid_key = isset($adomapping['uuid']['uuid']) && !empty($adomapping['uuid']['uuid']) ? $adomapping['uuid']['uuid'] : 'uuid_node';
+        $this->AmiUtilityService->csv_save($data, $uuid_key);
+      }
+      else {
+        // Explain why
+        $this->messenger()->addError('Ups. Something went wrong and we could not get your data');
       }
     }
 

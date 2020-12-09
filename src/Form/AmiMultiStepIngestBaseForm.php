@@ -8,6 +8,7 @@ namespace Drupal\ami\Form;
 
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Plugin\ImporterAdapterManager;
+use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormBase;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Language\LanguageInterface;
@@ -52,6 +53,13 @@ class AmiMultiStepIngestBaseForm extends FormBase {
   protected $importerManager;
 
   /**
+   * The entity manager service.
+   *
+   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
+   */
+  protected $entityTypeManager;
+
+  /**
    * @var \Drupal\ami\AmiUtilityService
    */
   protected $AmiUtilityService;
@@ -71,12 +79,15 @@ class AmiMultiStepIngestBaseForm extends FormBase {
    * @param \Drupal\Core\Session\AccountInterface $current_user
    * @param \Drupal\ami\Plugin\ImporterAdapterManager $importerManager
    * @param \Drupal\ami\AmiUtilityService $ami_utility
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   * @param \Drupal\Component\Transliteration\TransliterationInterface $transliteration
    */
-  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility, TransliterationInterface $transliteration) {
+  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility,  EntityTypeManagerInterface $entity_type_manager, TransliterationInterface $transliteration) {
     $this->sessionManager = $session_manager;
     $this->currentUser = $current_user;
     $this->store = $temp_store_factory->get('ami_multistep_data');
     $this->importerManager = $importerManager;
+    $this->entityTypeManager = $entity_type_manager;
     $this->AmiUtilityService = $ami_utility;
     $this->transliteration = $transliteration;
 
@@ -92,6 +103,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
       $container->get('current_user'),
       $container->get('ami.importeradapter_manager'),
       $container->get('ami.utility'),
+      $container->get('entity_type.manager'),
       $container->get('transliteration')
     );
   }

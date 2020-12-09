@@ -17,3 +17,18 @@ use Drupal\field\Entity\FieldConfig;
 function ami_install() {
 
 }
+
+/**
+ * Update 8001 - Create AMI Set entity.
+ */
+function ami_update_8001() {
+
+  if(!db_table_exists('ami_setentity')) {
+    \Drupal::entityTypeManager()->clearCachedDefinitions();
+    \Drupal::entityDefinitionUpdateManager()
+      ->installEntityType(\Drupal::entityTypeManager()->getDefinition('ami_set_entity'));
+  }
+  else {
+    return 'AMI Set entity already exists';
+  }
+}
