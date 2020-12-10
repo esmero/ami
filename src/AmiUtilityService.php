@@ -608,7 +608,8 @@ class AmiUtilityService {
           $headercount,
           $row
         );
-        $table[$rowindex] = $row;
+        // Offsetting all rows by 1. That way we do not need to remap numeric parents
+        $table[$rowindex+1] = $row;
       }
       $maxRow = $rowindex;
     }
@@ -893,6 +894,7 @@ class AmiUtilityService {
     $info = [];
     // Keeps track of invalid rows.
     $invalid = [];
+
     foreach ($file_data_all['data'] as $index => $keyedrow) {
       // This makes tracking of values more consistent and easier for the actual processing via
       // twig templates, webforms or direct
@@ -957,19 +959,25 @@ class AmiUtilityService {
       if (isset($ado)) {
         // CHECK. Different to IMI. we have multiple relationships
         foreach($ado['parent'] as $parent_key => $parent_ado) {
-          if (!Uuid::isValid($parent_ado) && (is_integer($parent_ado)  && ($parent_ado > 1)) ) {
+          // Discard further processing of empty parents
+          if (strlen(trim($parent_ado)) ==0 ) {
+            dpm('empty parent');
+            continue;
+          }
+
+          if (!Uuid::isValid($parent_ado) && (intval(trim($parent_ado)) > 1)) {
             dpm('its a row');
-            dpm($parent_ado);
+            dpm(intval(trim($parent_ado)));
 
             // Means our parent object is a ROW index
             // (referencing another row in the spreadsheet)
             // So a different strategy is needed. We will need recurse
             // until we find a non numeric parent or none! Because
             // in Archipelago we allow the none option for sure!
-            $notUUID = TRUE;
+            $rootfound = FALSE;
             // SUPER IMPORTANT. SINCE PEOPLE ARE LOOKING AT A SPREADSHEET THEIR PARENT NUMBER WILL INCLUDE THE HEADER
             // SO WE ARE OFFSET by 1, substract 1
-            $parent_numeric = $parent_ado - 1 ;
+            $parent_numeric = intval(trim($parent_ado));
             $parent_hash[$parent_key][$parent_numeric][$index] = $index;
             $parentchilds = [];
             // Lets check if the index actually exists before going crazy.
@@ -986,13 +994,17 @@ class AmiUtilityService {
               // in the invalid register.
               $parentchilds = [];
               $i = 0;
-              while ($notUUID) {
+              while (!$rootfound) {
                 dpm('while');
                 dpm($parent_numeric);
                 dpm($parent_to_index[$parent_key]);
 
                 $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
-
+                if ($this->isRootParent($parentup)) {
+                  $rootfound = TRUE;
+                  break;
+                }
+                // If $parentup
                 // The Simplest approach for breaking a knot /infinite loop,
                 // is invalidating the whole parentship chain for good.
                 $inaloop = isset($parentchilds[$parentup]);
@@ -1003,7 +1015,7 @@ class AmiUtilityService {
                   dpm('we are in a loop!');
                   $invalid = $invalid + $parentchilds;
                   unset($ado);
-                  $notUUID = FALSE;
+                  $rootfound = TRUE;
                   // Means this object is already doomed. We break any attempt
                   // to get relationships for this one.
                   break 2;
@@ -1011,15 +1023,11 @@ class AmiUtilityService {
 
                 $parentchilds[$parentup] = $parentup;
                 // If this parent is either a UUID or empty means we reached the root
-                if (Uuid::isValid(trim($parentup))) {
-                  $notUUID = FALSE;
-                  break;
-                }
-                else {
-                  // This a simple accumulator, means all is well,
-                  // parent is still an index.
-                  $parent_hash[$parent_key][$parentup][$parent_numeric] = $parent_numeric;
-                }
+
+                // This a simple accumulator, means all is well,
+                // parent is still an index.
+                $parent_hash[$parent_key][$parentup][$parent_numeric] = $parent_numeric;
+
                 $parent_numeric = $parentup;
               }
             }
@@ -1045,7 +1053,7 @@ class AmiUtilityService {
       foreach($data->adomapping->parents as $parent_key) {
         // Is this object parent of someone?
         if (isset($parent_hash[$parent_key][$ado['parent'][$parent_key]])) {
-          $ado['parent'][$parent_key] = $info[$ado['parent']]['uuid'];
+          $ado['parent'][$parent_key] = $info[$ado['parent'][$parent_key]]['uuid'];
         }
       }
     }
@@ -1054,7 +1062,16 @@ class AmiUtilityService {
     return $info;
   }
 
-
+  /**
+   * Super simple callback to check if in a CSV our parent is the actual root element
+   *
+   * @param string $parent
+   *
+   * @return bool
+   */
+  protected function isRootParent(string $parent) {
+    return (Uuid::isValid(trim($parent)) || strlen(trim($parent)) == 0);
+  }
 
 
 
