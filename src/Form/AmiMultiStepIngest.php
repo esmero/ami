@@ -37,19 +37,20 @@ use Drupal\Core\Url;
 class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
   protected $lastStep = 6;
+
   /**
    * Holds a ready select options array with usable metadata displays
    *
    * @var array
    */
-  protected array $metadatadisplays = [];
+  protected $metadatadisplays = [];
 
   /**
    * Holds a ready select options array with usable webforms
    *
    * @var array
    */
-  protected array $webforms = [];
+  protected $webforms = [];
 
 
   /**
@@ -57,7 +58,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
    *
    * @var array
    */
-  protected array $bundlesAndFields = [];
+  protected $bundlesAndFields = [];
 
   /**
    * {@inheritdoc}
