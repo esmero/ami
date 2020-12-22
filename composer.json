@@ -1,0 +1,36 @@
+{
+    "name": "archipelago/ami",
+    "description": "Archipelago Multi Importer for Drupal 8/9. A module of mass ingest/edits made for the masses",
+    "type": "drupal-module",
+    "license": "GPL-2.0+",
+    "homepage": "https://github.com/esmero/ami",
+    "authors": [
+        {
+            "name": "Diego Pino Navarro",
+            "email": "dpino@metro.org",
+            "homepage": "https://github.com/DiegoPino",
+            "role": "Owner"
+        }
+    ],
+    "require": {
+        "drupal/core": "^8.9 || ^9",
+        "drupal/views_bulk_operations": "^3.9",
+        "strawberryfield/strawberryfield":"^dev-1.0.0-RC1",
+        "strawberryfield/webform_strawberryfield":"^dev-1.0.0-RC1",
+        "swaggest/json-schema":"^0.12.29",
+        "swaggest/json-diff":"^3.7.5",
+        "phpoffice/phpspreadsheet": "^1.15.0",
+        "maennchen/zipstream-php":"^2.1",
+        "drupal/google_api_client": "3.0.0-rc4",
+        "ramsey/uuid":"^4.1"
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "extra": {
+        "drush": {
+            "services": {
+                "drush.services.yml": "^10"
+            }
+        }
+    }
+}
