@@ -1,0 +1,12 @@
+entity.importeradapter.add_form:
+  route_name: 'entity.importeradapter.add_form'
+  title: 'Add Importer Adapter'
+  appears_on:
+    - entity.importeradapter.collection
+
+ami.multistep_import.add:
+  title: 'Start an AMI Set'
+  route_name: ami.multistep_import
+  appears_on:
+    -  system.admin_content
+  weight: 12
