@@ -21,7 +21,7 @@ use Swaggest\JsonDiff\JsonPatch;
  *
  * @Action(
  *   id = "entity:ami_jsontext_action",
- *   action_label = @Translation("AMI JSON as Text replace an ADO"),
+ *   action_label = @Translation("Text based find and replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
  *   deriver = "Drupal\Core\Action\Plugin\Action\Derivative\EntityChangedActionDeriver",
  *   type = "node",
