@@ -27,10 +27,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    *
    * @param \Drupal\Core\Entity\EntityRepositoryInterface $entity_repository
    *   The entity repository service.
-   * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
+   * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface|null $entity_type_bundle_info
    *   The entity type bundle service.
-   * @param \Drupal\Component\Datetime\TimeInterface $time
+   * @param \Drupal\Component\Datetime\TimeInterface|null $time
    *   The time service.
+   * @param \Drupal\ami\AmiUtilityService $ami_utility
    */
   public function __construct(EntityRepositoryInterface $entity_repository, EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, TimeInterface $time = NULL, AmiUtilityService $ami_utility) {
 
@@ -68,7 +69,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    // @TODO We should here make sure we get rid of any files and that
+    // @TODO We should here make sure we get rid of any files
     // But if the queue has elements from this Set we should not be able to delete?
    // $this->entity->delete();
     $csv_file_reference = $this->entity->get('source_data')->getValue();
@@ -83,15 +84,29 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     if ($file && $data!== new \stdClass()) {
       dpm('we got file');
 
-      $this->AmiUtilityService->preprocessAmiSet($file,$data);
+      $info = $this->AmiUtilityService->preprocessAmiSet($file, $data);
+      $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])->toString();
+      foreach($info as $item) {
+        // We set current User here since we want to be sure the final owner of
+        // the object is this and not the user that runs the queue
+        $data->info = [
+          'row' => $item,
+          'set_id' => $this->entity->id(),
+          'uid' => $this->currentUser()->id(),
+          'set_url' => $SetURL,
+          'attempts' => 1
+        ];
+        dpm($data);
+        \Drupal::queue('ami_ingest_ado')
+          ->createItem($data);
+      }
     }
 
    // $this->AmiUtilityService->preprocessAmiSet();
 
     $this->messenger()->addMessage(
-      $this->t('Set @type: processed @label.',
+      $this->t('Set @label processed .',
         [
-          '@type' => $this->entity->bundle(),
           '@label' => $this->entity->label(),
         ]
       )

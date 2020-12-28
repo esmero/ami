@@ -37,7 +37,7 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
   protected $entityTypeManager;
 
   /**
-   * @var \GuzzleHttp\Client
+   * @var \GuzzleHttp\ClientInterface
    */
   protected $httpClient;
 

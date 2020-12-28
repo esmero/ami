@@ -9,6 +9,7 @@
 
 namespace Drupal\ami;
 
+use Alchemy\Zippy\Exception\ExceptionInterface;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
@@ -21,16 +22,17 @@ use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Messenger\MessengerTrait;
+use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
+use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
-use Drupal\webform_strawberryfield\Element\WebformMetadataCsvFile;
 use Symfony\Component\HttpFoundation\File\MimeType\ExtensionGuesser;
 use Ramsey\Uuid\Uuid;
-use Symfony\Component\Translation\Dumper\CsvFileDumper;
+use Drupal\Core\File\Exception\FileException;
 
 class AmiUtilityService {
 
@@ -145,6 +147,11 @@ class AmiUtilityService {
   protected $currentUser;
 
   /**
+   * @var \GuzzleHttp\ClientInterface
+   */
+  protected $httpClient;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -176,7 +183,8 @@ class AmiUtilityService {
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     EntityFieldManagerInterface $entity_field_manager,
-    EntityTypeBundleInfoInterface $entity_type_bundle_info
+    EntityTypeBundleInfoInterface $entity_type_bundle_info,
+    ClientInterface $http_client
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -198,6 +206,7 @@ class AmiUtilityService {
     $this->entityFieldManager = $entity_field_manager;
     $this->entityTypeBundleInfo = $entity_type_bundle_info;
     $this->currentUser = $current_user;
+    $this->httpClient = $http_client;
   }
 
 
@@ -272,62 +281,82 @@ class AmiUtilityService {
   /**
    * Checks if an URI from spreadsheet is remote or local and returns a file
    *
-   * @param string $url
+   * @param string $uri
    *   The URL of the file to grab.
    *
-   * @return mixed
+   * @return File|FALSE
    *   One of these possibilities:
    *   - If remote and exists a Drupal file object
-   *   - If not remote and exists a stripped file object
+   *   - If not remote and exists a Drupal file object
    *   - If does not exist boolean FALSE
    */
-  public function remote_file_get($url) {
-    $parsed_url = parse_url($url);
+  public function file_get($uri) {
+    $parsed_url = parse_url($uri);
     $remote_schemes = ['http', 'https', 'feed'];
+    $finaluri = FALSE;
     if (!isset($parsed_url['scheme']) || (isset($parsed_url['scheme']) && !in_array(
           $parsed_url['scheme'],
           $remote_schemes
         ))) {
-      // If local file, engage any hook_remote_file_get and return the real path.
-      $path = [];
-      /*$path = module_invoke_all(
-        'remote_file_get',
-        $url
-      );*/
-      // get only the first path.
-      if (!empty($path)) {
-        if ($path[0]) {
-          return $path[0];
+      // Now that we know its not remote, try with our registered schemas
+      // means its either private/public/s3, etc
+      $scheme = $this->streamWrapperManager->getScheme($uri);
+      if ($scheme) {
+        if (!file_exists($uri)) {
+          return FALSE;
         }
+        $finaluri = $uri;
       }
-
-      // if local file, try the path.
-      $localfile = $this->fileSystem->realpath($url);
-      if (!file_exists($localfile)) {
-        return FALSE;
+      else {
+        // Means it may be local to the accessible file storage, eg. a path inside
+        // the server
+        //@TODO check if we should copy here or just deal with it.
+        $localfile = $this->fileSystem->realpath($uri);
+        if (!file_exists($localfile)) {
+          return FALSE;
+        }
+        $finaluri = $localfile;
       }
-      return $localfile;
-    }
+    } else {
 
-    // Simulate what could be the final path of a remote download.
-    // to avoid redownloading.
-    $localfile = file_build_uri(
-      $this->fileSystem->basename($parsed_url['path'])
-    );
-    if (!file_exists($localfile)) {
-      // Actual remote heavy lifting only if not present.
-      $destination = "temporary://ami/";
-      $localfile = $this->retrieve_remote_file(
-        $url,
-        $destination,
-        FileSystemInterface::EXISTS_RENAME
+      // Simulate what could be the final path of a remote download.
+      // to avoid re downloading.
+      $localfile = file_build_uri(
+        $this->fileSystem->basename($parsed_url['path'])
       );
-      return $localfile;
+      if (!file_exists($localfile)) {
+        // Actual remote heavy lifting only if not present.
+        $destination = "temporary://ami/setfiles/";
+
+        if (!$this->fileSystem->prepareDirectory(
+          $destination,
+          FileSystemInterface::CREATE_DIRECTORY
+        )) {
+          $this->messenger()->addError(
+            $this->t('Unable to create directory where to download remote file @uri. Verify permissions please',
+            [
+              '@uri' => $uri
+            ])
+          );
+          return FALSE;
+        }
+
+        $localfile = $this->retrieve_remote_file(
+          $uri,
+          $destination,
+          FileSystemInterface::EXISTS_RENAME
+        );
+        $finaluri = $localfile;
+      }
+      else {
+        $finaluri  = $localfile;
+      }
+
     }
-    else {
-      return $localfile;
+    if ($finaluri) {
+      $file = $this->create_file_from_uri($finaluri);
+      return $file;
     }
-    return FALSE;
   }
 
   /**
@@ -355,26 +384,26 @@ class AmiUtilityService {
    *   - If it fails, FALSE.
    */
   public function retrieve_remote_file(
-    $url,
+    $uri,
     $destination = NULL,
     $replace = FileSystemInterface::EXISTS_RENAME
   ) {
     // pre set a failure
     $localfile = FALSE;
-    $parsed_url = parse_url($url);
+    $md5uri = md5($uri);
+    $parsed_url = parse_url($uri);
     $mime = 'application/octet-stream';
     if (!isset($destination)) {
       $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
-
         // Prevent URIs with triple slashes when glueing parts together.
         $path = str_replace(
             '///',
             '//',
             "{$destination}/"
-          ) . $this->fileSystem->basename(
+          ) . $md5uri.'_'.$this->fileSystem->basename(
             $parsed_url['path']
           );
       }
@@ -382,19 +411,21 @@ class AmiUtilityService {
         $path = $destination;
       }
     }
-    $result = drupal_http_request($url);
-    if ($result->code != 200) {
-      $this->messenger()->addMessage(
-        t(
-          'HTTP error @errorcode occurred when trying to fetch @remote.',
+
+    /* @var \Psr\Http\Message\ResponseInterface $response */
+    try {
+      $response = $this->httpClient->get($uri, ['sink' => $path]);
+    }
+    catch (ExceptionInterface $exception){
+      //@TODO what to do?
+      $this->messenger()->addError(
+        $this->t('Unable to download remote file from @uri to local @path. Verify URL exists, its openly accessible and destination is writable.',
           [
-            '@errorcode' => $result->code,
-            '@remote' => $url,
-          ]
-        ),
-        MessengerInterface::TYPE_ERROR
+            '@uri' => $uri,
+            '@path' => $path,
+          ])
       );
-      return FALSE;
+      return NULL;
     }
 
     // It would be more optimal to run this after saving
@@ -404,66 +435,48 @@ class AmiUtilityService {
     );
 
     if (($mimefromextension == "application/octet-stream") &&
-      isset($result->headers['Content-Type'])) {
-      $mimetype = $result->headers['Content-Type'];
+      !empty($response->getHeader('Content-Type'))) {
+      $mimetype = $response->getHeader('Content-Type');
       $extension = ExtensionGuesser::getInstance()->guess($mimetype);
       $info = pathinfo($path);
       if (($extension != "bin") && ($info['extension'] != $extension)) {
-        $path = $path . "." . $extension;
+        $newpath = $path . "." . $extension;
+        $status = @rename($path,$newpath);
+        if ($status === FALSE) {
+          return FALSE;
+        }
+        $localfile = $newpath;
       }
     }
-    // File is being made managed and permanent here, will be marked as
-    // temporary once it is processed AND/OR associated with a SET
-    $localfile = file_save_data($result->data, $path, $replace);
-    if (!$localfile) {
-      $this->messenger()->addError(
-        $this->t(
-          '@remote could not be saved to @path.',
-          [
-            '@remote' => $url,
-            '@path' => $path,
-          ]
-        ),
-        MessengerInterface::TYPE_ERROR
-      );
-    }
-
     return $localfile;
   }
 
+  public function create_file_from_uri($localpath){
+    try {
 
-  public function temp_directory($create = TRUE) {
-    $directory = &drupal_static(__FUNCTION__, '');
-    if (empty($directory)) {
-      $directory = 'temporary://ami';
-      if ($create && !file_exists($directory)) {
-        mkdir($directory);
+      $file = $this->entityTypeManager->getStorage('file')->create([
+        'uri' => $localpath,
+        'uid' => $this->currentUser->id(),
+        'status' => FILE_STATUS_PERMANENT,
+      ]);
+      // If we are replacing an existing file re-use its database record.
+      // @todo Do not create a new entity in order to update it. See
+      //   https://www.drupal.org/node/2241865.
+      // Check if File with same URI already exists.
+      $existing_files = \Drupal::entityTypeManager()->getStorage('file')->loadByProperties(['uri' => $localpath]);
+      if (count($existing_files)) {
+        $existing = reset($existing_files);
+        $file->fid = $existing->id();
+        $file->setOriginalId($existing->id());
+        $file->setFilename($existing->getFilename());
       }
+
+      $file->save();
+      return $file;
     }
-    return $directory;
-  }
-
-  public function metadatadisplay_process(array $twig_input = []) {
-    if (count($twig_input) == 0) {
-      return;
+    catch (FileException $e) {
+      return FALSE;
     }
-    $loader = new Twig_Loader_Array(
-      [
-        $twig_input['name'] => $twig_input['template'],
-      ]
-    );
-
-    $twig = new \Twig_Environment(
-      $loader, [
-        'cache' => $this->fileSystem->realpath('private://'),
-      ]
-    );
-
-    //We won't validate here. We are here because our form did that
-    $output = $twig->render($twig_input['name'], $twig_input['data']);
-    //@todo catch anyway any twig error to avoid the worker to fail bad.
-
-    return $output;
   }
 
   /**
@@ -624,9 +637,6 @@ class AmiUtilityService {
 
   }
 
-
-
-
   /**
    * Deal with different sized arrays for combining
    *
@@ -769,7 +779,6 @@ class AmiUtilityService {
     $bundles = $this->entityTypeBundleInfo->getBundleInfo('node');
     foreach ($bundles as $bundle => $bundle_info) {
       if ($this->strawberryfieldUtility->bundleHasStrawberryfield($bundle)) {
-        dpm($bundle);
         $access = $this->checkNodeAccess($bundle);
         if ($access && $access->isAllowed()) {
           foreach($this->checkFieldAccess($bundle) as $key => $value) {
@@ -867,7 +876,6 @@ class AmiUtilityService {
       $result = $entity->save();
     }
     catch (\Exception $exception) {
-      dpm($exception);
       $this->messenger()->addError(t('Ami Set entity Failed to be persisted because of @message', ['@message' => $exception->getMessage()]));
       return NULL;
     }
@@ -877,11 +885,21 @@ class AmiUtilityService {
 
   }
 
+  /**
+   * Processes rows and assigns correct parents and UUIDs
+   *
+   * @param \Drupal\file\Entity\File $file
+   *   A CSV
+   * @param \stdClass $data
+   *
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
   public function preprocessAmiSet(File $file, \stdClass $data) {
     dpm('Running preprocessAmiSet');
 
     $file_data_all = $this->csv_read($file);
-    dpm($file_data_all);
     // we may want to check if saved metadata headers == csv ones first.
     // $data->column_keys
     $config['data']['headers'] = $file_data_all['headers'];
@@ -899,13 +917,11 @@ class AmiUtilityService {
       // This makes tracking of values more consistent and easier for the actual processing via
       // twig templates, webforms or direct
       $row = array_combine($config['data']['headers'], $keyedrow);
-      dpm($row);
       // Each row will be an object.
       $ado = [];
       $ado['type'] = trim(
         $row[$data->mapping->type_key]
       );
-      dpm($ado);
       // Lets start by grouping by parents, namespaces and generate uuids
       // namespaces are inherited, so we just need to find collection
       // objects in parent uuid column.
@@ -917,23 +933,16 @@ class AmiUtilityService {
         // Used to access parent columns using numerical indexes for when looking back inside $file_data_all
         $parent_to_index[$parent_key] = array_search($parent_key, $config['data']['headers']);
 
-        dpm('parent keys');
-        dpm($parent_key);
         $ado['parent'][$parent_key] = trim(
           $row[$parent_key]
         );
         $ado['anyparent'][] = $row[$parent_key];
       }
-      dpm($ado['parent']);
-      dpm($ado['anyparent']);
 
       $ado['data'] = $row;
-      dpm($ado);
 
       // UUIDs are already assigned by this time
-      dpm($data->adomapping->uuid->uuid);
       $possibleUUID = trim($row[$data->adomapping->uuid->uuid]);
-      dpm($possibleUUID);
       // Double check? User may be tricking us!
       if (Uuid::isValid($possibleUUID)) {
         $ado['uuid'] = $possibleUUID;
@@ -949,9 +958,7 @@ class AmiUtilityService {
           }
         }
       }
-      dpm($ado);
       if (!isset($ado['uuid'])) {
-        dpm('NO UUID! removing'.$index);
         unset($ado);
         $invalid = $invalid + [$index => $index];
       }
@@ -961,13 +968,13 @@ class AmiUtilityService {
         foreach($ado['parent'] as $parent_key => $parent_ado) {
           // Discard further processing of empty parents
           if (strlen(trim($parent_ado)) ==0 ) {
-            dpm('empty parent');
+            // Empty parent;
             continue;
           }
 
           if (!Uuid::isValid($parent_ado) && (intval(trim($parent_ado)) > 1)) {
-            dpm('its a row');
-            dpm(intval(trim($parent_ado)));
+            // Its a row
+
 
             // Means our parent object is a ROW index
             // (referencing another row in the spreadsheet)
@@ -984,7 +991,7 @@ class AmiUtilityService {
 
             // If parent is empty that is OK here. WE are Ok with no membership!
             if (!isset($file_data_all['data'][$parent_numeric])) {
-              dpm('parent row does not exist!');
+              // Parent row does not exist
               $invalid[$parent_numeric] = $parent_numeric;
               $invalid[$index] = $index;
             }
@@ -995,9 +1002,6 @@ class AmiUtilityService {
               $parentchilds = [];
               $i = 0;
               while (!$rootfound) {
-                dpm('while');
-                dpm($parent_numeric);
-                dpm($parent_to_index[$parent_key]);
 
                 $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
                 if ($this->isRootParent($parentup)) {
@@ -1012,7 +1016,7 @@ class AmiUtilityService {
                 // so we are in a loop and all our original child and it's
                 // parent objects are invalid.
                 if ($inaloop) {
-                  dpm('we are in a loop!');
+                  // In a loop
                   $invalid = $invalid + $parentchilds;
                   unset($ado);
                   $rootfound = TRUE;
@@ -1043,23 +1047,57 @@ class AmiUtilityService {
     }
 
 
-    // New first pass: ensure parents have always a PID first
-    // since rows/parent/child order could be arbitrary
-    dpm($info);
-    dpm($parent_hash);
     // Now the real pass, iterate over every row.
+
     foreach ($info as $index => &$ado) {
-      //$ado['uuid'] = isset($ado['uuid']) ? $ado['uuid'] : Uuid::uuid4();
       foreach($data->adomapping->parents as $parent_key) {
         // Is this object parent of someone?
         if (isset($parent_hash[$parent_key][$ado['parent'][$parent_key]])) {
           $ado['parent'][$parent_key] = $info[$ado['parent'][$parent_key]]['uuid'];
         }
       }
+      // Since we are reodering we may want to keep the original row_id around
+      // To help users debug which row has issues in case of ingest errors
+      $ado['row_id'] = $index;
     }
+    // Now reoder, add parents first then the rest.
+    $newinfo = [];
 
-    dpm($info);
-    return $info;
+    // parent hash contains keys with all the properties and then keys with parent
+    //rows and child arrays with their children
+    /* E.g
+    array:2 [▼
+      "ismemberof" => array:2 [▼
+        3 => array:3 [▼
+          4 => 4
+          6 => 6
+          7 => 7
+        ]
+        7 => array:3 [▼
+          8 => 8
+          9 => 9
+         10 => 10
+        ]
+      ]
+      "partof" => array:1 [▼
+        10 => array:2 [▼
+          11 => 11
+          12 => 12
+        ]
+      ]
+    ]
+     */
+    // This way the move parent Objects first and leave children to the end.
+    foreach ($parent_hash as $parent_tree) {
+      foreach($parent_tree as $row_id => $children) {
+        $newinfo[] = $info[$row_id];
+        unset($info[$row_id]);
+      }
+    }
+    $newinfo = array_merge($newinfo, $info);
+    unset($info);
+    // @TODO Should we do a final check here? Alert the user the rows are less/equal to the desired?
+    return $newinfo;
   }
 
   /**
@@ -1074,19 +1112,138 @@ class AmiUtilityService {
   }
 
 
+  /**
+   * This function tries to decode any string that may be a valid JSON.
+   *
+   * @param array $row
+   *
+   * @return array
+   */
+  public function expandJson(array $row) {
+    foreach($row as $colum => &$value) {
+      $expanded = json_decode($value, TRUE);
+      $json_error = json_last_error();
+      // WE ignore JSON errors since simple strings or arrays are not valid
+      // JSON STRINGs and its OK if we do not decode them.
+      if ($json_error == JSON_ERROR_NONE) {
+        $value = $expanded;
+      }
+    }
+    return $row;
+  }
 
-  public function processMetadataDisplay($data) {
+  /**
+   * @param \stdClass $conf
+   *  $conf->info['row']
+   *  has the following format
+   *  [
+   *   "type" => "Book"
+   *   "parent" =>  [
+   *     "partof" => ""
+   *     "ismemberof" => "1808b621-0831-4dd3-8126-19085fefcd77"
+   *    ],
+   *    "anyparent" =>
+   *    "data" => [
+   *      "node_uuid" => "5d4f8ed7-7471-4115-beed-39dc1e625180"
+   *      "type" => "Book"
+   *      "label" => "Batch Ingested Book parent of existing collection"
+   *      "subject_loc" => "Public Libraries"
+   *      "audios" => ""
+   *      "videos" => ""
+   *      "images" => ""
+   *      "documents" => ""
+   *   ],
+   *   "uuid" => "5d4f8ed7-7471-4115-beed-39dc1e625180"
+   *  ]
+   * @return string|NULL
+   *    Either a valid JSON String or NULL if casting via Twig template failed
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function processMetadataDisplay(\stdClass $conf) {
+    $row = $conf->info['row'];
+    $row_id = $row['row_id'];
+    $set_id = $conf->info['set_id'];
+    $setURL = $conf->info['set_url'];
+    // Should never happen but better stop processing here
+    if (!$row['data']) {
+      $message = $this->t('Empty or Null Data Row. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
+        [
+          '@uuid' => $row['uuid'],
+          '@row' => $row_id,
+          '@setid' => $set_id
+        ]);
+      $this->loggerFactory->get('ami')->error($message);
+      return NULL;
+    }
+    $jsonstring = NULL;
+    if ($conf->mapping->globalmapping == "custom") {
+      $metadatadisplay_id = $conf->mapping->custommapping_settings->{$row['type']}->metadata_config->template;
+    }
+    else {
+      $metadatadisplay_id = $conf->mapping->globalmapping_settings->metadata_config->template;
+    }
+    $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
+      ->load($metadatadisplay_id);
+    if ($metadatadisplay_entity) {
+      $context['data'] =  $this->expandJson($row['data']);
+      $context['setURL'] = $setURL;
+      $context['node'] = NULL;
+      $original_context = $context;
+      // Allow other modules to provide extra Context!
+      // Call modules that implement the hook, and let them add items.
+      \Drupal::moduleHandler()
+        ->alter('format_strawberryfield_twigcontext', $context);
+      $context = $context + $original_context;
+      $cacheabledata = [];
+      // @see https://www.drupal.org/node/2638686 to understand
+      // What cacheable, Bubbleable metadata and early rendering means.
+      $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
+        new RenderContext(),
+        function () use ($context, $metadatadisplay_entity) {
+          return $metadatadisplay_entity->renderNative($context);
+        }
+      );
+      if (count($cacheabledata)) {
+        $jsonstring = $cacheabledata->__toString();
+        $jsondata = json_decode($jsonstring, TRUE);
+        $json_error = json_last_error();
+        // Just because i like to clean up memory.
+        unset($jsondata);
+        if ($json_error != JSON_ERROR_NONE) {
+          $message = $this->t('We could not generate JSON via Metadata Display with ID @metadatadisplayid for AMI Set ID @setid, Row @row, future ADO with UUID @uuid. This is the Template %output',
+            [
+              '@metadatadisplayid' => $metadatadisplay_id,
+              '@uuid' => $row['uuid'],
+              '@row' => $row_id,
+              '@setid' => $set_id,
+              '%output' => $jsonstring,
+            ]);
+          $this->loggerFactory->get('ami')->error($message);
+          return NULL;
+        }
+      }
+    } else {
+      $message = $this->t('Metadata Display with ID @metadatadisplayid could not be found for AMI Set ID @setid, Row @row for a future node with UUID @uuid.',
+        [
+          '@metadatadisplayid' => $metadatadisplay_id,
+          '@uuid' => $row['uuid'],
+          '@row' => $row_id,
+          '@setid' => $set_id
+        ]);
+      $this->loggerFactory->get('ami')->error($message);
+      return NULL;
+    }
+    return $jsonstring;
+  }
 
+  public function processWebform($data, array $row) {
 
   }
 
-  public function processWebform($data) {
 
-
-  }
-
-
-  public function ingestAdo($data) {
+  public function ingestAdo($data, array $row) {
 
   }
 
