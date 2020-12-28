@@ -125,8 +125,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $data = $this->store->get('data');
       $column_keys = $data['headers'];
       $mapping = $this->store->get('mapping');
-      dpm($mapping);
-
       $metadata = [
         'direct' => 'Direct ',
         'template' => 'Template',
@@ -172,7 +170,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
       $newelements_global = $element_conditional;
       foreach ($newelements_global as $key => &$subelement) {
-        $subelement['#default_value'] = isset($mapping['metadata_config'][$key]) ? $mapping['metadata_config'][$key]: reset(${$key});
+        $subelement['#default_value'] = isset($mapping['globalmapping_settings']['metadata_config'][$key]) ? $mapping['globalmapping_settings']['metadata_config'][$key]: reset(${$key});
         $subelement['#states'] = [
           'visible' => [
             ':input[name*="globalmapping"]' => ['value' => $key],
@@ -184,7 +182,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $form['ingestsetup']['files'] = [
         '#type' => 'select',
         '#title' => $this->t('Select which columns contain filenames, entities or URLs where we can fetch files'),
-        '#default_value' => isset($mapping['files']) ? $mapping['files'] : [],
+        '#default_value' => isset($mapping['globalmapping_settings']['files']) ? $mapping['globalmapping_settings']['files'] : [],
         '#options' => array_combine($column_keys, $column_keys),
         '#size' => count($column_keys),
         '#multiple' => TRUE,
@@ -198,7 +196,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
 
       $form['ingestsetup']['bundle'] = $element['bundle'];
-      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['bundle']) ? $mapping['bundle'] : reset($bundle);
+      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['globalmapping_settings']['bundle']) ? $mapping['globalmapping_settings']['bundle'] : reset($bundle);
       $form['ingestsetup']['bundle']['#states'] = [
         'visible' => [
           ':input[name*="globalmapping"]' => ['!value' => 'custom'],
@@ -207,8 +205,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
       // Get all headers and check for a 'type' key first, if not allow the user to select one?
       // Wonder if we can be strict about this and simply require always a "type"?
-
-      dpm($data['headers']);
 
       $type_column_index = array_search('type', $data['headers']);
       if ($type_column_index !== FALSE) {
@@ -236,7 +232,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             //'#name' => 'metadata_'.$machine_type,
             '#type' => 'select',
             '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
-            '#default_value' => isset($mapping['custommapping'][$type]['metadata']) ? $mapping['custommapping'][$type]['metadata'] : reset($metadata),
+            '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : reset($metadata),
             '#options' => $metadata,
             '#description' => $this->t('How your source data will be transformed into ADOs Metadata.'),
             '#required' => TRUE,
@@ -247,7 +243,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           // We need to reassign or if not circular references mess with the render array
           $newelements = $element_conditional;
           foreach ($newelements as $key => &$subelement) {
-            $subelement['#default_value'] = isset($mapping['custommapping'][$type]['metadata_config'][$key]) ? $mapping['custommapping'][$type]['metadata_config'][$key] : reset(${$key});
+            $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : reset(${$key});
             $subelement['#states'] = [
               'visible' => [
                 ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
@@ -261,12 +257,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $form['ingestsetup']['custommapping'][$type]['metadata_config'] = $newelements;
           $form['ingestsetup']['custommapping'][$type]['bundle'] = $element['bundle'];
 
-          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping'][$type]['bundle']) ? $mapping['custommapping'][$type]['bundle'] : reset($bundle);
+          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : reset($bundle);
 
           $form['ingestsetup']['custommapping'][$type]['files'] = [
             '#type' => 'select',
             '#title' => $this->t('Select which columns contain filenames, entities or URLs where we can fetch the files for @type', ['@type' => $type]),
-            '#default_value' => isset($mapping['custommapping'][$type]['files']) ? $mapping['custommapping'][$type]['files'] : [],
+            '#default_value' => isset($mapping['custommapping_settings'][$type]['files']) ? $mapping['custommapping_settings'][$type]['files'] : [],
             '#options' => array_combine($column_keys, $column_keys),
             '#size' => count($column_keys),
             '#multiple' => TRUE,
@@ -283,7 +279,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $column_options = array_combine($column_keys, $column_keys);
       $mapping = $this->store->get('mapping');
       $adomapping = $this->store->get('adomapping');
-      dpm($adomapping);
       $required_maps = [
         'sequence' => 'Sequence Order',
         'label' => 'Ado Label',
@@ -355,7 +350,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     if ($this->step == 5) {
       $fileid = $this->store->get('zip');
-      dpm($fileid);
       $form['zip'] = [
         '#type' => 'managed_file',
         '#title' => $this->t('Provide an ZIP file'),
@@ -405,9 +399,21 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       if ($form_state->getTriggeringElement()['#name'] !== 'prev') {
         $globalmapping = $form_state->getValue('globalmapping');
         $custommapping = $form_state->getValue('custommapping');
+        $files =  $form_state->getValue('files');
+        $bundle =  $form_state->getValue('bundle');
+        $template = $form_state->getValue('template');
+        $webform = $form_state->getValue('webform');
         $this->store->set('mapping', [
           'globalmapping' => $globalmapping,
-          'custommapping' => $custommapping
+          'custommapping_settings' => $custommapping,
+          'globalmapping_settings' => [
+            'files' => $files,
+            'bundle' => $bundle,
+            'metadata_config' => [
+              'template' => $template,
+              'webform' => $webform
+            ]
+          ]
         ]);
       }
     }
@@ -421,7 +427,11 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $file = $this->entityTypeManager->getStorage('file')
         ->load($form_state->getValue('zip')[0]); // Just FYI. The file id will be stored as an array
       // And you can access every field you need via standard method
-      $this->store->set('zip', $file->id());
+      if ($file) {
+        $this->store->set('zip', $file->id());
+      } else {
+        $this->store->set('zip', NULL);
+      }
 
       $amisetdata = new \stdClass();
 
@@ -466,7 +476,11 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
     // Parent already sets rebuild but better to not trust our own base classes
     // In case they change.
-    $form_state->setRebuild(TRUE);
+    if ($this->step < $this->lastStep) {
+      $form_state->setRebuild(TRUE);
+    } else {
+      $form_state->setRebuild(FALSE);
+    }
     return;
 
     $host = \Drupal::request()->getHost();

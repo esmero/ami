@@ -178,9 +178,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    dpm($form_state->getValues());
     if ($form_state->getTriggeringElement()['#name'] == 'prev') {
-      error_log('called prev');
       $this->step--;
     } else {
       $this->step++;
@@ -193,8 +191,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
    * {@inheritdoc}
    */
   public function validateForm(array &$form, FormStateInterface $form_state) {
-    dpm($form_state->getTriggeringElement()['#ajax']);
-    error_log('validateForm');
+
     if ($form_state->getTriggeringElement()['#name'] == 'prev') {
       // No validation my friends.
     } else {
