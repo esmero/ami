@@ -70,6 +70,11 @@ class amiSetEntityListBuilder extends EntityListBuilder {
         'weight' => 11,
         'url' => $this->ensureDestination($entity->toUrl('process-form')),
       ];
+      $operations['delete_processed'] = [
+        'title' => $this->t('Delete Processed ADOs'),
+        'weight' => 12,
+        'url' => $this->ensureDestination($entity->toUrl('delete-process-form')),
+      ];
     }
     return $operations;
   }
