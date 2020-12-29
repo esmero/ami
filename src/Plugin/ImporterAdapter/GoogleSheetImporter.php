@@ -90,6 +90,20 @@ class GoogleSheetImporter extends SpreadsheetImporter {
     // Here.
     // Maybe we should have some annotation that says which ones for other plugins?
     //$form = parent::interactiveForm($parents,$form_state);
+    $form['op'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Operation'),
+      '#options' => [
+        'create' => 'Create New ADOs',
+        'update' => 'Update existing ADOs',
+        'patch' => 'Patch existing ADOs',
+        'delete' => 'Delete existing ADOs',
+      ],
+      '#description' => $this->t('The desired Operation'),
+      '#required' => TRUE,
+      '#default_value' =>  $form_state->getValue(array_merge($parents , ['op'])),
+      '#empty_option' => $this->t('- Please select an Operation -'),
+    ];
     $form['google_api']= array(
       '#prefix' => '<div id="ami-googleapi">',
       '#suffix' => '</div>',
