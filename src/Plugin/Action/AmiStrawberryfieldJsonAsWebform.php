@@ -48,7 +48,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
   }
 
   public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state) {
-    dpm('pre');
+
   }
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {

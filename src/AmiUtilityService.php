@@ -901,7 +901,6 @@ class AmiUtilityService {
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function preprocessAmiSet(File $file, \stdClass $data) {
-    dpm('Running preprocessAmiSet');
 
     $file_data_all = $this->csv_read($file);
     // we may want to check if saved metadata headers == csv ones first.
@@ -1105,7 +1104,6 @@ class AmiUtilityService {
   }
 
   public function getProcessedAmiSetNodeUUids(File $file, \stdClass $data) {
-    dpm('Running get Nodes of Ami Set');
 
     $file_data_all = $this->csv_read($file);
     // we may want to check if saved metadata headers == csv ones first.

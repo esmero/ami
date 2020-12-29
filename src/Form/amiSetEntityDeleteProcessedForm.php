@@ -82,7 +82,6 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
       $data = $item->provideDecoded(FALSE);
     }
     if ($file && $data!== new \stdClass()) {
-      dpm('we got file');
       $uuids = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data);
       $operations = [];
       foreach (array_chunk($uuids, 10) as $batch_data_uuid) {
@@ -96,6 +95,14 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         'finished' => '\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchFinished',
       );
       batch_set($batch);
+    } else {
+      $this->messenger()->addError(
+        $this->t('So Sorry. This Ami Set has incorrect Metadata and/or has its CSV file missing. We need it to know which ADOs where generated via this Set. Please correct or manually delete your ADOs.',
+          [
+            '@label' => $this->entity->label(),
+          ]
+        )
+      );
     }
   }
 
