@@ -19,12 +19,6 @@ use Drupal\Core\Queue\QueueFactory;
 use Drupal\Core\Queue\QueueWorkerManager;
 
 /**
- * You can use this constant to set how many queued items
- * you want to be processed in one batch operation
- */
-define("IMPORT_XML_BATCH_SIZE", 1);
-
-/**
  * Base class for ImporterAdapter plugins.
  */
 abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginAdapterInterface, ContainerFactoryPluginInterface {
