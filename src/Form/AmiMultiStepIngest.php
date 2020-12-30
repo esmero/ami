@@ -428,11 +428,16 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       }
     }
     if ($this->step == 6) {
-      $file = $this->entityTypeManager->getStorage('file')
-        ->load($form_state->getValue('zip')[0]); // Just FYI. The file id will be stored as an array
-      // And you can access every field you need via standard method
-      if ($file) {
-        $this->store->set('zip', $file->id());
+      if ($form_state->getValue('zip', NULL)) {
+        $file = $this->entityTypeManager->getStorage('file')
+          ->load($form_state->getValue('zip')[0]); // Just FYI. The file id will be stored as an array
+        // And you can access every field you need via standard method
+        if ($file) {
+          $this->store->set('zip', $file->id());
+        }
+        else {
+          $this->store->set('zip', NULL);
+        }
       } else {
         $this->store->set('zip', NULL);
       }
