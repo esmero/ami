@@ -157,20 +157,10 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     }
 
     if ($this->step == $this->lastStep) {
-      $form['actions']['submit'] = array(
-        '#type' => 'submit',
-        '#value' => t('Ingest'),
-        '#ajax' => array(
-          // We pass in the wrapper we created at the start of the form
-          'wrapper' => 'ami_multistep_form',
-          // We pass a callback function we will use later to render the form for the user
-          'callback' => '::ami_multistep_form_ajax_callback',
-          'event' => 'click',
-        ),
-        '#button_type' => 'primary',
-      );
+      return $form;
+      // @TODO see if we want to process something here.
+      // Leaving the Button around in case we want that?
     }
-
     return $form;
   }
 
