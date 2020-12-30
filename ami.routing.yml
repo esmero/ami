@@ -78,3 +78,11 @@ entity.ami_set_entity.process_form:
     _title: 'Process Ami Set'
   requirements:
     _entity_access: 'ami_set_entity.edit'
+
+entity.ami_set_entity.delete_process_form:
+  path: '/amiset/{ami_set_entity}/deleteprocessed'
+  defaults:
+    _entity_form: ami_set_entity.deleteprocessed
+    _title: 'Process Ami Set'
+  requirements:
+    _entity_access: 'ami_set_entity.edit'

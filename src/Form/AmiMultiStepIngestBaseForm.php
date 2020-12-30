@@ -125,7 +125,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     $form['#suffix'] = '</div>';
     $form['actions']['#type'] = 'actions';
 
-    if ($this->step > 1) {
+    if ($this->step > 1 && $this->step != $this->lastStep) {
       $form['actions']['prev'] = array(
         '#type' => 'submit',
         '#name' => 'prev',

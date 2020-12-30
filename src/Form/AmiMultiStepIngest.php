@@ -116,7 +116,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         $plugin_instance = $this->importerManager->createInstance($pluginValue,$configuration);
         $this->store->set('plugininstance',$plugin_instance);
       }
-
       $form['pluginconfig'] = $plugin_instance->interactiveForm($parents, $form_state);
       $form['pluginconfig']['#tree'] = TRUE;
     }
@@ -372,7 +371,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     parent::submitForm($form, $form_state);
     if ($form_state->getValue('plugin', NULL)) {
+
+      if ($this->store->get('plugin') != $form_state->getValue('plugin', NULL)) {
+        $this->store->set('pluginconfig',[]);
+      }
       $this->store->set('plugin', $form_state->getValue('plugin'));
+
     }
     if ($form_state->getValue('pluginconfig', [])) {
       $this->store->set('pluginconfig', $form_state->getValue('pluginconfig'));
@@ -476,36 +480,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
     // Parent already sets rebuild but better to not trust our own base classes
     // In case they change.
-    if ($this->step < $this->lastStep) {
+    if ($this->step <= $this->lastStep) {
       $form_state->setRebuild(TRUE);
     } else {
       $form_state->setRebuild(FALSE);
     }
     return;
-
-    $host = \Drupal::request()->getHost();
-    $url = $host . '/' . drupal_get_path('module', 'batch_import_example') . '/docs/animals.json';
-    $request = \Drupal::httpClient()->get($url);
-    $body = $request->getBody();
-    $data = Json::decode($body);
-    $total = count($data);
-
-    $batch = [
-      'title' => t('Importing ADOs'),
-      'operations' => [],
-      'init_message' => t('Import process is starting.'),
-      'progress_message' => t('Processed @current out of @total. Estimated time: @estimate.'),
-      'error_message' => t('The process has encountered an error.'),
-    ];
-
-    foreach($data as $item) {
-      $batch['operations'][] = [['\Drupal\batch_import_example\Form\ImportForm', 'importAnimal'], [$item]];
-    }
-
-    batch_set($batch);
-    \Drupal::messenger()->addMessage('Imported ' . $total . ' animals!');
-
-    $form_state->setRebuild(TRUE);
   }
 
   /**

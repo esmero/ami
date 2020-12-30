@@ -107,12 +107,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     // Before we do any processing. Check if Parent(s) exists?
     // If not, re-enqueue: we try twice only. Should we try more?
+    $parent_nodes = [];
     if (isset($data->info['row']['parent']) && is_array($data->info['row']['parent'])) {
-      $parents = array_values($data->info['row']['parent']);
+      $parents = $data->info['row']['parent'];
       $parents = array_filter($parents);
       error_log('We got parents, checking if they exist');
       error_log(var_export($parents,true));
-      foreach($parents as $parent_uuid) {
+      foreach($parents as $parent_property => $parent_uuid) {
         error_log(var_export($parent_uuid,true));
         $parent_uuids = (array) $parent_uuid;
         $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $parent_uuids]);
@@ -126,15 +127,24 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               ->createItem($data);
             return;
           } else {
-            error_log('WE tried twice. Will not re-enqueue');
+            error_log('We tried twice. Will not re-enqueue');
             return;
             // We could enqueue in a "failed" queue?
+          }
+        } else {
+          // Get the IDs!
+          foreach($existing as $node) {
+            $parent_nodes[$parent_property][] = (int) $node->id();
           }
         }
       }
     }
 
     $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
+    if (!$processed_metadata) {
+      error_log('Sorry, we could convert your row into metadata');
+      return;
+    }
     $cleanvalues = [];
     // Now process Files and Nodes
     $ado_columns = array_values(get_object_vars($data->adomapping->parents));
@@ -151,7 +161,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $processed_metadata = json_decode($processed_metadata, true);
     $cleanvalues["ap:entitymapping"] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
+
+    // Assign parents as NODE Ids.
+
+    foreach ($parent_nodes as $parent_property => $node_ids) {
+      $processed_metadata[$parent_property] = $node_ids;
+    }
     error_log(var_export($processed_metadata,true));
+
     // Now do heavy file lifting
     foreach($file_columns as $file_column) {
       // Why 5? one character + one dot + 3 for the extension
@@ -165,7 +182,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         foreach($filenames as $filename) {
           $file = $this->AmiUtilityService->file_get($filename);
           if ($file) {
-            $processed_metadata[$file_column][] = $file->id();
+            $processed_metadata[$file_column][] = (int) $file->id();
           }
         }
       }

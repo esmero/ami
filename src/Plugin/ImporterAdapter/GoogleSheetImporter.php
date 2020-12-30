@@ -48,11 +48,6 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   protected $googleApiClientService;
 
   /**
-   * @var \Drupal\ami\AmiUtilityService
-   */
-  protected $AmiUtilityService;
-
-  /**
    * GoogleSheetImporter constructor.
    *
    * @param array $configuration
@@ -65,11 +60,10 @@ class GoogleSheetImporter extends SpreadsheetImporter {
    * @param \Drupal\ami\AmiUtilityService $ami_utility
    */
   public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager, ClientInterface $httpClient, StreamWrapperManagerInterface $streamWrapperManager, GoogleApiClientService $google_api_client_service, AmiUtilityService $ami_utility) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $streamWrapperManager);
+    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $streamWrapperManager, $ami_utility);
     $this->streamWrapperManager = $streamWrapperManager;
     $this->googleApiClientService = $google_api_client_service;
     $this->httpClient = $httpClient;
-    $this->AmiUtilityService = $ami_utility;
   }
 
   /**
@@ -95,7 +89,21 @@ class GoogleSheetImporter extends SpreadsheetImporter {
     // None of the interactive Form elements should be persisted as Config elements
     // Here.
     // Maybe we should have some annotation that says which ones for other plugins?
-    $form = parent::interactiveForm($parents,$form_state);
+    //$form = parent::interactiveForm($parents,$form_state);
+    $form['op'] = [
+      '#type' => 'select',
+      '#title' => $this->t('Operation'),
+      '#options' => [
+        'create' => 'Create New ADOs',
+        'update' => 'Update existing ADOs',
+        'patch' => 'Patch existing ADOs',
+        'delete' => 'Delete existing ADOs',
+      ],
+      '#description' => $this->t('The desired Operation'),
+      '#required' => TRUE,
+      '#default_value' =>  $form_state->getValue(array_merge($parents , ['op'])),
+      '#empty_option' => $this->t('- Please select an Operation -'),
+    ];
     $form['google_api']= array(
       '#prefix' => '<div id="ami-googleapi">',
       '#suffix' => '</div>',
@@ -122,9 +130,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   }
 
   public static function validateSpreadsheetId($element, FormStateInterface $form_state, array $form) {
-    error_log('called validateSpreadsheetId');
     //@TODO Google Sheet validation by calling Google and checking if we can read it
-
     if (
     !preg_match('#https?://docs.google.com/spreadsheets/d/(.+)/edit(\#gid=(\d+))?#', $form_state->getValue($element['#parents']), $matches)
     ) {

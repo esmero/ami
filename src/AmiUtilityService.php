@@ -301,8 +301,10 @@ class AmiUtilityService {
       // Now that we know its not remote, try with our registered schemas
       // means its either private/public/s3, etc
       $scheme = $this->streamWrapperManager->getScheme($uri);
+      error_log(var_export($scheme,true));
       if ($scheme) {
         if (!file_exists($uri)) {
+          error_log($uri . 'does not exist');
           return FALSE;
         }
         $finaluri = $uri;
@@ -313,6 +315,7 @@ class AmiUtilityService {
         //@TODO check if we should copy here or just deal with it.
         $localfile = $this->fileSystem->realpath($uri);
         if (!file_exists($localfile)) {
+          error_log($uri . 'does not exist in local path');
           return FALSE;
         }
         $finaluri = $localfile;
@@ -354,6 +357,7 @@ class AmiUtilityService {
 
     }
     if ($finaluri) {
+      error_log($finaluri . ' calling create file from uri');
       $file = $this->create_file_from_uri($finaluri);
       return $file;
     }
@@ -897,7 +901,6 @@ class AmiUtilityService {
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function preprocessAmiSet(File $file, \stdClass $data) {
-    dpm('Running preprocessAmiSet');
 
     $file_data_all = $this->csv_read($file);
     // we may want to check if saved metadata headers == csv ones first.
@@ -1099,6 +1102,28 @@ class AmiUtilityService {
     // @TODO Should we do a final check here? Alert the user the rows are less/equal to the desired?
     return $newinfo;
   }
+
+  public function getProcessedAmiSetNodeUUids(File $file, \stdClass $data) {
+
+    $file_data_all = $this->csv_read($file);
+    // we may want to check if saved metadata headers == csv ones first.
+    // $data->column_keys
+    $config['data']['headers'] = $file_data_all['headers'];
+
+    foreach ($file_data_all['data'] as $index => $keyedrow) {
+      // This makes tracking of values more consistent and easier for the actual processing via
+      // twig templates, webforms or direct
+      $row = array_combine($config['data']['headers'], $keyedrow);
+      $possibleUUID = trim($row[$data->adomapping->uuid->uuid]);
+      // Double check? User may be tricking us!
+      if (Uuid::isValid($possibleUUID)) {
+        $uuids[] = $possibleUUID;
+        // Now be more strict for action = update
+      }
+    }
+    return $uuids;
+  }
+
 
   /**
    * Super simple callback to check if in a CSV our parent is the actual root element
