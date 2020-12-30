@@ -8,5 +8,6 @@ ami.multistep_import.add:
   title: 'Start an AMI Set'
   route_name: ami.multistep_import
   appears_on:
-    -  system.admin_content
+    - system.admin_content
+    - entity.ami_set_entity.collection
   weight: 12
