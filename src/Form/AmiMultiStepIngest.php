@@ -394,7 +394,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         // Why 3? At least title, a type and a parent even if empty
 
         // Total rows contains data without headers So a single one is good enough.
-        if (is_array($data) && !empty($data) and isset($data['headers']) && count($data['headers']>=3) && isset($data['totalrows']) && $data['totalrows']>=1) {
+        if (is_array($data) && !empty($data) and isset($data['headers']) && count($data['headers'])>=3 && isset($data['totalrows']) && $data['totalrows']>=1) {
           $this->store->set('data', $data);
         }
       }
@@ -471,15 +471,17 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             $url = Url::fromRoute('entity.ami_set_entity.canonical', ['ami_set_entity' => $id]);
             $this->messenger()->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>', ['@url' => $url->toString()]));
             $this->store->delete('data');
+            $form_state->setRebuild(FALSE);
+            $form_state->setRedirect('entity.ami_set_entity.canonical', ['ami_set_entity' => $id]);
           }
         }
         else {
-          $this->messenger()->addError('Ups. Something went wrong when generating your full source data as CSV.');
+          $this->messenger()->addError('Ups. Something went wrong when generating your full source data as CSV. Please retry and/or contact your site admin.');
         }
       }
       else {
         // Explain why
-        $this->messenger()->addError('Ups. Something went wrong and we could not get your data');
+        $this->messenger()->addError('Ups. Something went wrong and we could not get your data because we could not load the importer plugin. Please contact your site admin.');
       }
     }
 
