@@ -114,7 +114,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         '#title' => $this->t('ID of your Google Sheet'),
         '#description' => 'Example: https://docs.google.com/spreadsheets/d/aaBAccEEFfC_aBC-aBc0d1EF/edit, use that same full URL',
         '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_id'])),
-        '#element_validate' => [[get_called_class(), 'validateSpreadsheetId']]
+        '#element_validate' => [[get_class($this), 'validateSpreadsheetId']]
       ),
       'spreadsheet_range' => array(
         '#type' => 'textfield',
@@ -122,14 +122,14 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         '#title' =>  $this->t('Cell Range'),
         '#description' => t('Cell Range for your Google Sheet, in the form of SheetName!A1:B10'),
         '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_range'])),
-        '#element_validate' => [[get_called_class(),'::validateRange']]
+        '#element_validate' => [[get_class($this), 'validateRange']]
       ),
     );
 
     return $form;
   }
 
-  public static function validateSpreadsheetId($element, FormStateInterface $form_state, array $form) {
+  public static function validateSpreadsheetId($element, FormStateInterface $form_state) {
     //@TODO Google Sheet validation by calling Google and checking if we can read it
     if (
     !preg_match('#https?://docs.google.com/spreadsheets/d/(.+)/edit(\#gid=(\d+))?#', $form_state->getValue($element['#parents']), $matches)
@@ -139,7 +139,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   }
 
 
-  public function validateRange($element, FormStateInterface $form_state, array $form) {
+  public static function validateRange($element, FormStateInterface $form_state, array $form) {
     //@TODO implement range Validation
   }
 

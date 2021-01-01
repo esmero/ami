@@ -93,13 +93,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'set_id' => $this->entity->id(),
           'uid' => $this->currentUser()->id(),
           'set_url' => $SetURL,
-          'attempts' => 1
+          'attempt' => 1
         ];
         \Drupal::queue('ami_ingest_ado')
           ->createItem($data);
       }
-      // $this->AmiUtilityService->preprocessAmiSet();
-
       $this->messenger()->addMessage(
         $this->t('Set @label enqueued and processed .',
           [

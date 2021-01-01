@@ -30,7 +30,7 @@ use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
-use Symfony\Component\HttpFoundation\File\MimeType\ExtensionGuesser;
+use Drupal\Core\File\MimeType\ExtensionMimeTypeGuesser;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 
@@ -415,10 +415,10 @@ class AmiUtilityService {
         $path = $destination;
       }
     }
-
     /* @var \Psr\Http\Message\ResponseInterface $response */
     try {
-      $response = $this->httpClient->get($uri, ['sink' => $path]);
+      $realpath = $this->fileSystem->realpath($path);
+      $response = $this->httpClient->get($uri, ['sink' => $realpath]);
     }
     catch (ExceptionInterface $exception){
       //@TODO what to do?
@@ -434,22 +434,29 @@ class AmiUtilityService {
 
     // It would be more optimal to run this after saving
     // but i really need the mime in case no extension is present
-    $mimefromextension = \Drupal::service('file.mime_type.guesser')->guess(
+    $mimefromextension =\Drupal::service('strawberryfield.mime_type.guesser.mime')->guess(
       $path
     );
 
     if (($mimefromextension == "application/octet-stream") &&
       !empty($response->getHeader('Content-Type'))) {
       $mimetype = $response->getHeader('Content-Type');
-      $extension = ExtensionGuesser::getInstance()->guess($mimetype);
-      $info = pathinfo($path);
-      if (($extension != "bin") && ($info['extension'] != $extension)) {
-        $newpath = $path . "." . $extension;
-        $status = @rename($path,$newpath);
+      if (count($mimetype) > 0) {
+        $extension = \Drupal::service('strawberryfield.mime_type.guesser.mime')->inverseguess($mimetype[0]);
+        error_log(var_export($extension,true));
+      } else {
+        $extension = '';
+      }
+      $info = pathinfo($realpath);
+      if (($info['extension'] != $extension)) {
+        $newpath = $realpath . "." . $extension;
+        $status = @rename($realpath,$newpath);
         if ($status === FALSE) {
           return FALSE;
         }
         $localfile = $newpath;
+      } else {
+        $localfile = $realpath;
       }
     }
     return $localfile;
@@ -457,7 +464,6 @@ class AmiUtilityService {
 
   public function create_file_from_uri($localpath){
     try {
-
       $file = $this->entityTypeManager->getStorage('file')->create([
         'uri' => $localpath,
         'uid' => $this->currentUser->id(),
@@ -479,6 +485,7 @@ class AmiUtilityService {
       return $file;
     }
     catch (FileException $e) {
+      error_log($e->getMessage());
       return FALSE;
     }
   }
