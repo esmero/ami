@@ -13,6 +13,7 @@ use Drupal\Component\Utility\Environment;
 use Drupal\Core\Field\BaseFieldDefinition;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Database\Database;
+use Drupal\Core\Config\Entity\ConfigEntityType;
 
 
 /**
@@ -73,4 +74,30 @@ function ami_update_8902() {
     ->setDisplayConfigurable('form', TRUE);
 
   \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('zip_file', 'ami_set_entity', 'ami', $storage_definition);
+}
+
+/**
+ * Update 8903 - Install Importer Adapter Config Entity.
+ */
+function ami_update_8903() {
+  \Drupal::entityDefinitionUpdateManager()->installEntityType(new ConfigEntityType([
+     'id' => 'importeradapter',
+     'label' => new TranslatableMarkup('AMI Importer Adapter'),
+     'config_prefix' => 'importeradapter',
+     'admin_permission' => 'administer site configuration',
+     'entity_keys' => [
+       'id' => 'id',
+       'label' => 'label',
+       'uuid' => 'uuid',
+     ],
+     'config_export' => [
+        "id",
+        "label",
+        "plugin",
+        "update_existing",
+        "target_entity_types",
+        "active",
+        "plugin_configuration"
+     ],
+   ]));
 }
