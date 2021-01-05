@@ -12,6 +12,8 @@ use Drupal\field\Entity\FieldConfig;
 use Drupal\Component\Utility\Environment;
 use Drupal\Core\Field\BaseFieldDefinition;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
+use Drupal\Core\Database\Database;
+
 
 /**
  * Implements hook_install().
@@ -22,11 +24,12 @@ function ami_install() {
 }
 
 /**
- * Update 8001 - Create AMI Set entity.
+ * Update 8901 - Create AMI Set entity.
  */
-function ami_update_8001() {
-
-  if(!db_table_exists('ami_setentity')) {
+function ami_update_8901() {
+  // Code provided by @giancarloby to allow D9 compat.
+  $schema = Database::getConnection()->schema();
+  if (!$schema->tableExists('ami_setentity')) {
     \Drupal::entityTypeManager()->clearCachedDefinitions();
     \Drupal::entityDefinitionUpdateManager()
       ->installEntityType(\Drupal::entityTypeManager()->getDefinition('ami_set_entity'));
@@ -35,10 +38,11 @@ function ami_update_8001() {
     return 'AMI Set entity already exists';
   }
 }
+
 /**
- * Update 8001 - Add ZIP file Field for AMI Set entity.
+ * Update 8902 - Add ZIP file Field for AMI Set entity.
  */
-function ami_update_8002() {
+function ami_update_8902() {
   $validators = [
       'file_validate_extensions' => ['zip'],
       'file_validate_size' => [Environment::getUploadMaxSize()],
