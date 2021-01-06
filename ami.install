@@ -13,6 +13,8 @@ use Drupal\Component\Utility\Environment;
 use Drupal\Core\Field\BaseFieldDefinition;
 use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Database\Database;
+use Drupal\Core\Config\Entity\ConfigEntityType;
+
 
 /**
  * Implements hook_install().
@@ -23,12 +25,12 @@ function ami_install() {
 }
 
 /**
- * Update 8701 - Create AMI Set entity.
+ * Update 8901 - Create AMI Set entity.
  */
-function ami_update_8701() {
-
+function ami_update_8901() {
+  // Code provided by @giancarloby to allow D9 compat.
   $schema = Database::getConnection()->schema();
-  if(!$schema->tableExists('ami_setentity')) {
+  if (!$schema->tableExists('ami_setentity')) {
     \Drupal::entityTypeManager()->clearCachedDefinitions();
     \Drupal::entityDefinitionUpdateManager()
       ->installEntityType(\Drupal::entityTypeManager()->getDefinition('ami_set_entity'));
@@ -37,10 +39,11 @@ function ami_update_8701() {
     return 'AMI Set entity already exists';
   }
 }
+
 /**
- * Update 8702 - Add ZIP file Field for AMI Set entity.
+ * Update 8902 - Add ZIP file Field for AMI Set entity.
  */
-function ami_update_8702() {
+function ami_update_8902() {
   $validators = [
       'file_validate_extensions' => ['zip'],
       'file_validate_size' => [Environment::getUploadMaxSize()],
@@ -71,4 +74,30 @@ function ami_update_8702() {
     ->setDisplayConfigurable('form', TRUE);
 
   \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('zip_file', 'ami_set_entity', 'ami', $storage_definition);
+}
+
+/**
+ * Update 8903 - Install Importer Adapter Config Entity.
+ */
+function ami_update_8903() {
+  \Drupal::entityDefinitionUpdateManager()->installEntityType(new ConfigEntityType([
+     'id' => 'importeradapter',
+     'label' => new TranslatableMarkup('AMI Importer Adapter'),
+     'config_prefix' => 'importeradapter',
+     'admin_permission' => 'administer site configuration',
+     'entity_keys' => [
+       'id' => 'id',
+       'label' => 'label',
+       'uuid' => 'uuid',
+     ],
+     'config_export' => [
+        "id",
+        "label",
+        "plugin",
+        "update_existing",
+        "target_entity_types",
+        "active",
+        "plugin_configuration"
+     ],
+   ]));
 }
