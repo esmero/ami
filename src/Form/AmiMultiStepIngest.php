@@ -265,7 +265,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             '#options' => array_combine($column_keys, $column_keys),
             '#size' => count($column_keys),
             '#multiple' => TRUE,
-            '#description' => $this->t('From where your files will be fetched to be uploaded and attached to an ADOs and described in the Metadata.'),
+            '#description' => $this->t('From where your files will be fetched to be uploaded and attached to an ADOs and described in the Metadata. AMI uses semicolons ";" to separate multiple files inside a single cell.'),
             '#empty_option' => $this->t('- Please select columns for @type -', ['@type' => $type]),
           ];
         }
