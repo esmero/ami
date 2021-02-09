@@ -250,34 +250,6 @@ class AmiUtilityService {
     return FALSE;
   }
 
-  public function getParentType($uuid) {
-    // This is the same as format_strawberry \format_strawberryfield_entity_view_mode_alter
-    // @TODO refactor into a reusable method inside strawberryfieldUtility!
-    $entity = $this->entityTypeManager->getStorage('node')
-      ->loadByProperties(['uuid' => $uuid]);
-    if ($sbf_fields = $this->strawberryfieldUtility->bearsStrawberryfield($entity)) {
-      foreach ($sbf_fields as $field_name) {
-        /* @var $field StrawberryFieldItem */
-        $field = $entity->get($field_name);
-        if (!$field->isEmpty()) {
-          foreach ($field->getIterator() as $delta => $itemfield) {
-            /** @var $itemfield \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem */
-            $flatvalues = (array) $itemfield->provideFlatten();
-            if (isset($flatvalues['type'])) {
-              $adotype = array_merge($adotype, (array) $flatvalues['type']);
-            }
-          }
-        }
-      }
-    }
-    if (!empty($adotype)) {
-      return reset($adotype);
-    }
-    //@TODO refactor into a CONST
-    return 'thing';
-  }
-
-
   /**
    * Checks if an URI from spreadsheet is remote or local and returns a file
    *
@@ -333,7 +305,7 @@ class AmiUtilityService {
 
         if (!$this->fileSystem->prepareDirectory(
           $destination,
-          FileSystemInterface::CREATE_DIRECTORY
+          FileSystemInterface::CREATE_DIRECTORY|FileSystemInterface::MODIFY_PERMISSIONS
         )) {
           $this->messenger()->addError(
             $this->t('Unable to create directory where to download remote file @uri. Verify permissions please',
@@ -513,7 +485,7 @@ class AmiUtilityService {
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
       $path,
-      FileSystemInterface::CREATE_DIRECTORY
+      FileSystemInterface::CREATE_DIRECTORY|FileSystemInterface::MODIFY_PERMISSIONS
     )) {
       $this->messenger()->addError(
         $this->t('Unable to create directory for CSV file. Verify permissions please')
