@@ -85,6 +85,18 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
       $info = $this->AmiUtilityService->preprocessAmiSet($file, $data);
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])->toString();
+      $notprocessnow = $form_state->getValue('not_process_now', NULL);
+      $queue_name = 'ami_ingest_ado';
+      if (!$notprocessnow) {
+        // This queues have no queue workers. That is intended since they
+        // are always processed by the ami_ingest_ado one manually.
+        $queue_name = 'ami_ingest_ado_set_'.$this->entity->id();
+        \Drupal::queue($queue_name, TRUE)->createQueue();
+        // @TODO acquire a Lock that is renewed for each queue item processing
+        // To avoid same batch to be send to processing by different users at
+        // the same time.
+      }
+      $added = [];
       foreach($info as $item) {
         // We set current User here since we want to be sure the final owner of
         // the object is this and not the user that runs the queue
@@ -95,16 +107,26 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'set_url' => $SetURL,
           'attempt' => 1
         ];
-        \Drupal::queue('ami_ingest_ado')
+        $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
       }
-      $this->messenger()->addMessage(
-        $this->t('Set @label enqueued and processed .',
-          [
-            '@label' => $this->entity->label(),
-          ]
-        )
-      );
+
+      if ($notprocessnow) {
+        $this->messenger()->addMessage(
+          $this->t('Set @label enqueued and processed .',
+            [
+              '@label' => $this->entity->label(),
+            ]
+          )
+        );
+        $form_state->setRedirectUrl($this->getCancelUrl());
+      } else {
+        $count = count(array_filter($added));
+        // TODO check if count($info) == $count
+        if ($count) {
+          $this->submitBatch($form_state, $queue_name, $count);
+        }
+      }
     } else {
       $this->messenger()->addError(
         $this->t('So Sorry. This Ami Set has incorrect Metadata and/or has its CSV file missing. Please correct or delete and generate a new one.',
@@ -113,9 +135,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ]
         )
       );
+      $form_state->setRebuild();
     }
-
-    $form_state->setRedirectUrl($this->getCancelUrl());
   }
 
 
@@ -123,18 +144,35 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
-    $processnow = $form_state->getValue('process_now', NULL);
-    $form['process_now'] = [
+    $notprocessnow = $form_state->getValue('not_process_now', NULL);
+    $form['not_process_now'] = [
       '#type' => 'checkbox',
-        '#title' => $this->t('Enqueue but do not process Batch'),
+        '#title' => $this->t('Enqueue but do not process Batch in realtime.'),
         '#description' => $this->t(
-      'Check this to only enqueue but not trigger an interactive Batch processing. Cron or any other mechanism you have enabled will do the actual operation'
+      'Check this to enqueue but not trigger the interactive Batch processing. Cron or any other mechanism you have enabled will do the actual operation. This queue is shared by all AMI Sets in this repository and will be processed on a First-In First-Out basis.'
     ),
         '#required' => FALSE,
-        '#default_value' => !empty($processnow) ? $processnow : TRUE,
+        '#default_value' => !empty($notprocessnow) ? $notprocessnow : FALSE,
       ];
 
     return $form + parent::buildForm($form, $form_state);
+  }
+
+ /*
+ * Process queue(s) with batch.
+ *
+ * @param \Drupal\Core\Form\FormStateInterface $form_state
+ * @param $queue
+ */
+  public function submitBatch(FormStateInterface $form_state, $queue_name) {
+    $batch = [
+      'title' => $this->t('Batch processing your Set'),
+      'operations' => [],
+      'finished' => ['\Drupal\ami\AmiBatchQueue', 'finish'],
+      'progress_message' => t('Processing Set @current of @total.'),
+    ];
+    $batch['operations'][] = ['\Drupal\ami\AmiBatchQueue::takeOne', [$queue_name, $this->entity->id()]];
+    batch_set($batch);
   }
 
 }
