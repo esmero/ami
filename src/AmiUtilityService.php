@@ -1246,13 +1246,9 @@ class AmiUtilityService {
 
   }
 
-
   public function ingestAdo($data, array $row) {
 
   }
-
-
-
 
 
   public function updateAdo($data) {
