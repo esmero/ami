@@ -98,7 +98,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
    */
   public static function create(ContainerInterface $container) {
     return new static(
-      $container->get('user.private_tempstore'),
+      $container->get('tempstore.private'),
       $container->get('session_manager'),
       $container->get('current_user'),
       $container->get('ami.importeradapter_manager'),
