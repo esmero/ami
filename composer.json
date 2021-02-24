@@ -17,12 +17,12 @@
         "drupal/views_bulk_operations": "^3.9",
         "strawberryfield/strawberryfield":"dev-1.0.0-RC1",
         "strawberryfield/webform_strawberryfield":"dev-1.0.0-RC1",
-        "swaggest/json-schema":"^0.12.29",
-        "swaggest/json-diff":"^3.7.5",
+        "swaggest/json-schema": "^0.12.29",
+        "swaggest/json-diff": "^3.7.5",
         "phpoffice/phpspreadsheet": "^1.15.0",
         "maennchen/zipstream-php": "^1.2 || ^2.1",
         "drupal/google_api_client": "3.0.0-rc4",
-        "ramsey/uuid":"^4.1"
+        "ramsey/uuid": "^4.1"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
