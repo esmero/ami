@@ -9,7 +9,6 @@
 
 namespace Drupal\ami;
 
-use Alchemy\Zippy\Exception\ExceptionInterface;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
@@ -309,9 +308,9 @@ class AmiUtilityService {
         )) {
           $this->messenger()->addError(
             $this->t('Unable to create directory where to download remote file @uri. Verify permissions please',
-            [
-              '@uri' => $uri
-            ])
+              [
+                '@uri' => $uri
+              ])
           );
           return FALSE;
         }
@@ -392,7 +391,7 @@ class AmiUtilityService {
       $realpath = $this->fileSystem->realpath($path);
       $response = $this->httpClient->get($uri, ['sink' => $realpath]);
     }
-    catch (ExceptionInterface $exception){
+    catch (\Exception $exception){
       //@TODO what to do?
       $this->messenger()->addError(
         $this->t('Unable to download remote file from @uri to local @path. Verify URL exists, its openly accessible and destination is writable.',
@@ -409,25 +408,36 @@ class AmiUtilityService {
     $mimefromextension =\Drupal::service('strawberryfield.mime_type.guesser.mime')->guess(
       $path
     );
-
     if (($mimefromextension == "application/octet-stream") &&
       !empty($response->getHeader('Content-Type'))) {
       $mimetype = $response->getHeader('Content-Type');
       if (count($mimetype) > 0) {
         $extension = \Drupal::service('strawberryfield.mime_type.guesser.mime')->inverseguess($mimetype[0]);
-        error_log(var_export($extension,true));
       } else {
         $extension = '';
       }
       $info = pathinfo($realpath);
       if (($info['extension'] != $extension)) {
         $newpath = $realpath . "." . $extension;
-        $status = @rename($realpath,$newpath);
-        if ($status === FALSE) {
+        $status = @rename($realpath, $newpath);
+        if ($status === FALSE  && !file_exists($newpath)) {
+          $this->messenger()->addError(
+            $this->t('Unable to rename downloaded file from @realpath to local @newpath. Verify if destination is writable.',
+              [
+                '@realpath' => $realpath,
+                '@newpath' => $newpath,
+              ])
+          );
           return FALSE;
         }
         $localfile = $newpath;
       } else {
+        $localfile = $realpath;
+      }
+    } else {
+      // Means we got an mimetype that is not and octet,derived from the
+      // extension and we will roll with the original download path.
+      if (file_exists($realpath)) {
         $localfile = $realpath;
       }
     }
