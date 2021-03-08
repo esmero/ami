@@ -387,7 +387,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDescription(t('A Zip file containing accompanying Files for the Source Data'))
       ->setSetting('file_extensions', 'zip')
       ->setSetting('upload_validators', $validatorszip)
-      ->setRequired(TRUE)
+      ->setRequired(FALSE)
       ->setDisplayOptions('view', [
         'label' => 'above',
         'type' => 'file',

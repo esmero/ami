@@ -227,7 +227,21 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   private function persistEntity(\stdClass $data, array $processed_metadata) {
 
+    //OP can be one of
+    /*
+    'create' => 'Create New ADOs',
+    'update' => 'Update existing ADOs',
+    'patch' => 'Patch existing ADOs',
+    'delete' => 'Delete existing ADOs',
+    */
     $op = $data->pluginconfig->op;
+    $ophuman = [
+      'create' => 'created',
+      'update' => 'updated',
+      'patched' => 'patched',
+      'delete' => 'deleted',
+    ];
+
     //@TODO persist needs to update too.
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
@@ -249,6 +263,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $property_path = $data->mapping->globalmapping_settings->bundle;
     }
     $label_column = $data->adomapping->base->label;
+    //@TODO check if the column is there!
     $label = $processed_metadata[$label_column];
     $property_path_split = explode(':', $property_path);
     if (!$property_path_split || count($property_path_split) != 2 ) {
@@ -278,9 +293,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $node = $this->entityTypeManager->getStorage('node')
           ->create($nodeValues);
         $node->save();
-        $this->messenger->addStatus($this->t('Well well well. ADO with @uuid on Set @setid was Ingested!',[
+        $this->messenger->addStatus($this->t('ADO %title with UUID:@uuid on Set @setid was @ophuman!',[
           '@uuid' => $data->info['row']['uuid'],
-          '@setid' => $data->info['set_id']
+          '@setid' => $data->info['set_id'],
+          '%title' => $label,
+          '@ophuman' => $ophuman[$op]
         ]));
       }
       catch (\Exception $exception) {
