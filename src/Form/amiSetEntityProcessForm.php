@@ -34,11 +34,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    *   The time service.
    * @param \Drupal\ami\AmiUtilityService $ami_utility
    */
-  public function __construct(EntityRepositoryInterface $entity_repository,
-                              EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-                              TimeInterface $time = NULL, AmiUtilityService $ami_utility
-  ) {
-
+  public function __construct(
+    EntityRepositoryInterface $entity_repository,
+    EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
+    TimeInterface $time = NULL, AmiUtilityService $ami_utility) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
   }
