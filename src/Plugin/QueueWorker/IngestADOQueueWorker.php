@@ -215,7 +215,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             $processed_metadata[$file_column][] = (int) $file->id();
           }
           else {
-            $this->messenger->addWarning($this->t('Sorry, for ADO with @uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',[
+            $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',[
               '@uuid' => $data->info['row']['uuid'],
               '@setid' => $data->info['set_id'],
               '@filename' => $filename,
@@ -303,9 +303,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $node = $this->entityTypeManager->getStorage('node')
           ->create($nodeValues);
         $node->save();
-        $this->messenger->addStatus($this->t('ADO %title with UUID:@uuid on Set @setid was @ophuman!',[
+        $link = $node->toUrl()->toString();
+        $this->messenger->addStatus($this->t('ADO <a href=":link" target="_blank">%title</a> with UUID:@uuid on Set @setid was @ophuman!',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
+          ':link' => $link,
           '%title' => $label,
           '@ophuman' => $ophuman[$op]
         ]));
