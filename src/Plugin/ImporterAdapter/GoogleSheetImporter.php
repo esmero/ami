@@ -238,7 +238,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
               $maxRow = $rowindex;
               break;
             }
-            $row = $this->AmiUtilityService->array_equallyseize(
+            $row = $this->AmiUtilityService->arrayEquallySeize(
               $headercount,
               $row
             );

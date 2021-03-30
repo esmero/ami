@@ -214,6 +214,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           if ($file) {
             $processed_metadata[$file_column][] = (int) $file->id();
           }
+          else {
+            $this->messenger->addWarning($this->t('Sorry, for ADO with @uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',[
+              '@uuid' => $data->info['row']['uuid'],
+              '@setid' => $data->info['set_id'],
+              '@filename' => $filename,
+              '@filecolumn' => $file_column,
+            ]));
+          }
         }
       }
     }

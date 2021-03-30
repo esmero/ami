@@ -19,7 +19,6 @@ use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
-use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Session\AccountInterface;
@@ -29,7 +28,6 @@ use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
-use Drupal\Core\File\MimeType\ExtensionMimeTypeGuesser;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 
@@ -283,7 +281,6 @@ class AmiUtilityService {
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
         if (!file_exists($uri)) {
-          error_log($uri . 'does not exist');
           return FALSE;
         }
         $finaluri = $uri;
@@ -294,7 +291,6 @@ class AmiUtilityService {
         //@TODO check if we should copy here or just deal with it.
         $localfile = $this->fileSystem->realpath($uri);
         if (!file_exists($localfile) && !$zip_file) {
-          error_log($uri . 'does not exist in local path');
           return FALSE;
         }
         elseif ($zip_file) {
@@ -366,10 +362,10 @@ class AmiUtilityService {
       }
     }
     if ($finaluri) {
-      error_log($finaluri . ' calling create file from uri');
       $file = $this->create_file_from_uri($finaluri);
       return $file;
     }
+    return FALSE;
   }
 
   /**
@@ -428,8 +424,8 @@ class AmiUtilityService {
     try {
       $realpath = $this->fileSystem->realpath($path);
       $response = $this->httpClient->get($uri, ['sink' => $realpath]);
-    } catch (\Exception $exception) {
-      //@TODO what to do?
+    }
+    catch (\Exception $exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to download remote file from @uri to local @path. Verify URL exists, its openly accessible and destination is writable.',
@@ -492,8 +488,8 @@ class AmiUtilityService {
   /**
    * Attempts to get a file from a ZIP file store it locally.
    *
-   * @param                          $uri
-   * @param string $destination
+   * @param string $uri
+   * @param string|null $destination
    *     Stream wrapper URI specifying where the file should be placed. If a
    *     directory path is provided, the file is saved into that directory
    *     under
@@ -516,11 +512,8 @@ class AmiUtilityService {
    *   - If it fails, FALSE.
    */
   public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file) {
-    // pre set a failure
-    $localfile = FALSE;
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
-    $mime = 'application/octet-stream';
     if (!isset($destination)) {
       $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
     }
@@ -562,7 +555,6 @@ class AmiUtilityService {
         return FALSE;
       }
     } catch (\Exception $exception) {
-      //@TODO what to do?
       $this->messenger()->addError(
         $this->t(
           'Unable to extract file @uri from ZIP @zip to local @path. Verify ZIP exists, its readable and destination is writable.',
@@ -577,6 +569,16 @@ class AmiUtilityService {
     }
   }
 
+  /**
+   * Creates File from a local accessible Path/URI.
+   *
+   * @param $localpath
+   *
+   * @return \Drupal\Core\Entity\EntityInterface|false
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   * @throws \Drupal\Core\Entity\EntityStorageException
+   */
   public function create_file_from_uri($localpath) {
     try {
       $file = $this->entityTypeManager->getStorage('file')->create(
@@ -602,7 +604,8 @@ class AmiUtilityService {
 
       $file->save();
       return $file;
-    } catch (FileException $e) {
+    }
+    catch (FileException $e) {
       error_log($e->getMessage());
       return FALSE;
     }
@@ -614,7 +617,10 @@ class AmiUtilityService {
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
    *
-   * @return file
+   * @param string $uuid_key
+   *
+   * @return int|string|null
+   * @throws \Drupal\Core\Entity\EntityStorageException
    */
   public function csv_save(array $data, $uuid_key = 'node_uuid') {
 
@@ -640,7 +646,7 @@ class AmiUtilityService {
           'Unable to create directory for CSV file. Verify permissions please'
         )
       );
-      return;
+      return NULL;
     }
     // Ensure the file
     $file = file_save_data(
@@ -650,7 +656,7 @@ class AmiUtilityService {
       $this->messenger()->addError(
         $this->t('Unable to create AMI CSV file. Verify permissions please.')
       );
-      return;
+      return NULL;
     }
     $realpath = $this->fileSystem->realpath($file->getFileUri());
     $fh = new \SplFileObject($realpath, 'w');
@@ -658,7 +664,7 @@ class AmiUtilityService {
       $this->messenger()->addError(
         $this->t('Error reading back the just written file!.')
       );
-      return;
+      return NULL;
     }
     array_walk($data['headers'], 'htmlspecialchars');
     // How we want to get the key number that contains the $uuid_key
@@ -708,6 +714,11 @@ class AmiUtilityService {
   }
 
 
+  /**
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @return array|null
+   */
   public function csv_read(File $file) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
@@ -752,7 +763,7 @@ class AmiUtilityService {
         }
         // This was done already by the Import Plugin but since users
         // Could eventually reupload the spreadsheet better so
-        $row = $this->array_equallyseize(
+        $row = $this->arrayEquallySeize(
           $headercount,
           $row
         );
@@ -783,7 +794,7 @@ class AmiUtilityService {
    * @return array
    * combined array
    */
-  public function ami_array_combine_special($header, $row) {
+  public function amiArrayCombineSpecial($header, $row) {
     $headercount = count($header);
     $rowcount = count($row);
     if ($headercount > $rowcount) {
@@ -815,7 +826,7 @@ class AmiUtilityService {
    * @return array
    *  a resized to header size data row
    */
-  public function array_equallyseize($headercount, $row = []) {
+  public function arrayEquallySeize($headercount, $row = []) {
 
     $rowcount = count($row);
     if ($headercount > $rowcount) {
@@ -852,6 +863,13 @@ class AmiUtilityService {
     return $unique;
   }
 
+  /**
+   * Returns a list Metadata Displays.
+   *
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
   public function getMetadataDisplays() {
 
     $result = [];
@@ -874,6 +892,13 @@ class AmiUtilityService {
     return $result;
   }
 
+  /**
+   * Returns a list of Webforms.
+   *
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
   public function getWebforms() {
 
     $result = [];
@@ -912,13 +937,11 @@ class AmiUtilityService {
     /**************************************************************************/
     // Node types with Strawberry fields
     /**************************************************************************/
-    $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
-    $access = FALSE;
 
     $bundles = $this->entityTypeBundleInfo->getBundleInfo('node');
     foreach ($bundles as $bundle => $bundle_info) {
       if ($this->strawberryfieldUtility->bundleHasStrawberryfield($bundle)) {
-        $access = $this->checkNodeAccess($bundle);
+        $access = $this->checkBundleAccess($bundle);
         if ($access && $access->isAllowed()) {
           foreach ($this->checkFieldAccess($bundle) as $key => $value) {
             $bundle_options[$key] = $value . ' for ' . $bundle_info['label'];
@@ -934,33 +957,19 @@ class AmiUtilityService {
    *
    * @param string $bundle
    * @param \Drupal\Core\Session\AccountInterface|null $account
-   * @param null $entity_id
    *
    * @return \Drupal\Core\Access\AccessResultInterface|bool
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function checkNodeAccess(string $bundle,
-                                  AccountInterface $account = NULL, $entity_id = NULL
-  ) {
+  public function checkBundleAccess(string $bundle, AccountInterface $account = NULL) {
     try {
       $access_handler = $this->entityTypeManager->getAccessControlHandler(
         'node'
       );
-      /*$storage = $this->entityTypeManager->getStorage('node');
-      /*if (!empty($parameters['revision_id'])) {
-        $entity = $storage->loadRevision($parameters['revision_id']);
-        $entity_access = $access_handler->access($entity, 'update', $account, TRUE);
-      }
-
-      elseif ($parameters['entity_id']) {
-        $entity = $storage->load($parameters['entity_id']);
-        $entity_access = $access_handler->access($entity, 'update', $account, TRUE);
-      }
-      */
-
       return $access_handler->createAccess($bundle, $account, [], TRUE);
-    } catch (\Exception $exception) {
+    }
+    catch (\Exception $exception) {
       // Means the Bundles does not exist?
       // User is wrong?
       // etc. Simply no access is easier to return
@@ -973,27 +982,23 @@ class AmiUtilityService {
    *
    * @TODO content of a field could override access. Add a per entity check.
    *
-   * @param string $entity_type_id
+   * @param $bundle
    * @param \Drupal\Core\Session\AccountInterface|null $account
-   * @param                                            $bundle
    *
-   * @return bool
+   * @return array
+   *    A list of Fields where Edit access is allowed.
    */
   public function checkFieldAccess($bundle, AccountInterface $account = NULL) {
     $fields = [];
     $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
-    $field_definitions
-      = $this->strawberryfieldUtility->getStrawberryfieldDefinitionsForBundle(
-      $bundle
-    );
+    $field_definitions = $this->strawberryfieldUtility->getStrawberryfieldDefinitionsForBundle($bundle);
 
     foreach ($field_definitions as $field_definition) {
       $field_access = $access_handler->fieldAccess(
         'edit', $field_definition, $account, NULL, TRUE
       );
       if ($field_access->isAllowed()) {
-        $fields[$bundle . ':' . $field_definition->getName()]
-          = $field_definition->getLabel();
+        $fields[$bundle . ':' . $field_definition->getName()] = $field_definition->getLabel();
       }
     }
     return $fields;
@@ -1023,7 +1028,8 @@ class AmiUtilityService {
     $entity->set('status', 'ready');
     try {
       $result = $entity->save();
-    } catch (\Exception $exception) {
+    }
+    catch (\Exception $exception) {
       $this->messenger()->addError(
         t(
           'Ami Set entity Failed to be persisted because of @message',
@@ -1035,7 +1041,6 @@ class AmiUtilityService {
     if ($result == SAVED_NEW) {
       return $entity->id();
     }
-
   }
 
   /**
@@ -1255,6 +1260,14 @@ class AmiUtilityService {
     return $newinfo;
   }
 
+  /**
+   * Returns UUIDs for AMI data.
+   *
+   * @param \Drupal\file\Entity\File $file
+   * @param \stdClass $data
+   *
+   * @return mixed
+   */
   public function getProcessedAmiSetNodeUUids(File $file, \stdClass $data) {
 
     $file_data_all = $this->csv_read($file);
@@ -1311,6 +1324,8 @@ class AmiUtilityService {
   }
 
   /**
+   * Processes Data through a Metadata Display Entity.
+   *
    * @param \stdClass $conf
    *      $conf->info['row']
    *      has the following format
@@ -1367,9 +1382,7 @@ class AmiUtilityService {
       $metadatadisplay_id
         = $conf->mapping->globalmapping_settings->metadata_config->template;
     }
-    $metadatadisplay_entity = $this->entityTypeManager->getStorage(
-      'metadatadisplay_entity'
-    )
+    $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
       $context['data'] = $this->expandJson($row['data']);
