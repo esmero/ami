@@ -161,7 +161,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
               break;
             }
 
-            $row = $this->AmiUtilityService->array_equallyseize(
+            $row = $this->AmiUtilityService->arrayEquallySeize(
               $headercount,
               $datarow[0]
             );
