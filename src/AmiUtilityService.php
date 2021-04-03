@@ -1057,8 +1057,42 @@ class AmiUtilityService {
   public function preprocessAmiSet(File $file, \stdClass $data) {
 
     $file_data_all = $this->csv_read($file);
-    // we may want to check if saved metadata headers == csv ones first.
-    // $data->column_keys
+
+    // We want to validate here if the found Headers match at least the
+    // Mapped ones during AMI setup. If not we will return an empty array
+    // And send a Message to the user.
+    // @TODO make this a method so we can reuse.
+    $valid = is_object($data->adomapping->base);
+    $valid = $valid && is_object($data->adomapping->uuid);
+    $valid = $valid && is_object($data->adomapping->parents);
+    $valid = $valid && $file_data_all && count($file_data_all['headers']);
+
+    if ($valid) {
+      $required_headers = array_values((array)$data->adomapping->base);
+      $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->uuid));
+      $required_headers = array_unique(array_merge($required_headers, array_values((array)$data->adomapping->parents)));
+      $headers_missing = array_diff($required_headers, $file_data_all['headers']);
+      if (count($headers_missing)) {
+        $message = $this->t(
+          'Your CSV has the following important header (first row) column names missing: <em>@keys</em>. Please correct. Cancelling Processing.',
+          [
+            '@keys' => implode(',', $headers_missing)
+          ]
+        );
+        $this->messenger()->addError($message);
+        return [];
+      }
+    }
+    else {
+      $message = $this->t(
+        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.',
+      );
+      $this->messenger()->addError($message);
+      return [];
+    }
+
+
+
     $config['data']['headers'] = $file_data_all['headers'];
     // In old times we totally depended on position, now we are going to do something different, we will combine
     // Headers and keys.
