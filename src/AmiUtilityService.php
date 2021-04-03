@@ -454,7 +454,7 @@ class AmiUtilityService {
         $extension = '';
       }
       $info = pathinfo($realpath);
-      if (($info['extension'] != $extension)) {
+      if (!isset($info['extension']) || $info['extension'] != $extension) {
         $newpath = $realpath . "." . $extension;
         $status = @rename($realpath, $newpath);
         if ($status === FALSE && !file_exists($newpath)) {
