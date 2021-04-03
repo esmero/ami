@@ -74,11 +74,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-    // @TODO We should here make sure we get rid of any files
-    // But if the queue has elements from this Set we should not be able to delete?
-    // $this->entity->delete();
     $statuses = $form_state->getValue('status', []);
-
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
@@ -102,7 +98,33 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $data = $item->provideDecoded(FALSE);
     }
     if ($file && $data !== new \stdClass()) {
-      $info = $this->AmiUtilityService->preprocessAmiSet($file, $data);
+      $invalid = [];
+      $info = $this->AmiUtilityService->preprocessAmiSet($file, $data, $invalid, FALSE);
+      // Means preprocess set
+
+      if (count($invalid)) {
+        $invalid_message = $this->formatPlural(count($invalid),
+          'Source data Row @row had an issue, common cause is an invalid parent.',
+          '@count rows, @row, had issues, common causes are invalid parents and/or non existing referenced rows.',
+          [
+            '@row' => implode(', ', array_keys($invalid)),
+          ]
+        );
+        $this->messenger()->addWarning($invalid_message);
+      }
+      if (!count($info)) {
+        $this->messenger()->addError(
+          $this->t(
+            'So Sorry. Ami Set @label produced no ADOs. Please correct your source CSV data.',
+            [
+              '@label' => $this->entity->label(),
+            ]
+          )
+        );
+        $form_state->setRebuild();
+        return;
+      }
+
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
@@ -154,7 +176,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     else {
       $this->messenger()->addError(
         $this->t(
-          'So Sorry. This Ami Set has incorrect Metadata and/or has its CSV file missing. Please correct or delete and generate a new one.',
+          'So Sorry. Ami Set @label has incorrect Metadata and/or has its CSV file missing. Please correct or delete and generate a new AMI set.',
           [
             '@label' => $this->entity->label(),
           ]

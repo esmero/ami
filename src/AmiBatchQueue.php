@@ -110,8 +110,8 @@ class AmiBatchQueue {
       \Drupal::messenger()->addMessage(
         \Drupal::translation()->formatPlural(
           count($results['processed']),
-          '%queue: One item successfully processed.',
-          '%queue: @count items successfully processed.',
+          '%queue: One item processed.',
+          '%queue: @count items processed.',
           ['%queue' => $results['queue_label']]
         )
       );

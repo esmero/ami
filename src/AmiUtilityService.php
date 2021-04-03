@@ -1049,49 +1049,26 @@ class AmiUtilityService {
    * @param \Drupal\file\Entity\File $file
    *   A CSV
    * @param \stdClass $data
+   *     The AMI Set Config data
+   * @param array $invalid
+   *    Keeps track of invalid rows.
+   * @param bool $strict
+   *    TRUE means Set Config and CSV will be strictly validated,
+   *    FALSE means it will just validated for the needed elements
    *
    * @return array
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function preprocessAmiSet(File $file, \stdClass $data) {
+  public function preprocessAmiSet(File $file, \stdClass $data, array &$invalid = [], $strict = FALSE): array {
 
     $file_data_all = $this->csv_read($file);
-
     // We want to validate here if the found Headers match at least the
     // Mapped ones during AMI setup. If not we will return an empty array
     // And send a Message to the user.
-    // @TODO make this a method so we can reuse.
-    $valid = is_object($data->adomapping->base);
-    $valid = $valid && is_object($data->adomapping->uuid);
-    $valid = $valid && is_object($data->adomapping->parents);
-    $valid = $valid && $file_data_all && count($file_data_all['headers']);
-
-    if ($valid) {
-      $required_headers = array_values((array)$data->adomapping->base);
-      $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->uuid));
-      $required_headers = array_unique(array_merge($required_headers, array_values((array)$data->adomapping->parents)));
-      $headers_missing = array_diff($required_headers, $file_data_all['headers']);
-      if (count($headers_missing)) {
-        $message = $this->t(
-          'Your CSV has the following important header (first row) column names missing: <em>@keys</em>. Please correct. Cancelling Processing.',
-          [
-            '@keys' => implode(',', $headers_missing)
-          ]
-        );
-        $this->messenger()->addError($message);
-        return [];
-      }
-    }
-    else {
-      $message = $this->t(
-        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.',
-      );
-      $this->messenger()->addError($message);
+    if (!$this->validateAmiSet($file_data_all, $data, $strict)) {
       return [];
     }
-
-
 
     $config['data']['headers'] = $file_data_all['headers'];
     // In old times we totally depended on position, now we are going to do something different, we will combine
@@ -1102,8 +1079,6 @@ class AmiUtilityService {
     // Keeps track of all parents and child that don't have a PID assigned.
     $parent_hash = [];
     $info = [];
-    // Keeps track of invalid rows.
-    $invalid = [];
 
     foreach ($file_data_all['data'] as $index => $keyedrow) {
       // This makes tracking of values more consistent and easier for the actual processing via
@@ -1222,9 +1197,7 @@ class AmiUtilityService {
 
                 // This a simple accumulator, means all is well,
                 // parent is still an index.
-                $parent_hash[$parent_key][$parentup][$parent_numeric]
-                  = $parent_numeric;
-
+                $parent_hash[$parent_key][$parentup][$parent_numeric] = $parent_numeric;
                 $parent_numeric = $parentup;
               }
             }
@@ -1246,8 +1219,7 @@ class AmiUtilityService {
       foreach ($data->adomapping->parents as $parent_key) {
         // Is this object parent of someone?
         if (isset($parent_hash[$parent_key][$ado['parent'][$parent_key]])) {
-          $ado['parent'][$parent_key]
-            = $info[$ado['parent'][$parent_key]]['uuid'];
+          $ado['parent'][$parent_key] = $info[$ado['parent'][$parent_key]]['uuid'];
         }
       }
       // Since we are reodering we may want to keep the original row_id around
@@ -1284,8 +1256,11 @@ class AmiUtilityService {
     // This way the move parent Objects first and leave children to the end.
     foreach ($parent_hash as $parent_tree) {
       foreach ($parent_tree as $row_id => $children) {
-        $newinfo[] = $info[$row_id];
-        unset($info[$row_id]);
+        // There could be a reference to a non existing index.
+        if (isset($info[$row_id])) {
+          $newinfo[] = $info[$row_id];
+          unset($info[$row_id]);
+        }
       }
     }
     $newinfo = array_merge($newinfo, $info);
@@ -1293,6 +1268,62 @@ class AmiUtilityService {
     // @TODO Should we do a final check here? Alert the user the rows are less/equal to the desired?
     return $newinfo;
   }
+
+
+  /**
+   * Validates an AMI Set Config and its data extracted from the CSV
+   *
+   * @param array $file_data_all
+   *    The data present in the CSV as an array.
+   * @param \stdClass $data
+   *    The AMI config data as passed by the AMI set
+   * @param bool $strict
+   *    Strict means the CSV headers need to match 1:1 with the config,
+   *    Not only the mappings. This will be used for unattended ingests.
+   *
+   * @return bool
+   *    FALSE it important header elements, mappings are missing and or
+   *    data empty.
+   */
+  protected function validateAmiSet(array $file_data_all, \stdClass $data, $strict = FALSE ):bool {
+
+    $valid = is_object($data->adomapping->base);
+    $valid = $valid && is_object($data->adomapping->uuid);
+    $valid = $valid && is_object($data->adomapping->parents);
+    $valid = $valid && $file_data_all && count($file_data_all['headers']);
+    $valid = $valid && (!$strict || (is_array($data->column_keys) && count($data->column_keys)));
+    if ($valid) {
+      $required_headers = array_values((array)$data->adomapping->base);
+      $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->uuid));
+      $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->parents));
+      if ($strict) {
+        // Normally column_keys will always contain also the ones in adomapping
+        // But safer to check both in case someone manually edited the set.
+        $required_headers = array_merge($required_headers, array_values((array)$data->column_keys));
+      }
+      $headers_missing = array_diff(array_unique($required_headers), $file_data_all['headers']);
+      if (count($headers_missing)) {
+        $message = $this->t(
+          'Your CSV has the following important header (first row) column names missing: <em>@keys</em>. Please correct. Cancelling Processing.',
+          [
+            '@keys' => implode(',', $headers_missing)
+          ]
+        );
+        $this->messenger()->addError($message);
+        return FALSE;
+      }
+    }
+    else {
+      $message = $this->t(
+        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.',
+      );
+      $this->messenger()->addError($message);
+      return FALSE;
+    }
+    return TRUE;
+  }
+
+
 
   /**
    * Returns UUIDs for AMI data.
