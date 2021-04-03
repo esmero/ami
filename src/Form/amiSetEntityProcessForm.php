@@ -102,11 +102,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $data = $item->provideDecoded(FALSE);
     }
     if ($file && $data !== new \stdClass()) {
-
       $info = $this->AmiUtilityService->preprocessAmiSet($file, $data);
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
-      $status =  $form_state->getValue('status', NULL);
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = 'ami_ingest_ado';
       if (!$notprocessnow) {
