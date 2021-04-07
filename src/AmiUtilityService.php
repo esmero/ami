@@ -1261,6 +1261,10 @@ class AmiUtilityService {
           $newinfo[] = $info[$row_id];
           unset($info[$row_id]);
         }
+        else {
+          // Unset Invalid index if the row never existed
+          unset($invalid[$row_id]);
+        }
       }
     }
     $newinfo = array_merge($newinfo, $info);
@@ -1339,14 +1343,16 @@ class AmiUtilityService {
     // we may want to check if saved metadata headers == csv ones first.
     // $data->column_keys
     $config['data']['headers'] = $file_data_all['headers'];
+    $uuids = [];
 
     foreach ($file_data_all['data'] as $index => $keyedrow) {
       // This makes tracking of values more consistent and easier for the actual processing via
       // twig templates, webforms or direct
       $row = array_combine($config['data']['headers'], $keyedrow);
-      $possibleUUID = trim($row[$data->adomapping->uuid->uuid]);
+      $possibleUUID = $row[$data->adomapping->uuid->uuid] ?? NULL;
+      $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
       // Double check? User may be tricking us!
-      if (Uuid::isValid($possibleUUID)) {
+      if ($possibleUUID && Uuid::isValid($possibleUUID)) {
         $uuids[] = $possibleUUID;
         // Now be more strict for action = update
       }
