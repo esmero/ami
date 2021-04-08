@@ -50,7 +50,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity.repository'),
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
-      $container->get('ami.utility')
+      $container->get('ami.utility'),
+      $container->get('strawberryfield.utility'),
     );
   }
 
@@ -101,7 +102,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $invalid = [];
       $info = $this->AmiUtilityService->preprocessAmiSet($file, $data, $invalid, FALSE);
       // Means preprocess set
-
       if (count($invalid)) {
         $invalid_message = $this->formatPlural(count($invalid),
           'Source data Row @row had an issue, common cause is an invalid parent.',
@@ -216,11 +216,30 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         '#type' => 'fieldset',
         '#title' => $this->t('Desired ADOs statuses after process.'),
       ];
+      $access = TRUE;
       foreach($bundles as $propertypath) {
-        $split = explode(':', $propertypath);
-        if (!empty($split[0])) {
+        // First Check which SBF bearing bundles the user has access to.
+        $allowed_bundles = $this->AmiUtilityService->getBundlesAndFields();
+        if (isset($allowed_bundles[$propertypath])) {
+          $split = explode(':', $propertypath);
           $form['status'] += $this->getModerationElementForBundle($split[0]);
-          }
+        }
+        else {
+          $access = $access && FALSE;
+        }
+      }
+      if (!$access) {
+        $form['status'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' =>  $this->t(
+            'Error',
+          ),
+          '#markup' => $this->t(
+            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.',
+          ),
+        ];
+        return $form;
       }
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
 
@@ -273,7 +292,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       'type'  => $bundle,
     ));
     $bundle_label = $entity->type->entity->label() ?? $bundle;
-
 
     if (\Drupal::moduleHandler()->moduleExists('content_moderation')) {
       /** @var \Drupal\content_moderation\ModerationInformation $moderationInformation */
