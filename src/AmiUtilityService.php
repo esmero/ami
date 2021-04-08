@@ -1110,17 +1110,20 @@ class AmiUtilityService {
 
       $ado['data'] = $row;
 
-      // UUIDs are already assigned by this time
-      $possibleUUID = trim($row[$data->adomapping->uuid->uuid]);
+      // UUIDs should be already assigned by this time
+      $possibleUUID = $row[$data->adomapping->uuid->uuid] ?? NULL;
+      $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
       // Double check? User may be tricking us!
-      if (Uuid::isValid($possibleUUID)) {
+      if ($possibleUUID && Uuid::isValid($possibleUUID)) {
         $ado['uuid'] = $possibleUUID;
-        // Now be more strict for action = update
-        if ($data->pluginconfig->op == !"create") {
+        // Now be more strict for action = update/patch
+        if ($data->pluginconfig->op !== 'create') {
           $existing_object = $this->entityTypeManager->getStorage('node')
             ->loadByProperties(['uuid' => $ado['uuid']]);
-          //@TODO field_descriptive_metadata  is passed from the Configuration
-          if (!$existing_object) {
+          // Do access control here, will be done again during the atomic operation
+          // In case access changes later of course
+          // Processors do NOT delete. So we only check for Update.
+          if (!$existing_object || !$existing_object->access('update')) {
             unset($ado);
             $invalid = $invalid + [$index => $index];
           }
@@ -1294,8 +1297,10 @@ class AmiUtilityService {
     $valid = is_object($data->adomapping->base);
     $valid = $valid && is_object($data->adomapping->uuid);
     $valid = $valid && is_object($data->adomapping->parents);
+    $valid = $valid && isset($data->pluginconfig->op) && is_string($data->pluginconfig->op);
     $valid = $valid && $file_data_all && count($file_data_all['headers']);
     $valid = $valid && (!$strict || (is_array($data->column_keys) && count($data->column_keys)));
+    $valid = $valid && in_array($data->pluginconfig->op, ['create', 'update', 'patch']);
     if ($valid) {
       $required_headers = array_values((array)$data->adomapping->base);
       $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->uuid));
@@ -1328,23 +1333,25 @@ class AmiUtilityService {
   }
 
 
-
   /**
-   * Returns UUIDs for AMI data.
+   * Returns UUIDs for AMI data the user has permissions to operate on.
    *
    * @param \Drupal\file\Entity\File $file
    * @param \stdClass $data
    *
+   * @param null|string $op
+   *
    * @return mixed
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function getProcessedAmiSetNodeUUids(File $file, \stdClass $data) {
+  public function getProcessedAmiSetNodeUUids(File $file, \stdClass $data, $op = NULL) {
 
     $file_data_all = $this->csv_read($file);
     // we may want to check if saved metadata headers == csv ones first.
     // $data->column_keys
     $config['data']['headers'] = $file_data_all['headers'];
     $uuids = [];
-
     foreach ($file_data_all['data'] as $index => $keyedrow) {
       // This makes tracking of values more consistent and easier for the actual processing via
       // twig templates, webforms or direct
@@ -1353,8 +1360,20 @@ class AmiUtilityService {
       $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
       // Double check? User may be tricking us!
       if ($possibleUUID && Uuid::isValid($possibleUUID)) {
-        $uuids[] = $possibleUUID;
-        // Now be more strict for action = update
+        if ($op !== 'create') {
+          $existing_object = $this->entityTypeManager->getStorage('node')
+            ->loadByProperties(['uuid' => $possibleUUID]);
+          // Do access control here, will be done again during the atomic operation
+          // In case access changes later of course
+          // This does NOT delete. So we only check for Update.
+          //@TODO field_descriptive_metadata  is passed from the Configuration
+          if ($existing_object && isset($existing_object[0]) && $existing_object[0]->access($op)) {
+            $uuids[] = $possibleUUID;
+          }
+        }
+        else {
+          $uuids[] = $possibleUUID;
+        }
       }
     }
     return $uuids;
