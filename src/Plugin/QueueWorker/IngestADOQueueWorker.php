@@ -265,7 +265,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       return;
     }
 
-
     if ($data->mapping->globalmapping == "custom") {
       $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle;
     }
@@ -274,7 +273,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $label_column = $data->adomapping->base->label;
     //@TODO check if the column is there!
-    $label = $processed_metadata[$label_column];
+    $label = $processed_metadata[$label_column] ?? 'Untitled ADO';
     $property_path_split = explode(':', $property_path);
     if (!$property_path_split || count($property_path_split) != 2 ) {
       $this->messenger->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
@@ -285,6 +284,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $bundle = $property_path_split[0];
     $field_name = $property_path_split[1];
+    // Fall back to not published in case no status was passed.
+    $status = $data->info['status'][$bundle] ?? 0;
+
     // JSON_ENCODE AGAIN
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
@@ -292,16 +294,29 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $nodeValues = [
         'uuid' =>  $data->info['row']['uuid'],
         'type' => $bundle,
-        'status' => 1,
         'title' => $label,
         'uid' =>  $data->info['uid'],
         $field_name => $jsonstring
       ];
+      if ($status && is_string($status)) {
+        // String here means we got moderation_status;
+        $nodeValues['moderation_state'] = $status;
+        $status = 0; // Let the Moderation Module set the right value
+      }
 
-      /** @var \Drupal\Core\Entity\ContentEntityBase $node */
+      /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
         $node = $this->entityTypeManager->getStorage('node')
           ->create($nodeValues);
+        // In case $status was not moderated.
+        if ($status) {
+          $node->setPublished();
+        }
+        elseif (!isset($nodeValues['moderation_state'])) {
+          // Only unpublish if not moderated.
+          $node->setUnpublished();
+        }
+
         $node->save();
         $link = $node->toUrl()->toString();
         $this->messenger->addStatus($this->t('ADO <a href=":link" target="_blank">%title</a> with UUID:@uuid on Set @setid was @ophuman!',[

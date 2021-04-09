@@ -15,23 +15,77 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
    * $operation as defined in the routing.yml file.
    */
   protected function checkAccess(EntityInterface $entity, $operation, AccountInterface $account) {
+    if ($account->hasPermission('administer amiset entity')) {
+      return AccessResult::allowed()->cachePerPermissions();
+    }
+    $is_owner = ($account->id() && $account->id() === $entity->getOwnerId());
+
     switch ($operation) {
       case 'view':
-        return AccessResult::allowedIfHasPermission($account, 'view amiset entity');
+          $access_result = AccessResult::allowedIf($account->hasPermission('view amiset entity'))
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+          if ($access_result->isForbidden()) {
+            $access_result = AccessResult::allowedIf($account->hasPermission('view own amiset entity'))
+              ->cachePerPermissions()
+              ->addCacheableDependency($entity);
+          }
+          return $access_result;
 
       case 'edit':
-        return AccessResult::allowedIfHasPermission($account, 'edit amiset entity');
+        if ($account->hasPermission('edit amiset entity')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        if ($account->hasPermission('edit own amiset entity') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+        }
 
       case 'delete':
-        return AccessResult::allowedIfHasPermission($account, 'delete amiset entity');
+        if ($account->hasPermission('delete amiset entity')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        elseif ($account->hasPermission('delete own amiset entity') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+        }
 
       case 'process':
-        return AccessResult::allowedIfHasPermission($account, 'process amiset entity');
+        if ($account->hasPermission('process amiset entity')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        elseif ($account->hasPermission('process own amiset entity') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+        }
 
       case 'deleteados':
-        return AccessResult::allowedIfHasPermission($account, 'deleteados amiset entity');
+        if ($account->hasPermission('deleteados amiset entity')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        elseif ($account->hasPermission('deleteados own amiset entity') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+        }
+      default:
+        return AccessResult::neutral()->cachePerPermissions();
     }
-    return AccessResult::allowed();
   }
 
   /**
@@ -41,7 +95,11 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
    * will be created during the 'add' process.
    */
   protected function checkCreateAccess(AccountInterface $account, array $context, $entity_bundle = NULL) {
-    return AccessResult::allowedIfHasPermission($account, 'add amiset entity');
+    $permissions = [
+      'administer amiset entity',
+      'add amiset entity',
+    ];
+    return AccessResult::allowedIfHasPermission($account, $permissions, 'OR');
   }
 
 }
