@@ -22,16 +22,17 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
 
     switch ($operation) {
       case 'view':
-          $access_result = AccessResult::allowedIf($account->hasPermission('view amiset entity'))
+        if ($account->hasPermission('view amiset entity')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        if ($account->hasPermission('view own amiset entity') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
             ->cachePerPermissions()
             ->addCacheableDependency($entity);
-          if ($access_result->isForbidden()) {
-            $access_result = AccessResult::allowedIf($account->hasPermission('view own amiset entity'))
-              ->cachePerPermissions()
-              ->addCacheableDependency($entity);
-          }
-          return $access_result;
-
+        }
       case 'edit':
         if ($account->hasPermission('edit amiset entity')) {
           return AccessResult::allowed()->cachePerPermissions();
@@ -49,7 +50,7 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
         if ($account->hasPermission('delete amiset entity')) {
           return AccessResult::allowed()->cachePerPermissions();
         }
-        elseif ($account->hasPermission('delete own amiset entity') && $is_owner) {
+        if ($account->hasPermission('delete own amiset entity') && $is_owner) {
           return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
         }
         else {
@@ -62,7 +63,7 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
         if ($account->hasPermission('process amiset entity')) {
           return AccessResult::allowed()->cachePerPermissions();
         }
-        elseif ($account->hasPermission('process own amiset entity') && $is_owner) {
+        if ($account->hasPermission('process own amiset entity') && $is_owner) {
           return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
         }
         else {
@@ -75,7 +76,7 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
         if ($account->hasPermission('deleteados amiset entity')) {
           return AccessResult::allowed()->cachePerPermissions();
         }
-        elseif ($account->hasPermission('deleteados own amiset entity') && $is_owner) {
+        if ($account->hasPermission('deleteados own amiset entity') && $is_owner) {
           return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
         }
         else {
