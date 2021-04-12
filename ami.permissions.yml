@@ -9,18 +9,28 @@ administer amiset entity:
   description: 'Allows users to administer AMI Set Entities created by the Archipelago Multi Importer'
   restrict access: TRUE
 view amiset entity:
-  title: 'View AMI Set Entities'
+  title: 'View any AMI Set Entities'
+view own amiset entity:
+  title: 'View own AMI Set Entities'
 add amiset entity:
   title: 'Add AMI Set Entities'
 edit amiset entity:
-  title: 'Edit AMI Set Entities'
+  title: 'Edit any AMI Set Entities'
   restrict access: TRUE
+edit own amiset entity:
+  title: 'Edit own AMI Set Entities'
 delete amiset entity:
-  title: 'Delete AMI Set Entities'
+  title: 'Delete any AMI Set Entities'
   restrict access: TRUE
+delete own amiset entity:
+  title: 'Delete own AMI Set Entities'
 process amiset entity:
-  title: 'Process AMI Set Entities'
+  title: 'Process any AMI Set Entities'
   restrict access: TRUE
+process own amiset entity:
+  title: 'Process own AMI Set Entities'
 deleteados amiset entity:
-  title: 'Delete ADOs generated through AMI Set Entities'
+  title: 'Delete ADOs generated through any AMI Set Entities'
   restrict access: TRUE
+deleteados own amiset entity:
+  title: 'Delete ADOs generated through own AMI Set Entities'
