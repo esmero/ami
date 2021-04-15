@@ -1118,11 +1118,12 @@ class AmiUtilityService {
         $ado['uuid'] = $possibleUUID;
         // Now be more strict for action = update/patch
         if ($data->pluginconfig->op !== 'create') {
-          $existing_object = $this->entityTypeManager->getStorage('node')
+          $existing_objects = $this->entityTypeManager->getStorage('node')
             ->loadByProperties(['uuid' => $ado['uuid']]);
           // Do access control here, will be done again during the atomic operation
           // In case access changes later of course
           // Processors do NOT delete. So we only check for Update.
+          $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
           if (!$existing_object || !$existing_object->access('update')) {
             unset($ado);
             $invalid = $invalid + [$index => $index];
@@ -1165,9 +1166,7 @@ class AmiUtilityService {
               $invalid[$index] = $index;
             }
 
-            if ((!isset($invalid[$index]))
-              && (!isset($invalid[$parent_numeric]))
-            ) {
+            if ((!isset($invalid[$index])) && (!isset($invalid[$parent_numeric]))) {
               // Only traverse if we don't have this index or the parent one
               // in the invalid register.
               $parentchilds = [];
@@ -1360,14 +1359,14 @@ class AmiUtilityService {
       $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
       // Double check? User may be tricking us!
       if ($possibleUUID && Uuid::isValid($possibleUUID)) {
-        if ($op !== 'create') {
-          $existing_object = $this->entityTypeManager->getStorage('node')
+        if ($op !== 'create' && $op !== NULL) {
+          $existing_objects = $this->entityTypeManager->getStorage('node')
             ->loadByProperties(['uuid' => $possibleUUID]);
           // Do access control here, will be done again during the atomic operation
           // In case access changes later of course
           // This does NOT delete. So we only check for Update.
-          //@TODO field_descriptive_metadata  is passed from the Configuration
-          if ($existing_object && isset($existing_object[0]) && $existing_object[0]->access($op)) {
+          $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+          if ($existing_object && $existing_object->access($op)) {
             $uuids[] = $possibleUUID;
           }
         }
