@@ -87,8 +87,8 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
       $uuids = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data, 'delete');
       if (empty($uuids)) {
         $form_state->setRebuild();
-        $this->messenger()->addError(
-          $this->t('So Sorry. There either no valid ADOs in the current CSV that can be deleted or that you have permission to. Please correct or try to manually delete your ADOs.')
+        $this->messenger()->addWarning(
+          $this->t('So Sorry. There either no ADOs in the current CSV that can be deleted or that you have permission to. Please correct or try to manually delete your ADOs. You may already have delete them too!')
         );
         return;
       }
