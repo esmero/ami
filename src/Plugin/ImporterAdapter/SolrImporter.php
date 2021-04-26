@@ -421,7 +421,6 @@ class SolrImporter extends SpreadsheetImporter {
    * {@inheritdoc}
    */
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
-    error_log('running getInfo');
     $solr_config = [
       'endpoint' => [
         'amiremote' => [

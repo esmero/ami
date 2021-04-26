@@ -521,8 +521,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       //$form_state->setRebuild(FALSE);
       if (!empty($batch)) {
         error_log('setting batch');
+        dpm($batch);
         batch_set($batch);
-        batch_process();
       }
     }
   }
