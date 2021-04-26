@@ -12,11 +12,8 @@ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Entity\ImporterAdapterInterface;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface ;
-use GuzzleHttp\ClientInterface;
-use Drupal\Core\Form\FormBuilderInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Drupal\Core\Queue\QueueFactory;
-use Drupal\Core\Queue\QueueWorkerManager;
+
 
 /**
  * Base class for ImporterAdapter plugins.
@@ -89,7 +86,6 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
         'create' => 'Create New ADOs',
         'update' => 'Update existing ADOs',
         'patch' => 'Patch existing ADOs',
-        'delete' => 'Delete existing ADOs',
       ],
       '#description' => $this->t('The desired Operation'),
       '#required' => TRUE,
@@ -102,8 +98,23 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
   /**
    * {@inheritdoc}
    */
-  public function getData(array $config, $page = 0, $per_page = 20): array {
+  public function getData(array $config,  $page = 0, $per_page = 20): array {
     return [];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
+    return [];
+  }
+
+  public function getBatch(FormStateInterface $form_state, $config) {
+    // TODO: Implement getBatch() method.
+  }
+
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, array &$context): void {
+    // TODO: Implement fetchBatch() method.
   }
 
 

@@ -24,7 +24,8 @@ use Google_Service_Exception;
  * @ImporterAdapter(
  *   id = "googlesheet",
  *   label = @Translation("Google Sheets Importer"),
- *   remote = false
+ *   remote = false,
+ *   batch = false,
  * )
  */
 class GoogleSheetImporter extends SpreadsheetImporter {
@@ -146,11 +147,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   /**
    * {@inheritdoc}
    */
-  public function getData(
-    array $config,
-    $page = 0,
-    $per_page = 20
-  ):array {
+  public function getData(array $config,  $page = 0, $per_page = 20):array {
     $spreadsheetId = $config['google_api']['spreadsheet_id'];
     $range = $config['google_api']['spreadsheet_range'];
     $range = trim(
@@ -261,6 +258,10 @@ class GoogleSheetImporter extends SpreadsheetImporter {
     return $tabdata;
   }
 
+  public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
+    return $this->getData($config, $form_state, $page,
+      $per_page);
+  }
 
 
 }

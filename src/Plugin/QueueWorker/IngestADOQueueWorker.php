@@ -8,10 +8,12 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
-use Drupal\Component\Serialization\Json;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Swaggest\JsonDiff\JsonDiff;
+use Swaggest\JsonDiff\Exception as JsonDiffException;
+use Swaggest\JsonDiff\JsonPatch;
 
 /**
  * Process the JSON payload provided by the webhook.
@@ -116,15 +118,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
-  /* Data info has this structire
-    $data->info = [
-      'row' => The actual data
-      'set_id' => The Set id
-      'uid' => The User ID that processed the Set
-      'set_url' => A direct URL to the set.
-      'attempt' => The number of attempts to process. We always start with a 1
-    ];
-  */
+    /* Data info has this structire
+      $data->info = [
+        'row' => The actual data
+        'set_id' => The Set id
+        'uid' => The User ID that processed the Set
+        'set_url' => A direct URL to the set.
+        'attempt' => The number of attempts to process. We always start with a 1
+      ];
+    */
 
     // Before we do any processing. Check if Parent(s) exists?
     // If not, re-enqueue: we try twice only. Should we try more?
@@ -253,16 +255,38 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     ];
 
     //@TODO persist needs to update too.
+    /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
     );
 
-    if ($existing && $op == 'create') {
-      $this->messenger->addError($this->t('Sorry, you requested an ADO with @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
+    if (count($existing) && $op == 'create') {
+      $this->messenger->addError($this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]));
       return;
+    }
+    elseif (!count($existing) && $op !== 'create') {
+      $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
+        '@uuid' => $data->info['row']['uuid'],
+        '@setid' => $data->info['set_id'],
+        '@ophuman' => $ophuman[$op],
+      ]));
+      return;
+    }
+    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+
+    if ($op !== 'create' && $account && $existing && count($existing) == 1) {
+      $existing_object = reset($existing);
+      if (!$existing_object->access('update', $account)) {
+        $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
+          '@uuid' => $data->info['row']['uuid'],
+          '@setid' => $data->info['set_id'],
+          '@ophuman' => $ophuman[$op],
+        ]));
+        return;
+      }
     }
 
     if ($data->mapping->globalmapping == "custom") {
@@ -271,9 +295,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     else {
       $property_path = $data->mapping->globalmapping_settings->bundle;
     }
-    $label_column = $data->adomapping->base->label;
+    $label_column = $data->adomapping->base->label ?? 'label';
     //@TODO check if the column is there!
-    $label = $processed_metadata[$label_column] ?? 'Untitled ADO';
+    $label = $processed_metadata[$label_column] ?? NULL;
+
     $property_path_split = explode(':', $property_path);
     if (!$property_path_split || count($property_path_split) != 2 ) {
       $this->messenger->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
@@ -284,6 +309,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $bundle = $property_path_split[0];
     $field_name = $property_path_split[1];
+    // @TODO make this configurable.
+    $field_name_offset = 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
 
@@ -306,8 +333,40 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
-        $node = $this->entityTypeManager->getStorage('node')
-          ->create($nodeValues);
+        if ($op ==='create') {
+          $node = $this->entityTypeManager->getStorage('node')
+            ->create($nodeValues);
+        }
+        else {
+          $vid = \Drupal::entityTypeManager()
+            ->getStorage('node')
+            ->getLatestRevisionId($existing_object->id());
+
+          $node = $vid ? \Drupal::entityTypeManager()->getStorage('node')
+            ->loadRevision($vid) : $existing[0];
+
+          /** @var \Drupal\Core\Field\FieldItemInterface $field*/
+          $field = $node->get($field_name);
+          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
+          if (!$field->isEmpty()) {
+            $entity = $field->getEntity();
+            /** @var $field \Drupal\Core\Field\FieldItemList */
+            foreach ($field->getIterator() as $delta => $itemfield) {
+              /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
+              if ($field_name_offset == $delta) {
+                //@TODO check if we need can use Associative or not here.
+                $this->patchJson($itemfield->provideDecoded(TRUE), $processed_metadata);
+                $itemfield->setMainValueFromArray($processed_metadata);
+                break;
+              }
+            }
+          }
+          else {
+            // if the Saved one is empty use the new always.
+            // Applies to Patch/Update.
+            $field->setValue($jsonstring);
+          }
+        }
         // In case $status was not moderated.
         if ($status) {
           $node->setPublished();
@@ -316,8 +375,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // Only unpublish if not moderated.
           $node->setUnpublished();
         }
-
         $node->save();
+
         $link = $node->toUrl()->toString();
         $this->messenger->addStatus($this->t('ADO <a href=":link" target="_blank">%title</a> with UUID:@uuid on Set @setid was @ophuman!',[
           '@uuid' => $data->info['row']['uuid'],
@@ -328,19 +387,43 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         ]));
       }
       catch (\Exception $exception) {
-        $this->messenger->addError($this->t('Sorry we did all right but failed persisting the ADO with @uuid on Set @setid are wrong. Please check your Drupal Logs and notify your admin.',[
+        $this->messenger->addError($this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
-          '@setid' => $data->info['set_id']
+          '@setid' => $data->info['set_id'],
+          '@ophuman' => $ophuman[$op],
         ]));
         return;
       }
     }
     else {
-      $this->messenger->addError($this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not persist the ADO with @uuid on Set @setid are wrong. This is quite strange. Please check your Drupal Logs and notify your admin.',[
+      $this->messenger->addError($this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
-        '@setid' => $data->info['set_id']
+        '@setid' => $data->info['set_id'],
+        '@ophuman' => $ophuman[$op],
       ]));
       return;
+    }
+  }
+
+  /**
+   * Returns a Patched array using on original/new arrays.
+   *
+   * @param array $original
+   * @param array $new
+   *
+   * @throws \Swaggest\JsonDiff\Exception
+   */
+  protected function patchJson(array $original, array $new) {
+    $r = new JsonDiff(
+      $original,
+      $new,
+      JsonDiff::REARRANGE_ARRAYS
+    );
+    // We just keep track of the changes. If none! Then we do not set
+    // the formstate flag.
+    if ($r->getDiffCnt() > 0) {
+      error_log(print_r($r->getPatch()->jsonSerialize(),true));
+      error_log(print_r($r->getMergePatch()->jsonSerialize(),true));
     }
   }
 }

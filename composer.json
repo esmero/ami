@@ -23,7 +23,7 @@
         "swaggest/json-diff": "^3.7.5",
         "phpoffice/phpspreadsheet": "^1.15.0",
         "maennchen/zipstream-php": "^1.2 || ^2.1",
-        "drupal/google_api_client": "3.0.0-rc4",
+        "drupal/google_api_client": "3.0.0-rc5",
         "ramsey/uuid": "^4.1"
     },
     "minimum-stability": "dev",

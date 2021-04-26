@@ -715,6 +715,64 @@ class AmiUtilityService {
 
 
   /**
+   * Creates an CSV from array and returns file.
+   *
+   * @param array $data
+   *   Same as import form handles, to be dumped to CSV.
+   *
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @return int|string|null
+   * @throws \Drupal\Core\Entity\EntityStorageException
+   */
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid') {
+
+
+    $realpath = $this->fileSystem->realpath($file->getFileUri());
+    $fh = new \SplFileObject($realpath, 'a');
+    if (!$fh) {
+      $this->messenger()->addError(
+        $this->t('Error reading the CSV file!.')
+      );
+      return NULL;
+    }
+    array_walk($data['headers'], 'htmlspecialchars');
+    // How we want to get the key number that contains the $uuid_key
+    $haskey = array_search($uuid_key, $data['headers']);
+    if ($haskey === FALSE) {
+      array_unshift($data['headers'], $uuid_key);
+    }
+
+    $fh->fputcsv($data['headers']);
+
+    foreach ($data['data'] as $row) {
+      if ($haskey === FALSE) {
+        array_unshift($row, $uuid_key);
+        $row[0] = Uuid::uuid4();
+      }
+      else {
+        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+          $row[$haskey] = Uuid::uuid4();
+        }
+      }
+
+      array_walk($row, 'htmlspecialchars');
+      $fh->fputcsv($row);
+    }
+    // PHP Bug! This should happen automatically
+    clearstatcache(TRUE, $realpath);
+    $size = $fh->getSize();
+    // This is how you close a \SplFileObject
+    $fh = NULL;
+    // Notify the filesystem of the size change
+    $file->setSize($size);
+    $file->setPermanent();
+    $file->save();
+    return $file->id();
+  }
+
+
+  /**
    * @param \Drupal\file\Entity\File $file
    *
    * @return array|null

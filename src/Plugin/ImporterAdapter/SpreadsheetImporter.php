@@ -18,7 +18,8 @@ use Drupal\file\Entity\File;
  * @ImporterAdapter(
  *   id = "spreadsheet",
  *   label = @Translation("Spreadsheet Importer"),
- *   remote = false
+ *   remote = false,
+ *   batch = false,
  * )
  */
 class SpreadsheetImporter extends ImporterAdapterBase {
@@ -94,8 +95,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   /**
    * {@inheritdoc}
    */
-  public function getData(array $config, $page = 0, $per_page = 20): array {
-    $data = parent::getData($config,$page, $per_page);
+  public function getData(array $config,  $page = 0, $per_page = 20): array {
+    $data = parent::getData($config, $page, $per_page);
     /* @var File $file */
     $file = $this->entityTypeManager->getStorage('file')
       ->load($config['file'][0]);
@@ -179,4 +180,10 @@ class SpreadsheetImporter extends ImporterAdapterBase {
       $objPHPExcel->disconnectWorksheets();
       return $tabdata;
   }
+
+  public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
+    return $this->getData($config, $form_state, $page,
+      $per_page);
+  }
+
 }

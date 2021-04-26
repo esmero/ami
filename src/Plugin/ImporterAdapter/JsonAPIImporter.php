@@ -5,6 +5,7 @@ namespace Drupal\ami\Plugin\ImporterAdapter;
 use Drupal\Core\Batch\BatchBuilder;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\ami\Plugin\ImporterAdapterBase;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerTrait;
 
 /**
@@ -126,7 +127,7 @@ class JsonAPIImporter extends ImporterAdapterBase {
    *
    * @return \stdClass
    */
-  private function getData() {
+  public function getData(array $config,  $page = 0, $per_page = 20):array {
 
     /** @var \Drupal\ami\Entity\ImporterAdapterInterface $importer_config */
     $importer_config = $this->configuration['config'];
@@ -134,12 +135,12 @@ class JsonAPIImporter extends ImporterAdapterBase {
     $getArguments =  $url = isset($config['getargs']) ? $config['getargs'] : NULL;
     $url = isset($config['url']) ? $config['url'] : NULL;
     if (!$url) {
-      return NULL;
+      return [];
     }
     $default_bundles = $importer_config->getTargetEntityTypes();
     $default_bundle = reset($default_bundles);
     // If we have no default bundle setup do not process anything
-    if (!$default_bundle) { return; };
+    if (!$default_bundle) { return []; };
 
     // Super naive really.
     $request = $this->httpClient->get($url);
@@ -154,6 +155,6 @@ class JsonAPIImporter extends ImporterAdapterBase {
     else {
       // ERROR
     }
-    return $count;
+    return [];
   }
 }

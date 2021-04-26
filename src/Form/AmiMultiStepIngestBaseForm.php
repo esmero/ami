@@ -176,7 +176,6 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     $form_state->setRebuild();
   }
 
-
   /**
    * {@inheritdoc}
    */

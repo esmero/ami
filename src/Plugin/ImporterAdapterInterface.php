@@ -2,6 +2,7 @@
 
 namespace Drupal\ami\Plugin;
 
+use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
 use Drupal\Component\Plugin\PluginInspectionInterface;
 use Drupal\Core\Form\FormStateInterface;
 
@@ -62,10 +63,44 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *   array of associative arrays containing header and data as header =>
    *   value pairs
    */
-  public function getData(
-    array $config,
-    $page = 0,
-    $per_page = 20
-  ):array;
+  public function getData(array $config,  $page = 0, $per_page = 20):array;
+
+  /**
+   * Get Info from the source
+   *
+   * @param array $config
+   * @param int $page
+   *   which page, defaults to 0.
+   * @param int $per_page
+   *   number of records per page, -1 means all.
+   *
+   * @return array
+   *   array of associative arrays containing header and data as header =>
+   *   value pairs needed to build mapping. May be equal to getData
+   */
+  public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20):array;
+
+  /**
+   * Submits getData via Batch
+   *  Only applies to plugins with batch = true annotations.
+   *
+   * @param \Drupal\Core\Form\FormStateInterface $form_state
+   * @param $config
+   *
+   * @return mixed
+   */
+  public function getBatch(FormStateInterface $form_state, $config);
+
+  /**
+   * Fetches getData in increments
+   *  Only applies to plugins with batch = true annotations
+   *
+   * @param array $config
+   * @param \Drupal\ami\Plugin\ImporterAdapterInterface $plugin_instace
+   * @param array $context
+   *
+   * @return mixed
+   */
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, array &$context):void;
 
 }
