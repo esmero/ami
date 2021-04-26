@@ -518,7 +518,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($this->step < $this->lastStep) {
       $form_state->setRebuild(TRUE);
     } else {
-      $form_state->setRebuild(FALSE);
+      //$form_state->setRebuild(FALSE);
       if (!empty($batch)) {
         error_log('setting batch');
         batch_set($batch);

@@ -302,8 +302,8 @@ class SolrImporter extends SpreadsheetImporter {
 
 
     // Load the account
-    $offset = $per_page > 0 ? $page * $per_page : $page * 1000;
-    $per_page = $per_page > 0 ? $per_page : 1000;
+    $offset = $per_page > 0 ? $page * $per_page : $page * 100;
+    $per_page = $per_page > 0 ? $per_page : 100;
     if ($ping_sucessful) {
       try {
         $query = $client->createSelect();
@@ -367,9 +367,9 @@ class SolrImporter extends SpreadsheetImporter {
               $single_value = $document[$clean_field . 's'] ?? NULL;
               if ($single_value) {
                 $fieldsToDelete[] = $clean_field . 's';
-                $value[] = $single_value;
+                $value[] = is_array($single_value) ? $single_value[0] : $single_value ;
               }
-              $value = implode(', ', array_unique((array) $value));
+              $value = implode(', ', array_unique($value));
             }
             $sp_data[$resultset_iterator->key()][$field] = $value;
           }
@@ -483,7 +483,7 @@ class SolrImporter extends SpreadsheetImporter {
           ->setField('RELS_EXT_hasModel_uri_s');
         $facet2 = $facetSet->createFacetField('dsid')
           ->setField('fedora_datastreams_ms');
-        $query->setStart(0)->setRows(42);
+        $query->setStart(0)->setRows(100);
         $query->setFields([
           'PID',
           'fgs_label_s',
@@ -545,7 +545,7 @@ class SolrImporter extends SpreadsheetImporter {
               $single_value = $document[$clean_field . 's'] ?? NULL;
               if ($single_value) {
                 $fieldsToDelete[] = $clean_field . 's';
-                $value[] = $single_value;
+                $value[] = is_array($single_value) ? $single_value[0] : $single_value ;
               }
               $value = implode(', ', array_unique($value));
             }
