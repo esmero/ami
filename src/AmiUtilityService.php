@@ -727,7 +727,6 @@ class AmiUtilityService {
    */
   public function csv_append(array $data, File $file, $uuid_key = 'node_uuid') {
 
-
     $realpath = $this->fileSystem->realpath($file->getFileUri());
     $fh = new \SplFileObject($realpath, 'a');
     if (!$fh) {
@@ -766,7 +765,6 @@ class AmiUtilityService {
     $fh = NULL;
     // Notify the filesystem of the size change
     $file->setSize($size);
-    $file->setPermanent();
     $file->save();
     return $file->id();
   }
@@ -949,6 +947,32 @@ class AmiUtilityService {
 
     return $result;
   }
+
+  /**
+   * Returns WebformOptions marked as Archipelago
+   *
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function getWebformOptions():array {
+    try {
+    /** @var \Drupal\webform\WebformOptionsInterface[] $webform_options */
+    $webform_options  = $this->entityTypeManager->getStorage('webform_options')->loadByProperties(['category' => 'archipelago']);
+    $options = [];
+    foreach($webform_options as $webform_option) {
+      $options = array_merge($options, $webform_option->getOptions());
+    }
+    }
+    catch (\Exception $e) {
+      // Return some basic defaults in case there are no Options.
+      // @TODO tell the user to create a few.
+      $options = ['Document' => 'Document', 'Photograph' => 'Photograph', 'Book' => 'Book', 'Article' => 'Article', 'Thing' => 'Thing', 'Video' => 'Video', 'Audio' => 'Audio'];
+    }
+    return array_unique($options);
+  }
+
+
 
   /**
    * Returns a list of Webforms.
