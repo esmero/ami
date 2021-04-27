@@ -13,6 +13,7 @@ use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Entity\ImporterAdapterInterface;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface ;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\file\Entity\File;
 
 
 /**
@@ -109,12 +110,16 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
     return [];
   }
 
-  public function getBatch(FormStateInterface $form_state, $config) {
-    // TODO: Implement getBatch() method.
+  /**
+   * {@inheritdoc}
+   */
+  public function getBatch(FormStateInterface $form_state, array $config, \stdClass $amisetdata) {
   }
 
-  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, array &$context): void {
-    // TODO: Implement fetchBatch() method.
+  /**
+   * {@inheritdoc}
+   */
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, File $file, \stdClass $amisetdata, array &$context):void {
   }
 
 

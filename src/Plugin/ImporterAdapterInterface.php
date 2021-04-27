@@ -5,6 +5,7 @@ namespace Drupal\ami\Plugin;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
 use Drupal\Component\Plugin\PluginInspectionInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\file\Entity\File;
 
 /**
  * Defines an interface for ImporterAdapter plugins.
@@ -87,9 +88,11 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    * @param \Drupal\Core\Form\FormStateInterface $form_state
    * @param $config
    *
+   * @param \stdClass $amisetdata
+   *
    * @return mixed
    */
-  public function getBatch(FormStateInterface $form_state, $config);
+  public function getBatch(FormStateInterface $form_state, array $config, \stdClass $amisetdata);
 
   /**
    * Fetches getData in increments
@@ -97,10 +100,13 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *
    * @param array $config
    * @param \Drupal\ami\Plugin\ImporterAdapterInterface $plugin_instace
+   * @param \Drupal\file\Entity\File $file
+   *    A File ID of an existing CSV to append data to.
+   * @param \stdClass $amisetdata
    * @param array $context
    *
    * @return mixed
    */
-  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, array &$context):void;
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, File $file, \stdClass $amisetdata, array &$context):void;
 
 }
