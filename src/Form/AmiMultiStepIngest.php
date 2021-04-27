@@ -99,6 +99,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
     }
     if ($this->step == 2) {
+      error_log('calling step 2');
       $parents = ['pluginconfig'];
       $form_state->setValue('pluginconfig', $this->store->get('pluginconfig',[]));
       $pluginValue = $this->store->get('plugin', NULL);
@@ -394,6 +395,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         if (!$ready) {
           // Back yo Step 2 until the Plugin is ready doing its thing.
           $this->step = 2;
+          $form_state->setRebuild();
         }
         else {
           // Why 3? At least title, a type and a parent even if empty
@@ -404,6 +406,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           else {
             // Not the data we are looking for? Back to Step 2.
             $this->step = 2;
+            $form_state->setRebuild();
             // @TODO show how its lacking?
             $this->messenger()
               ->addError($this->t('Sorry. Your Source data is not enough for Processing. We need at least a header column, 3 columns and a data column. Please adjust your Plugin Configuration and try again.'));
@@ -465,48 +468,43 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
-        // We may want to run a batch here?
-        // @TODO investigate how to run a batch and end in the same form different step?
-        // Idea is batch is only needed if there is a certain max number, e.g 5000 rows?
+        $data = $plugin_instance->getData($this->store->get('pluginconfig'),
+          0, -1);
 
-          $data = $plugin_instance->getData($this->store->get('pluginconfig'),
-             0, -1);
-
-          $amisetdata->column_keys = $data['headers'];
-          $amisetdata->total_rows = $data['totalrows'];
-          // We should probably add the UUIDs here right now.
-          $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'uuid_node';
-          // We want to reset this value now
-          $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
-          $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
-          $batch = [];
-          if (isset($fileid)) {
-            if ($plugin_instance->getPluginDefinition()['batch']) {
-              $batch = $plugin_instance->getBatch($form_state,
-                $this->store->get('pluginconfig'));
-              dpm($batch);
-            }
-            else {
-              $amisetdata->csv = $fileid;
-              $id = $this->AmiUtilityService->createAmiSet($amisetdata);
-              if ($id) {
-                $url = Url::fromRoute('entity.ami_set_entity.canonical',
-                  ['ami_set_entity' => $id]);
-                $this->messenger()
-                  ->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
-                    ['@url' => $url->toString()]));
-                $this->store->delete('data');
-                $form_state->setRebuild(FALSE);
-                $form_state->setRedirect('entity.ami_set_entity.canonical',
-                  ['ami_set_entity' => $id]);
-              }
-            }
+        $amisetdata->column_keys = $data['headers'];
+        $amisetdata->total_rows = $data['totalrows'];
+        // We should probably add the UUIDs here right now.
+        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'uuid_node';
+        // We want to reset this value now
+        $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
+        $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
+        $batch = [];
+        if (isset($fileid)) {
+          $amisetdata->csv = $fileid;
+          if ($plugin_instance->getPluginDefinition()['batch']) {
+            $batch = $plugin_instance->getBatch($form_state,
+              $this->store->get('pluginconfig'), $amisetdata);
           }
           else {
-            $this->messenger()
-              ->addError('Ups. Something went wrong when generating your full source data as CSV. Please retry and/or contact your site admin.');
+            $id = $this->AmiUtilityService->createAmiSet($amisetdata);
+            if ($id) {
+              $url = Url::fromRoute('entity.ami_set_entity.canonical',
+                ['ami_set_entity' => $id]);
+              $this->messenger()
+                ->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
+                  ['@url' => $url->toString()]));
+              $this->store->delete('data');
+              $form_state->setRebuild(FALSE);
+              $form_state->setRedirect('entity.ami_set_entity.canonical',
+                ['ami_set_entity' => $id]);
+            }
           }
         }
+        else {
+          $this->messenger()
+            ->addError('Ups. Something went wrong when generating your full source data as CSV. Please retry and/or contact your site admin.');
+        }
+      }
       else {
         // Explain why
         $this->messenger()->addError('Ups. Something went wrong and we could not get your data because we could not load the importer plugin. Please contact your site admin.');
@@ -518,10 +516,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($this->step < $this->lastStep) {
       $form_state->setRebuild(TRUE);
     } else {
-      //$form_state->setRebuild(FALSE);
       if (!empty($batch)) {
-        error_log('setting batch');
-        dpm($batch);
         batch_set($batch);
       }
     }
