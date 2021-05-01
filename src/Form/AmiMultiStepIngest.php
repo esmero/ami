@@ -468,16 +468,23 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
-        $data = $plugin_instance->getData($this->store->get('pluginconfig'),
-          0, -1);
+        if (!$plugin_instance->getPluginDefinition()['batch']) {
+          $data = $plugin_instance->getData($this->store->get('pluginconfig'),
+            0, -1);
+          $amisetdata->column_keys = $data['headers'];
+          $amisetdata->total_rows = $data['totalrows'];
+        }
 
-        $amisetdata->column_keys = $data['headers'];
-        $amisetdata->total_rows = $data['totalrows'];
+
         // We should probably add the UUIDs here right now.
         $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'uuid_node';
         // We want to reset this value now
         $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
-        $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
+        if (!$plugin_instance->getPluginDefinition()['batch']) {
+          $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
+        } else {
+          $fileid = $this->AmiUtilityService->csv_touch();
+        }
         $batch = [];
         if (isset($fileid)) {
           $amisetdata->csv = $fileid;

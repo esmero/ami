@@ -23,7 +23,7 @@ use Drupal\file\Entity\File;
  *
  * @ImporterAdapter(
  *   id = "solr",
- *   label = @Translation("Solr Importer"),
+ *   label = @Translation("Islandora 7 Solr Importer"),
  *   remote = true,
  *   batch = true
  * )
@@ -33,20 +33,16 @@ class SolrImporter extends SpreadsheetImporter {
   use StringTranslationTrait;
   use MessengerTrait;
 
-  const BATCH_INCREMENTS = 200;
-  const SOLR_CONFIG = [
-    'endpoint' => [
-      'localhost' => [
-        'host' => 'dcmny.org',
-        'port' => 8080,
-        'path' => '/',
-        'core' => 'metrocore1',
-        // For Solr Cloud you need to provide a collection instead of core:
-        // 'collection' => 'techproducts',
-      ]
-    ]
+  const SOLR_FIELD_SUFFIX = ['_ms', '_mdt', '_s', '_dt'];
+
+  const MULTICHILDREN_CMODELS = [
+    'info:fedora/islandora:compoundCModel',
+    'info:fedora/islandora:bookCModel',
+    'info:fedora/islandora:newspaperIssueCModel',
+    'info:fedora/islandora:newspaperCModel',
   ];
 
+  const BATCH_INCREMENTS = 100;
 
   /**
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
@@ -119,7 +115,7 @@ class SolrImporter extends SpreadsheetImporter {
 
     $rows  = $form_state->get('rows');
     $rows = $rows ?? $form_state->getValue(array_merge($parents,
-           ['solarium_config', 'rows']), 0);
+        ['solarium_config', 'rows']), 0);
     if (empty($rows)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
@@ -219,7 +215,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#title' => $this->t('Starting Row'),
         '#description' => $this->t('Initial Row to fetch. This is an offset. Defaults to 0'),
         '#default_value' => $form_state->getValue(array_merge($parents,
-        ['solarium_config', 'start'])),
+          ['solarium_config', 'start'])),
       ],
       'rows' => [
         '#type' => 'number',
@@ -237,6 +233,14 @@ class SolrImporter extends SpreadsheetImporter {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
     $form['solarium_mapping'] = [
+      'parent_ado' => [
+        '#type' => 'entity_autocomplete',
+        '#title' => $this->t('ADO to be used as Parent'),
+        '#description' => $this->t('The ADO used as parent of the Imported Objects'),
+        '#target_type' => 'node',
+        '#maxlength' => 1024,
+        '#selection_handler' => 'default:nodewithstrawberry',
+      ],
       'cmodel_mapping' => [
         '#access' => !empty($cmodels),
         '#type' => 'webform_mapping',
@@ -244,7 +248,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#format' => 'list',
         '#required' => TRUE,
         '#description_display' => 'before',
-        '#description' => 'Your Islandora Content Models to ADO types mapping, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.',
+        '#description' => $this->t('Your Islandora Content Models to ADO types mapping, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
         '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
         '#empty_value' => NULL,
         '#default_value' => $form_state->getValue(array_merge($parents,
@@ -345,8 +349,8 @@ class SolrImporter extends SpreadsheetImporter {
     } catch (\Exception $e) {
       $form_state->setError($element,
         $this->t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address.'));
-        $form_state->setValue(['pluginconfig','ready'], FALSE);
-        return $tabdata;
+      $form_state->setValue(['pluginconfig','ready'], FALSE);
+      return $tabdata;
     }
 
     if ($ping_sucessful) {
@@ -371,7 +375,10 @@ class SolrImporter extends SpreadsheetImporter {
         $facet2 = $facetSet->createFacetField('dsid')
           ->setField('fedora_datastreams_ms');
         $rows = (int) $config['solarium_config']['rows'] > 0 && (int) $config['solarium_config']['rows'] <= 100  ? $config['solarium_config']['rows'] : 100;
-        $query->setStart($config['solarium_config']['start'] ?? 0)->setRows($rows);
+
+        $query->setResponseWriter('csv');
+        $query->setStart(0)->setRows(0);
+
         $query->setFields([
           'PID',
           'fgs_label_s',
@@ -385,8 +392,17 @@ class SolrImporter extends SpreadsheetImporter {
           'fgs_ModifiedDate_dt',
           'fedora_datastreams_ms'
         ]);
+        error_log($client->createRequest($query)->getUri());
         $resultset = $client->select($query);
-
+        $allheaders = $resultset->getResponse()->getBody();
+        $allheaders_array = str_getcsv($allheaders);
+        error_log(count($allheaders_array));
+        //$query->setFields($allheaders_array);
+        // Reuse the query now
+        $query->setResponseWriter(\Solarium\Core\Query\AbstractQuery::WT_JSON);
+        $query->setStart($config['solarium_config']['start'] ?? 0)->setRows($rows);
+        $resultset = $client->select($query);
+        error_log($client->createRequest($query)->getUri());
         // display the total number of documents found by solr
         $facet = $resultset->getFacetSet()->getFacet('cmodel');
         $cmodel = [];
@@ -398,7 +414,6 @@ class SolrImporter extends SpreadsheetImporter {
         // Set extracted CMODELS in a temp value
         $form_state->set('facet_cmodel', $cmodel);
         // Unset the passed ones so we do not carry those over
-
 
         $resultset_iterator = $resultset->getIterator();
         // Empty value? just return
@@ -420,7 +435,6 @@ class SolrImporter extends SpreadsheetImporter {
       }
       $table = [];
       $headers = [];
-      $maxRow = 0;
       $highestRow = 0;
 
       for ($resultset_iterator->rewind(); $resultset_iterator->valid(); $resultset_iterator->next()) {
@@ -428,33 +442,43 @@ class SolrImporter extends SpreadsheetImporter {
           $highestRow = $resultset_iterator->key() + 1;
           $document = $resultset_iterator->current();
           foreach ($document as $field => $value) {
-            // this converts multi valued fields to a comma-separated string
-            $headers[$field] = $field;
-            if (is_array($value)) {
-              // Check if there is also a _s key for the same _ms
-              $clean_field = substr($field, 0, -2);
-              $single_value = $document[$clean_field . 's'] ?? NULL;
-              if ($single_value) {
-                $fieldsToDelete[] = $clean_field . 's';
-                $value[] = is_array($single_value) ? $single_value[0] : $single_value ;
-              }
-              $value = implode(', ', array_unique($value));
+            $fieldname = $field;
+            // Exclude this non-sense fields
+            if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+              continue;
             }
-            $sp_data[$resultset_iterator->key()][$field] = $value;
+            // this converts multi valued fields to a |@|  string
+            foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
+              $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
+              if ($suffix_offset!== false) {
+                $fieldname = substr($field, 0, $suffix_offset);
+                break 1;
+              }
+            }
+            $headers[$fieldname] = $fieldname;
+            if (is_array($value)) {
+              if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
+                $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
+                $value = array_unique(array_merge($original_value, $value));
+              }
+              $value = implode(' |@| ', array_unique($value));
+            }
+            $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
-
           $sp_data[$resultset_iterator->key()]['documents'] = '';
           $sp_data[$resultset_iterator->key()]['images'] = '';
           $sp_data[$resultset_iterator->key()]['videos'] = '';
           $sp_data[$resultset_iterator->key()]['audios'] = '';
           $sp_data[$resultset_iterator->key()]['models'] = '';
           $sp_data[$resultset_iterator->key()]['texts'] = '';
+          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
         }
         catch (\Exception $exception) {
           continue;
         }
       }
+      //$headers = $allheaders_array;
       // Also add these base ones to the headers
       $headers['documents'] = 'documents';
       $headers['images'] = 'images';
@@ -462,6 +486,7 @@ class SolrImporter extends SpreadsheetImporter {
       $headers['audios'] = 'audios';
       $headers['models'] = 'models';
       $headers['texts'] = 'texts';
+      $headers['type'] = 'type';
 
       if (($highestRow) >= 1) {
         // Returns Row Headers.
@@ -483,12 +508,12 @@ class SolrImporter extends SpreadsheetImporter {
       ];
 
       // Check if we still have the same CMODELS after running this. In case something changed.
-       if ((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_mapping'], []), $cmodel)) == count($cmodel)) && count($cmodel) >= 1) {
+      if ((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_mapping'], []), $cmodel)) == count($cmodel)) && count($cmodel) >= 1) {
         $form_state->setValue(['pluginconfig', 'ready'], TRUE);
       } else {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
-     if ((int) $form_state->getValue(['pluginconfig', 'solarium_config', 'rows'],0) == 0) {
+      if ((int) $form_state->getValue(['pluginconfig', 'solarium_config', 'rows'],0) == 0) {
         $user_input = $form_state->getUserInput();
         $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
         $form_state->setUserInput($user_input);
@@ -510,7 +535,7 @@ class SolrImporter extends SpreadsheetImporter {
    * {@inheritdoc}
    */
   public function getData(array $config, $page = 0, $per_page = 20): array {
-   // IN this case $page really means $offset.
+    // IN this case $page really means $offset.
 
     $solr_config = [
       'endpoint' => [
@@ -543,7 +568,7 @@ class SolrImporter extends SpreadsheetImporter {
       return $tabdata;
     }
 
-    // We are not pagin here, we are using absolute starting values.
+    // We are not pagign here, we are using absolute starting values.
     $offset = $page;
     $per_page = $per_page > 0 ? $per_page : static::BATCH_INCREMENTS;
 
@@ -596,33 +621,66 @@ class SolrImporter extends SpreadsheetImporter {
         return $tabdata;
       }
       $table = [];
-      $headers = [];
+      $headers['documents'] = 'documents';
+      $headers['images'] = 'images';
+      $headers['videos'] = 'videos';
+      $headers['audios'] = 'audios';
+      $headers['models'] = 'models';
+      $headers['texts'] = 'texts';
+      $headers['type'] = 'type';
+      $headers['ismemberof'] = 'ismemberof';
+      $headers['ispartof'] = 'ispartof';
       $maxRow = 0;
       $highestRow = 0;
+      $pids_to_fetch = [];
 
       for ($resultset_iterator->rewind(); $resultset_iterator->valid(); $resultset_iterator->next()) {
         try {
           $highestRow = $resultset_iterator->key() + 1;
           $document = $resultset_iterator->current();
           foreach ($document as $field => $value) {
-            // this converts multi valued fields to a comma-separated string
-            $headers[$field] = $field;
-            if (is_array($value)) {
-              // Check if there is also a _s key for the same _ms
-              $clean_field = substr($field, 0, -2);
-              $single_value = $document[$clean_field . 's'] ?? NULL;
-              if ($single_value) {
-                $fieldsToDelete[] = $clean_field . 's';
-                $value[] = is_array($single_value) ? $single_value[0] : $single_value ;
-              }
-              $value = implode(', ', array_unique($value));
+            $fieldname = $field;
+            // Exclude this non-sense fields
+            if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+              continue;
             }
-            $sp_data[$resultset_iterator->key()][$field] = $value;
+            // this converts multi valued fields to a comma-separated string
+            foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
+              $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
+              if ($suffix_offset!== false) {
+                $fieldname = substr($field, 0, $suffix_offset);
+                break 1;
+              }
+            }
+            $headers[$fieldname] = $fieldname;
+            if (is_array($value)) {
+              if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
+                $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
+                $value = array_unique(array_merge($original_value, $value));
+              }
+              $value = implode(' |@| ', array_unique($value));
+            }
+            $sp_data[$resultset_iterator->key()][$fieldname] = $value;
+          }
+          // Let's add generic all columns needed for files.
+          $sp_data[$resultset_iterator->key()]['documents'] = '';
+          $sp_data[$resultset_iterator->key()]['images'] = '';
+          $sp_data[$resultset_iterator->key()]['videos'] = '';
+          $sp_data[$resultset_iterator->key()]['audios'] = '';
+          $sp_data[$resultset_iterator->key()]['models'] = '';
+          $sp_data[$resultset_iterator->key()]['texts'] = '';
+          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+
+          // Fetch Children
+          if (in_array($sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri'], static::MULTICHILDREN_CMODELS)) {
+            $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['PID'];
           }
         } catch (\Exception $exception) {
           continue;
         }
       }
+
+
       // Remove Single fields we also got as
       /* foreach ($fieldsToDelete as $fieldtodelete) {
         unset($headers[$fieldtodelete]);
@@ -634,15 +692,40 @@ class SolrImporter extends SpreadsheetImporter {
         // Returns Row Headers.
 
         $maxRow = 1; // at least until here.
+        $childrenoffset = 0;
         // There is a chance that not all Rows have the same fields.
         foreach ($sp_data as $rowindex => $row) {
           $i = 0;
           $newrow = [];
+          $realrowindex = $rowindex + $childrenoffset + $offset;
           foreach ($headers as $field) {
             $newrow[$i] = $sp_data[$rowindex][$field] ?? '';
             $i++;
           }
-          $table[$rowindex] = $newrow;
+          $table[$realrowindex] = $newrow;
+          if (isset($pids_to_fetch[$rowindex])) {
+            error_log('fetching children');
+            $children_data = $this->getDataChildren($client, 'info:fedora/'.$pids_to_fetch[$rowindex]);
+            if (count($children_data)) {
+              foreach ($children_data as $childrenindex => $childrenrow) {
+                $j = 0;
+                $newrow = [];
+                foreach ($headers as $field) {
+                  if ($field == 'ispartof') {
+                    // Arrays. Headers is 0, first row is 1, but in CSV
+                    // Headers is 1. You got this.
+                    $newrow[$j] = $realrowindex + 2;
+                  }
+                  else {
+                    $newrow[$j] = $children_data[$childrenindex][$field] ?? '';
+                  }
+                  $j++;
+                }
+                $table[$realrowindex + $childrenindex + 1] = $newrow;
+              }
+              $childrenoffset = $childrenoffset + count($children_data);
+            }
+          }
         }
       }
 
@@ -650,7 +733,7 @@ class SolrImporter extends SpreadsheetImporter {
         'headers' => array_keys($headers),
         'data' => $table,
         'totalrows' => $highestRow,
-        'totalfound' => $resultset->getNumFound(),
+        'totalfound' => count($table),
       ];
     }
     else {
@@ -661,6 +744,99 @@ class SolrImporter extends SpreadsheetImporter {
     }
     return $tabdata;
   }
+
+  /**
+   * Fetches Children Objects from Solr and returns an array
+   *
+   * @param \Solarium\Client $client
+   * @param $input
+   *
+   * @return array
+   */
+  protected function getDataChildren(SolariumClient $client, $input):array {
+    $sp_data = [];
+    $query = $client->createSelect();
+    $helper = $query->getHelper();
+    $escaped = $helper->escapePhrase($input);
+    $query->createFilterQuery('constituent')->setQuery('RELS_EXT_isConstituentOf_uri_ms:'.$escaped .' OR RELS_EXT_isPageOf_uri_ms:'.$escaped .' OR RELS_EXT_isMemberOf_uri_ms:'.$escaped );
+    $query->setQuery('*:*');
+    $query->setStart(0)->setRows(3000);
+    $query->setFields([
+      'PID',
+      'fgs_label_s',
+      'fedora_datastream_latest_*_MIMETYPE_ms',
+      'mods_*',
+      'RELS_EXT_hasModel_uri_s',
+      'RELS_EXT_isM*',
+      'RELS_EXT_isC*',
+      'RELS_EXT_isP*',
+      'fgs_createdDate_dt',
+      'fgs_ModifiedDate_dt',
+      'fedora_datastreams_ms'
+    ]);
+
+    error_log($client->createRequest($query)->getUri());
+    $resultset = $client->select($query);
+    // display the total number of documents found by solr
+    error_log('NumFound: ' . $resultset->getNumFound());
+    if ($resultset->getNumFound() == 0) { return []; }
+
+    $resultset_iterator = $resultset->getIterator();
+    // Empty value? just return
+    if (($resultset_iterator == NULL) || empty($resultset_iterator)) {
+      $this->messenger()->addMessage(
+        t('Nothing to read, check your Solr Query Arguments'),
+        MessengerInterface::TYPE_ERROR
+      );
+      error_log('returning children query');
+      return [];
+    }
+
+    for ($resultset_iterator->rewind(); $resultset_iterator->valid(); $resultset_iterator->next()) {
+      try {
+        $highestRow = $resultset_iterator->key() + 1;
+        $document = $resultset_iterator->current();
+        foreach ($document as $field => $value) {
+          $fieldname = $field;
+          // Exclude this non-sense fields
+          if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+            continue;
+          }
+          // this converts multi valued fields to a comma-separated string
+          foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
+            $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
+            if ($suffix_offset!== false) {
+              $fieldname = substr($field, 0, $suffix_offset);
+              break 1;
+            }
+          }
+          $headers[$fieldname] = $fieldname;
+          if (is_array($value)) {
+            if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
+              $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
+              $value = array_unique(array_merge($original_value, $value));
+            }
+            $value = implode(' |@| ', array_unique($value));
+          }
+          $sp_data[$resultset_iterator->key()][$fieldname] = $value;
+        }
+        // Let's add generic all columns needed for files.
+        $sp_data[$resultset_iterator->key()]['documents'] = '';
+        $sp_data[$resultset_iterator->key()]['images'] = '';
+        $sp_data[$resultset_iterator->key()]['videos'] = '';
+        $sp_data[$resultset_iterator->key()]['audios'] = '';
+        $sp_data[$resultset_iterator->key()]['models'] = '';
+        $sp_data[$resultset_iterator->key()]['texts'] = '';
+        $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+
+      } catch (\Exception $exception) {
+        continue;
+      }
+    }
+    return $sp_data;
+  }
+
+
 
   /**
    * {@inheritdoc}
@@ -713,11 +889,13 @@ class SolrImporter extends SpreadsheetImporter {
         $context['finished'] = 1;
       }
       else {
-        \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid']);
+        $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
+        \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
         error_log($context['sandbox']['progress']);
-        $context['results']['processed'][] = $data;
+
+        $context['results']['processed'][] = $data['headers'];
         $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
       }
     } catch (\Exception $e) {
@@ -729,9 +907,9 @@ class SolrImporter extends SpreadsheetImporter {
     }
   }
 
-   public static function finishfetchFromSolr($success, $results, $operations) {
-   error_log(print_r($results));
-   dpm($results);
-   }
+  public static function finishfetchFromSolr($success, $results, $operations) {
+    error_log(print_r($results));
+
+  }
 
 }

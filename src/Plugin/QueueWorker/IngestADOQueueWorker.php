@@ -232,6 +232,27 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->persistEntity($data, $processed_metadata);
   }
 
+
+  /**
+   * Quick helper is Remote or local helper
+   *
+   * @param $uri
+   *
+   * @return bool
+   */
+  private function isRemote($uri) {
+    // WE do have a similar code in \Drupal\ami\AmiUtilityService::file_get
+    // @TODO refactor to a single method.
+    $parsed_url = parse_url($uri);
+    $remote_schemes = ['http', 'https', 'feed'];
+    $remote = FALSE;
+    if (isset($parsed_url['scheme']) && in_array($parsed_url['scheme'], $remote_schemes)) {
+      $remote = TRUE;
+    }
+    return $remote;
+  }
+
+
   /**
    * Saves an ADO (NODE Entity).
    *

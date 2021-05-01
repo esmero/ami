@@ -612,6 +612,55 @@ class AmiUtilityService {
   }
 
   /**
+   * Creates an empty CSV returns file.
+   *
+   * @return int|string|null
+   * @throws \Drupal\Core\Entity\EntityStorageException
+   */
+  public function csv_touch() {
+    $path = 'public://ami/csv';
+    $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
+    // Ensure the directory
+    if (!$this->fileSystem->prepareDirectory(
+      $path,
+      FileSystemInterface::CREATE_DIRECTORY
+      | FileSystemInterface::MODIFY_PERMISSIONS
+    )
+    ) {
+      $this->messenger()->addError(
+        $this->t(
+          'Unable to create directory for CSV file. Verify permissions please'
+        )
+      );
+      return NULL;
+    }
+    // Ensure the file
+    $file = file_save_data(
+      '', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE
+    );
+    if (!$file) {
+      $this->messenger()->addError(
+        $this->t('Unable to create AMI CSV file. Verify permissions please.')
+      );
+      return NULL;
+    }
+    $file->setPermanent();
+    $file->save();
+    // Tell the user where we have it.
+    $this->messenger()->addMessage(
+      $this->t(
+        'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
+        [
+          '@url' => file_create_url($file->getFileUri()),
+          '@filename' => $file->getFilename(),
+        ]
+      )
+    );
+    return $file->id();
+  }
+
+
+  /**
    * Creates an CSV from array and returns file.
    *
    * @param array $data
@@ -722,10 +771,13 @@ class AmiUtilityService {
    *
    * @param \Drupal\file\Entity\File $file
    *
+   * @param string $uuid_key
+   * @param bool $append_header
+   *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid') {
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header) {
 
     $realpath = $this->fileSystem->realpath($file->getFileUri());
     $fh = new \SplFileObject($realpath, 'a');
@@ -742,7 +794,9 @@ class AmiUtilityService {
       array_unshift($data['headers'], $uuid_key);
     }
 
-    $fh->fputcsv($data['headers']);
+    if ($append_header) {
+      $fh->fputcsv($data['headers']);
+    }
 
     foreach ($data['data'] as $row) {
       if ($haskey === FALSE) {
