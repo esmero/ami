@@ -563,7 +563,7 @@ class SolrImporter extends SpreadsheetImporter {
     // execute the ping query
     try {
       $result = $client->ping($ping);
-      $ping_sucessful = $result->getData();
+      $ping_sucessful = $result->getStatus() + 1;
     } catch (\Exception $e) {
       return $tabdata;
     }
@@ -598,11 +598,8 @@ class SolrImporter extends SpreadsheetImporter {
           'fedora_datastreams_ms'
         ]);
 
-        error_log($client->createRequest($query)->getUri());
         $resultset = $client->select($query);
         // display the total number of documents found by solr
-        error_log('NumFound: ' . $resultset->getNumFound());
-
         $resultset_iterator = $resultset->getIterator();
         // Empty value? just return
         if (($resultset_iterator == NULL) || empty($resultset_iterator)) {
@@ -610,7 +607,6 @@ class SolrImporter extends SpreadsheetImporter {
             t('Nothing to read, check your Solr Query Arguments'),
             MessengerInterface::TYPE_ERROR
           );
-          error_log('returning');
           return $tabdata;
         }
       } catch (\Exception $e) {
@@ -633,6 +629,7 @@ class SolrImporter extends SpreadsheetImporter {
       $maxRow = 0;
       $highestRow = 0;
       $pids_to_fetch = [];
+      $previous_index = $config['prev_index'] ?? 0;
 
       for ($resultset_iterator->rewind(); $resultset_iterator->valid(); $resultset_iterator->next()) {
         try {
@@ -671,6 +668,10 @@ class SolrImporter extends SpreadsheetImporter {
           $sp_data[$resultset_iterator->key()]['texts'] = '';
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
 
+          $datastream = $this->buildDatastreamURL($config, $document);
+          if (count($datastream)) {
+            $sp_data[$resultset_iterator->key()][array_key_first($datastream)] = reset($datastream);
+          }
           // Fetch Children
           if (in_array($sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri'], static::MULTICHILDREN_CMODELS)) {
             $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['PID'];
@@ -681,13 +682,6 @@ class SolrImporter extends SpreadsheetImporter {
       }
 
 
-      // Remove Single fields we also got as
-      /* foreach ($fieldsToDelete as $fieldtodelete) {
-        unset($headers[$fieldtodelete]);
-      }*/
-      // Reorder.
-      //$headers = array_values($headers);
-
       if (($highestRow) >= 1) {
         // Returns Row Headers.
 
@@ -697,15 +691,16 @@ class SolrImporter extends SpreadsheetImporter {
         foreach ($sp_data as $rowindex => $row) {
           $i = 0;
           $newrow = [];
-          $realrowindex = $rowindex + $childrenoffset + $offset;
+          $realrowindex = $rowindex + $childrenoffset + $previous_index;
           foreach ($headers as $field) {
             $newrow[$i] = $sp_data[$rowindex][$field] ?? '';
             $i++;
           }
+
           $table[$realrowindex] = $newrow;
           if (isset($pids_to_fetch[$rowindex])) {
             error_log('fetching children');
-            $children_data = $this->getDataChildren($client, 'info:fedora/'.$pids_to_fetch[$rowindex]);
+            $children_data = $this->getDataChildren($config, $client, 'info:fedora/'.$pids_to_fetch[$rowindex]);
             if (count($children_data)) {
               foreach ($children_data as $childrenindex => $childrenrow) {
                 $j = 0;
@@ -748,12 +743,13 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * Fetches Children Objects from Solr and returns an array
    *
+   * @param array $config
    * @param \Solarium\Client $client
-   * @param $input
+   * @param string $input
    *
    * @return array
    */
-  protected function getDataChildren(SolariumClient $client, $input):array {
+  protected function getDataChildren(array $config, SolariumClient $client, string $input):array {
     $sp_data = [];
     $query = $client->createSelect();
     $helper = $query->getHelper();
@@ -788,7 +784,6 @@ class SolrImporter extends SpreadsheetImporter {
         t('Nothing to read, check your Solr Query Arguments'),
         MessengerInterface::TYPE_ERROR
       );
-      error_log('returning children query');
       return [];
     }
 
@@ -828,6 +823,11 @@ class SolrImporter extends SpreadsheetImporter {
         $sp_data[$resultset_iterator->key()]['models'] = '';
         $sp_data[$resultset_iterator->key()]['texts'] = '';
         $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+        // Get me the datastream
+        $datastream = $this->buildDatastreamURL($config, $document);
+        if (count($datastream)) {
+          $sp_data[$resultset_iterator->key()][array_key_first($datastream)] = reset($datastream);
+        }
 
       } catch (\Exception $exception) {
         continue;
@@ -836,6 +836,35 @@ class SolrImporter extends SpreadsheetImporter {
     return $sp_data;
   }
 
+  /**
+   * @param array $config
+   * @param \Solarium\QueryType\Select\Result\Document $document
+   *
+   * @return array|string[]
+   */
+  protected function buildDatastreamURL(array $config, \Solarium\QueryType\Select\Result\Document $document):array {
+    if (!empty($document->fedora_datastream_latest_OBJ_MIMETYPE_ms)) {
+        // Calculate the destination json key
+      $dsid = 'OBJ';
+      $mime = $document->fedora_datastream_latest_OBJ_MIMETYPE_ms[0];
+
+    }
+    elseif (!empty($document->fedora_datastream_latest_PDF_MIMETYPE_ms)) {
+      $dsid = 'PDF';
+      $mime = $document->fedora_datastream_latest_PDF_MIMETYPE_ms[0];
+    }
+    else {
+      return [];
+    }
+    $as_file_type = explode('/', $mime);
+    $as_file_type = count($as_file_type) == 2 ? $as_file_type[0] : 'document';
+    $as_file_type = ($as_file_type != 'application') ? $as_file_type : 'document';
+    $url = rtrim($config['solarium_mapping']['server_domain'], '/') . '/islandora/object/' . urlencode($document->PID) . "/datastream/{$dsid}/download";
+    // We add an 's' at the end to match our typical file bearing CSV header naming.
+    return [
+      $as_file_type . 's' => $url
+    ];
+  }
 
 
   /**
@@ -876,6 +905,10 @@ class SolrImporter extends SpreadsheetImporter {
         $context['sandbox']) || $context['sandbox']['max'] < $rows) {
       $context['sandbox']['max'] = $rows;
     }
+    if (!array_key_exists('prev_index',
+        $context['sandbox'])) {
+      $context['sandbox']['prev_index'] = 0;
+    }
     $context['finished'] = 0;
     try {
       $title = t('Processing %progress of <b>%count</b>', [
@@ -883,12 +916,18 @@ class SolrImporter extends SpreadsheetImporter {
         '%progress' => $context['sandbox']['progress'] + $increment
       ]);
       $context['message'] = $title;
+      // WE keep track in the AMI set Config of the previous total rows
+      // Because Children will offset all the results significantly
+      // And we pass that data into the ::getData to offset the next set of
+      // Parents/Children.
+      $config['prev_index'] = $context['sandbox']['prev_index'];
       $data = $plugin_instace->getData($config, $context['sandbox']['progress'] + $offset,
         $increment);
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
       }
       else {
+        $context['sandbox']['prev_index'] = $context['sandbox']['prev_index'] + $data['totalfound'];
         $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
         \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
