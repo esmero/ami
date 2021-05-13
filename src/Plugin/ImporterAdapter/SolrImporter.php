@@ -42,6 +42,16 @@ class SolrImporter extends SpreadsheetImporter {
     'info:fedora/islandora:newspaperCModel',
   ];
 
+
+  const FILE_COLUMNS = [
+    'documents',
+    'images',
+    'texts',
+    'videos',
+    'audios',
+    'models',
+  ];
+
   const BATCH_INCREMENTS = 100;
 
   /**
@@ -201,13 +211,6 @@ class SolrImporter extends SpreadsheetImporter {
           ]
         ]
       ],
-      'collapse' => [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Collapse Multi Children Objects'),
-        '#description' => $this->t('This will collapse Children Datastreams into a single ADO with many attached files.'),
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_config', 'collapse'])),
-      ],
       'start' => [
         '#type' => 'number',
         '#min' => 0,
@@ -233,6 +236,13 @@ class SolrImporter extends SpreadsheetImporter {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
     $form['solarium_mapping'] = [
+      'collapse' => [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Collapse Multi Children Objects'),
+        '#description' => $this->t('This will collapse Children Datastreams into a single ADO with many attached files. Book Pages will be fetched but also the Top Level PDF.'),
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_mapping', 'collapse'])),
+      ],
       'parent_ado' => [
         '#type' => 'entity_autocomplete',
         '#title' => $this->t('ADO to be used as Parent'),
@@ -466,12 +476,9 @@ class SolrImporter extends SpreadsheetImporter {
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
-          $sp_data[$resultset_iterator->key()]['documents'] = '';
-          $sp_data[$resultset_iterator->key()]['images'] = '';
-          $sp_data[$resultset_iterator->key()]['videos'] = '';
-          $sp_data[$resultset_iterator->key()]['audios'] = '';
-          $sp_data[$resultset_iterator->key()]['models'] = '';
-          $sp_data[$resultset_iterator->key()]['texts'] = '';
+          foreach (static::FILE_COLUMNS as $column) {
+            $sp_data[$resultset_iterator->key()][$column] = '';
+          }
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
         }
         catch (\Exception $exception) {
@@ -480,13 +487,9 @@ class SolrImporter extends SpreadsheetImporter {
       }
       //$headers = $allheaders_array;
       // Also add these base ones to the headers
-      $headers['documents'] = 'documents';
-      $headers['images'] = 'images';
-      $headers['videos'] = 'videos';
-      $headers['audios'] = 'audios';
-      $headers['models'] = 'models';
-      $headers['texts'] = 'texts';
-      $headers['type'] = 'type';
+      foreach (static::FILE_COLUMNS as $column) {
+        $headers[$column] = $column;
+      }
 
       if (($highestRow) >= 1) {
         // Returns Row Headers.
@@ -536,7 +539,7 @@ class SolrImporter extends SpreadsheetImporter {
    */
   public function getData(array $config, $page = 0, $per_page = 20): array {
     // IN this case $page really means $offset.
-
+    error_log(var_export($config['solarium_mapping']['parent_ado'], true));
     $solr_config = [
       'endpoint' => [
         'amiremote' => [
@@ -546,6 +549,7 @@ class SolrImporter extends SpreadsheetImporter {
         ],
       ],
     ];
+
     if ($config['solarium_config']['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['solarium_config']['core'];
     }
@@ -559,7 +563,6 @@ class SolrImporter extends SpreadsheetImporter {
     $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0, 'totalfound' => 0];
     $client = new SolariumClient($adapter, $eventDispatcher, $solr_config);
     $ping = $client->createPing();
-    $ping_sucessful = 0;
     // execute the ping query
     try {
       $result = $client->ping($ping);
@@ -568,7 +571,9 @@ class SolrImporter extends SpreadsheetImporter {
       return $tabdata;
     }
 
-    // We are not pagign here, we are using absolute starting values.
+    $collapse_children =  $config['solarium_mapping']['collapse'] ?? FALSE;
+
+    // We are not paging here, we are using absolute starting values.
     $offset = $page;
     $per_page = $per_page > 0 ? $per_page : static::BATCH_INCREMENTS;
 
@@ -617,12 +622,9 @@ class SolrImporter extends SpreadsheetImporter {
         return $tabdata;
       }
       $table = [];
-      $headers['documents'] = 'documents';
-      $headers['images'] = 'images';
-      $headers['videos'] = 'videos';
-      $headers['audios'] = 'audios';
-      $headers['models'] = 'models';
-      $headers['texts'] = 'texts';
+      foreach (static::FILE_COLUMNS as $column) {
+        $headers[$column] = $column;
+      }
       $headers['type'] = 'type';
       $headers['ismemberof'] = 'ismemberof';
       $headers['ispartof'] = 'ispartof';
@@ -660,12 +662,9 @@ class SolrImporter extends SpreadsheetImporter {
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
-          $sp_data[$resultset_iterator->key()]['documents'] = '';
-          $sp_data[$resultset_iterator->key()]['images'] = '';
-          $sp_data[$resultset_iterator->key()]['videos'] = '';
-          $sp_data[$resultset_iterator->key()]['audios'] = '';
-          $sp_data[$resultset_iterator->key()]['models'] = '';
-          $sp_data[$resultset_iterator->key()]['texts'] = '';
+          foreach (static::FILE_COLUMNS as $column) {
+            $sp_data[$resultset_iterator->key()][$column] = '';
+          }
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
 
           $datastream = $this->buildDatastreamURL($config, $document);
@@ -681,10 +680,8 @@ class SolrImporter extends SpreadsheetImporter {
         }
       }
 
-
       if (($highestRow) >= 1) {
         // Returns Row Headers.
-
         $maxRow = 1; // at least until here.
         $childrenoffset = 0;
         // There is a chance that not all Rows have the same fields.
@@ -705,20 +702,38 @@ class SolrImporter extends SpreadsheetImporter {
               foreach ($children_data as $childrenindex => $childrenrow) {
                 $j = 0;
                 $newrow = [];
-                foreach ($headers as $field) {
-                  if ($field == 'ispartof') {
-                    // Arrays. Headers is 0, first row is 1, but in CSV
-                    // Headers is 1. You got this.
-                    $newrow[$j] = $realrowindex + 2;
+                if (!$collapse_children) {
+                  foreach ($headers as $field) {
+                    if ($field == 'ispartof') {
+                      // Arrays. Headers is 0, first row is 1, but in CSV
+                      // Headers is 1. You got this.
+                      $newrow[$j] = $realrowindex + 2;
+                    }
+                    else {
+                      $newrow[$j] = $children_data[$childrenindex][$field] ?? '';
+                    }
+                    $j++;
                   }
-                  else {
-                    $newrow[$j] = $children_data[$childrenindex][$field] ?? '';
-                  }
-                  $j++;
+                  $table[$realrowindex + $childrenindex + 1] = $newrow;
                 }
-                $table[$realrowindex + $childrenindex + 1] = $newrow;
+                else {
+                  // Take the Children Datastreams and add them to the parent's respective Columns
+                  // Easiest route is to iterate over all columns and join then with current column using a ';'
+                  foreach ($headers as $field) {
+                    if (in_array($field, static::FILE_COLUMNS)) {
+                      // For each File source Column, take all datastreams in children
+                      // And glue them to the existing ones via an ';'
+                      if (!empty($children_data[$childrenindex][$field])) {
+                        $table[$realrowindex][$j] = empty($table[$realrowindex][$j]) ? $children_data[$childrenindex][$field] : $table[$realrowindex][$j] . ';' . $children_data[$childrenindex][$field];
+                      }
+                      // @TODO. Should we also keep children metadata somewhere?
+                    }
+                    $j++;
+                  }
+                }
+                // Only add an offset if we are not collapsing
+                $childrenoffset = !$collapse_children ? $childrenoffset + count($children_data) : $childrenoffset;
               }
-              $childrenoffset = $childrenoffset + count($children_data);
             }
           }
         }
@@ -816,20 +831,18 @@ class SolrImporter extends SpreadsheetImporter {
           $sp_data[$resultset_iterator->key()][$fieldname] = $value;
         }
         // Let's add generic all columns needed for files.
-        $sp_data[$resultset_iterator->key()]['documents'] = '';
-        $sp_data[$resultset_iterator->key()]['images'] = '';
-        $sp_data[$resultset_iterator->key()]['videos'] = '';
-        $sp_data[$resultset_iterator->key()]['audios'] = '';
-        $sp_data[$resultset_iterator->key()]['models'] = '';
-        $sp_data[$resultset_iterator->key()]['texts'] = '';
+        // Let's add generic all columns needed for files.
+        foreach (static::FILE_COLUMNS as $column) {
+          $sp_data[$resultset_iterator->key()][$column] = '';
+        }
         $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
         // Get me the datastream
         $datastream = $this->buildDatastreamURL($config, $document);
         if (count($datastream)) {
           $sp_data[$resultset_iterator->key()][array_key_first($datastream)] = reset($datastream);
         }
-
       } catch (\Exception $exception) {
+        // @TODO log the error here.
         continue;
       }
     }
