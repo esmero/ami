@@ -344,7 +344,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDescription(t('A CSV containing the Source Data to be processed'))
       ->setSetting('file_extensions', 'csv')
       ->setSetting('upload_validators', $validators)
-      ->setRequired(TRUE)
+      ->setRequired(FALSE)
       ->setDisplayOptions('view', [
         'label' => 'above',
         'type' => 'file',
