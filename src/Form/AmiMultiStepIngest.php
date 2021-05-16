@@ -99,7 +99,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
     }
     if ($this->step == 2) {
-      error_log('calling step 2');
       $parents = ['pluginconfig'];
       $form_state->setValue('pluginconfig', $this->store->get('pluginconfig',[]));
       $pluginValue = $this->store->get('plugin', NULL);
@@ -389,7 +388,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         // @TODO investigate how to run a batch and end in the same form different step?
         // Idea is batch is only needed if there is a certain max number, e.g 5000 rows?
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
-        error_log(var_export($form_state->getValue('pluginconfig'), true));
         // Check if the Plugin is ready processing or needs more data
         $ready = $form_state->getValue('pluginconfig')['ready'] ?? TRUE;
         if (!$ready) {
@@ -477,7 +475,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
 
         // We should probably add the UUIDs here right now.
-        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'uuid_node';
+        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
         // We want to reset this value now
         $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
         if (!$plugin_instance->getPluginDefinition()['batch']) {

@@ -53,8 +53,6 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
     $webform = $this->AmiUtilityService->getWebforms();
-    error_log('building!');
-    error_log(var_export($form_state->getValue(['elements_rendered','jsonfind_element']),true));
     $form_state->disableCache();
     $form['#tree'] = TRUE;
     $form['webform'] =[
@@ -163,11 +161,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
    */
   public function field_submit(array &$form, FormStateInterface $form_state) {
 
-    error_log('calling field_submit');
-
-
     if (empty($form_state->getValue('webform'))) {
-      error_log('webform is empty');
       $form_state->unsetValue(['webform_elements','elements_for_this_form']);
     }
     if (empty($form_state->getValue(['webform_elements','elements_for_this_form']))) {
@@ -175,7 +169,6 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     }
     // We have to unset this is a form element's needed value may not match
     // a new one's need. E.g textfield v/s entity autocomplete
-    error_log('skipping unsettting');
     //$form_state->unsetValue(['elements_rendered','jsonfind_element']);
     $form_state->setRebuild(TRUE);
   }
@@ -183,19 +176,15 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
    * Submission handler for condition changes in
    */
   public function dynamic_field_submit(array &$form, FormStateInterface $form_state) {
-
-    error_log('dynamic_field_submit');
   }
 
   public static function elementDynamicValidate(&$element, FormStateInterface $form_state) {
-    error_log('calling elementDynamicValidate');
 
     //$element['#value'] = array_filter($element['#value']);
     error_log(var_export($element,true));
     error_log(var_export($form_state->getValue('elements_rendered'),true));
     $form_state->set('holi','chao');
    // $form_state->setValueForElement($element, $element['#value']);
-    error_log('Setting value');
   }
 
   public function webformAjaxCallback(array $form, FormStateInterface $form_state) {

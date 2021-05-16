@@ -181,7 +181,6 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     } else {
       $this->step++;
     }
-    error_log('base submitForm');
     $form_state->setRebuild();
   }
 

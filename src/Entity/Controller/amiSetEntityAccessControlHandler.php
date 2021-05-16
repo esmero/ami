@@ -100,7 +100,7 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
       'administer amiset entity',
       'add amiset entity',
     ];
-    return AccessResult::allowedIfHasPermission($account, $permissions, 'OR');
+    return AccessResult::allowedIfHasPermissions($account, $permissions, 'OR');
   }
 
 }

@@ -311,7 +311,6 @@ class SolrImporter extends SpreadsheetImporter {
     // execute the ping query
     try {
       $result = $client->ping($ping);
-      error_log('good! Ping -> Pong');
     } catch (\Exception $e) {
       $form_state->setError($element,
         t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address.'));
@@ -402,17 +401,14 @@ class SolrImporter extends SpreadsheetImporter {
           'fgs_ModifiedDate_dt',
           'fedora_datastreams_ms'
         ]);
-        error_log($client->createRequest($query)->getUri());
         $resultset = $client->select($query);
         $allheaders = $resultset->getResponse()->getBody();
         $allheaders_array = str_getcsv($allheaders);
-        error_log(count($allheaders_array));
         //$query->setFields($allheaders_array);
         // Reuse the query now
         $query->setResponseWriter(\Solarium\Core\Query\AbstractQuery::WT_JSON);
         $query->setStart($config['solarium_config']['start'] ?? 0)->setRows($rows);
         $resultset = $client->select($query);
-        error_log($client->createRequest($query)->getUri());
         // display the total number of documents found by solr
         $facet = $resultset->getFacetSet()->getFacet('cmodel');
         $cmodel = [];
@@ -539,7 +535,6 @@ class SolrImporter extends SpreadsheetImporter {
    */
   public function getData(array $config, $page = 0, $per_page = 20): array {
     // IN this case $page really means $offset.
-    error_log(var_export($config['solarium_mapping']['parent_ado'], true));
     $solr_config = [
       'endpoint' => [
         'amiremote' => [
@@ -696,7 +691,6 @@ class SolrImporter extends SpreadsheetImporter {
 
           $table[$realrowindex] = $newrow;
           if (isset($pids_to_fetch[$rowindex])) {
-            error_log('fetching children');
             $children_data = $this->getDataChildren($config, $client, 'info:fedora/'.$pids_to_fetch[$rowindex]);
             if (count($children_data)) {
               foreach ($children_data as $childrenindex => $childrenrow) {

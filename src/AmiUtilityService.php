@@ -606,7 +606,6 @@ class AmiUtilityService {
       return $file;
     }
     catch (FileException $e) {
-      error_log($e->getMessage());
       return FALSE;
     }
   }
