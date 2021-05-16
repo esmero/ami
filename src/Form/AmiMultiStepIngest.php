@@ -460,7 +460,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         $amisetdata->column_keys = $data['headers'];
         $amisetdata->total_rows = $data['totalrows'];
         // We should probably add the UUIDs here right now.
-        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'uuid_node';
+        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
         // We want to reset this value now
         $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
         $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
