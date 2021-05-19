@@ -315,11 +315,6 @@ class SolrImporter extends SpreadsheetImporter {
       $form_state->setError($element,
         t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address.'));
     }
-
-    /* if ($config['rows'] == 0) {
-      $form_state->setErrorByName('pluginconfig][solarium_config][rows',
-        t('You need to fetch at least one row.'));
-    }*/
   }
 
   /**
@@ -404,7 +399,7 @@ class SolrImporter extends SpreadsheetImporter {
         $resultset = $client->select($query);
         $allheaders = $resultset->getResponse()->getBody();
         $allheaders_array = str_getcsv($allheaders);
-        //$query->setFields($allheaders_array);
+        $allheaders_array = array_map([$this, 'multipleToSingleFieldName'], $allheaders_array);
         // Reuse the query now
         $query->setResponseWriter(\Solarium\Core\Query\AbstractQuery::WT_JSON);
         $query->setStart($config['solarium_config']['start'] ?? 0)->setRows($rows);
@@ -412,8 +407,9 @@ class SolrImporter extends SpreadsheetImporter {
         // display the total number of documents found by solr
         $facet = $resultset->getFacetSet()->getFacet('cmodel');
         $cmodel = [];
+        $collapse_children =  $config['solarium_mapping']['collapse'] ?? FALSE;
         foreach ($facet as $value => $count) {
-          if ($count) {
+          if ($count || $collapse_children) {
             $cmodel[$value] = $value;
           }
         }
@@ -454,20 +450,11 @@ class SolrImporter extends SpreadsheetImporter {
               continue;
             }
             // this converts multi valued fields to a |@|  string
-            foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
-              $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
-              if ($suffix_offset!== false) {
-                $fieldname = substr($field, 0, $suffix_offset);
-                break 1;
-              }
-            }
+            $fieldname = $this->multipleToSingleFieldName($field);
             $headers[$fieldname] = $fieldname;
             if (is_array($value)) {
-              if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
-                $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
-                $value = array_unique(array_merge($original_value, $value));
-              }
-              $value = implode(' |@| ', array_unique($value));
+              $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
+              $value = $this->concatValues($value, $original_value);
             }
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
@@ -638,21 +625,11 @@ class SolrImporter extends SpreadsheetImporter {
             if (strpos($field, '_roleTerm_', 0) !== FALSE) {
               continue;
             }
-            // this converts multi valued fields to a comma-separated string
-            foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
-              $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
-              if ($suffix_offset!== false) {
-                $fieldname = substr($field, 0, $suffix_offset);
-                break 1;
-              }
-            }
+            $fieldname = $this->multipleToSingleFieldName($field);
             $headers[$fieldname] = $fieldname;
             if (is_array($value)) {
-              if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
-                $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
-                $value = array_unique(array_merge($original_value, $value));
-              }
-              $value = implode(' |@| ', array_unique($value));
+              $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
+              $value = $this->concatValues($value, $original_value);
             }
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
@@ -873,6 +850,41 @@ class SolrImporter extends SpreadsheetImporter {
     ];
   }
 
+  /**
+   * This function normalizes field names to join _ms, _s etc without prefixes.
+   *
+   * @param $field
+   *
+   * @return false|string
+   */
+  protected function multipleToSingleFieldName($field) {
+    // this converts multi valued fields to a comma-separated string
+    foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
+      $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
+      if ($suffix_offset!== false) {
+        $field = substr($field, 0, $suffix_offset);
+        break 1;
+      }
+    }
+    return $field;
+  }
+
+  /**
+   * Implodes array and concatenates to existing string using common delimiter.
+   *
+   * @param array $value
+   * @param string|null $oldvalue
+   *
+   * @return string
+   */
+  protected function concatValues(array $value, string $original_value = NULL): string {
+    if (!empty($oldvalue)) {
+      $original_value = explode(' |@| ', $original_value) ?? [];
+      $value = array_unique(array_merge($original_value, $value));
+    }
+    return implode(' |@| ', array_unique($value));
+  }
+
 
   /**
    * {@inheritdoc}
@@ -957,5 +969,6 @@ class SolrImporter extends SpreadsheetImporter {
     error_log(print_r($results));
 
   }
+
 
 }
