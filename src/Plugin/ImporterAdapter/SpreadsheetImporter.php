@@ -141,8 +141,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
         $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
         $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
         $rowHeaders_utf8 = array_filter($rowHeaders_utf8);
-
         $headercount = count($rowHeaders_utf8);
+
         foreach ($worksheet->getRowIterator() as $row) {
           $rowindex = $row->getRowIndex();
           if (($rowindex > 1) && ($rowindex > ($offset)) && (($rowindex <= ($offset + $per_page + 1)) || $per_page == -1)) {
@@ -166,8 +166,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
               $headercount,
               $datarow[0]
             );
-
-            $table[$rowindex] = $datarow[0];
+            $table[$rowindex] = $row;
           }
           $maxRow = $rowindex;
         }
@@ -182,8 +181,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   }
 
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
-    return $this->getData($config, $form_state, $page,
-      $per_page);
+     return $this->getData($config, $page, $per_page);
   }
 
 }

@@ -259,8 +259,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   }
 
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
-    return $this->getData($config, $form_state, $page,
-      $per_page);
+    return $this->getData($config, $page, $per_page);
   }
 
 
