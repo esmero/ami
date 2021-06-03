@@ -92,7 +92,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $zip_file_reference[0]['target_id']
       );
     }
-
     $data = new \stdClass();
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
@@ -210,11 +209,32 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $bundles[] = $data->mapping->globalmapping_settings->bundle ?? NULL;
       }
       $bundles = array_values(array_unique($bundles));
-
+      // we can't assume the user did not mess with the AMI set data?
+      $op = $data->pluginconfig->op ?? NULL;
+      $ops = [
+        'create',
+        'update',
+        'patch',
+      ];
+      if (!in_array($op, $ops)) {
+        $form['status'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' =>  $this->t(
+            'Error'
+          ),
+          '#markup' => $this->t(
+            'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
+          ),
+        ];
+        return $form;
+      }
       $form['status'] = [
         '#tree' => TRUE,
         '#type' => 'fieldset',
-        '#title' => $this->t('Desired ADOs statuses after process.'),
+        '#title' => $this->t('Desired ADOs statuses after this <em><b>@op</b></em> operation process.',
+          ['@op' => $op]
+        ),
       ];
       $access = TRUE;
       foreach($bundles as $propertypath) {
@@ -233,7 +253,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           '#tree' => TRUE,
           '#type' => 'fieldset',
           '#title' =>  $this->t(
-            'Error',
+            'Error'
           ),
           '#markup' => $this->t(
             'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.',
