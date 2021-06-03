@@ -181,12 +181,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $cleanvalues = [];
     // Now process Files and Nodes
     $ado_columns = array_values(get_object_vars($data->adomapping->parents));
+    // Do we have any?
+
     if ($data->mapping->globalmapping == "custom") {
-      $file_columns = array_values(get_object_vars($data->mapping->custommapping_settings->{$data->info['row']['type']}->files));
+      $file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files ?? NULL;
+
     }
-    else
-    {
-      $file_columns = array_values(get_object_vars($data->mapping->globalmapping_settings->files));
+    else {
+      $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
+    }
+    $file_columns = [];
+    if ($file_object && is_object($file_object)) {
+     $file_columns = array_values(get_object_vars($file_object));
     }
 
     $entity_mapping_structure['entity:file'] = $file_columns;
@@ -271,11 +277,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $ophuman = [
       'create' => 'created',
       'update' => 'updated',
-      'patched' => 'patched',
-      'delete' => 'deleted',
+      'patch' => 'patched',
     ];
 
-    //@TODO persist needs to update too.
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
@@ -311,16 +315,17 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
 
     if ($data->mapping->globalmapping == "custom") {
-      $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle;
+      $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
     }
     else {
-      $property_path = $data->mapping->globalmapping_settings->bundle;
+      $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
     }
+
     $label_column = $data->adomapping->base->label ?? 'label';
-    //@TODO check if the column is there!
     $label = $processed_metadata[$label_column] ?? NULL;
 
     $property_path_split = explode(':', $property_path);
+
     if (!$property_path_split || count($property_path_split) != 2 ) {
       $this->messenger->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
         '@uuid' => $data->info['row']['uuid'],
@@ -368,14 +373,17 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
           $field = $node->get($field_name);
+          if ($status && is_string($status)) {
+            $node->set('moderation_state', $status);
+            $status = 0;
+          }
           /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
           if (!$field->isEmpty()) {
-            $entity = $field->getEntity();
             /** @var $field \Drupal\Core\Field\FieldItemList */
             foreach ($field->getIterator() as $delta => $itemfield) {
               /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
               if ($field_name_offset == $delta) {
-                //@TODO check if we need can use Associative or not here.
+                $original_value = $itemfield->provideDecoded(TRUE);
                 $this->patchJson($itemfield->provideDecoded(TRUE), $processed_metadata);
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
@@ -443,8 +451,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // We just keep track of the changes. If none! Then we do not set
     // the formstate flag.
     if ($r->getDiffCnt() > 0) {
-      error_log(print_r($r->getPatch()->jsonSerialize(),true));
-      error_log(print_r($r->getMergePatch()->jsonSerialize(),true));
+      error_log(print_r($r->getPatch(),true));
+      error_log(print_r($r->getMergePatch(),true));
     }
   }
 }
