@@ -335,7 +335,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           '#type' => 'checkbox',
           '#title' => $this->t('Automatically assign UUID'),
           '#description' => $this->t(
-            'Check this to automatically Assign UUIDs to each ADO'
+            'Check this to automatically Assign UUIDs to each ADO. <br/><b>Important</b>: AMI will generate those under a <b>node_uuid</b> column.<br/>If you data already contains a <b>node_uuid</b> column with UUIDs inside, existing values will be used.'
           ),
           '#required' => FALSE,
           '#default_value' => isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE,
