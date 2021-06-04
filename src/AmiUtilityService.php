@@ -1627,7 +1627,7 @@ class AmiUtilityService {
           );
 
         if (!count($existing) == 1) {
-          $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',
+          $this->messenger()->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',
             [
               '@uuid' => $data->info['row']['uuid'],
               '@setid' => $set_id,
@@ -1643,7 +1643,7 @@ class AmiUtilityService {
         if ($account) {
           $existing_object = reset($existing);
           if (!$existing_object->access('update', $account)) {
-            $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',
+            $this->messenger()->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',
               [
                 '@uuid' => $data->info['row']['uuid'],
                 '@setid' => $set_id,
