@@ -1231,6 +1231,9 @@ class AmiUtilityService {
       // We may have multiple parents
       // @dmer deal with files as parents of a node in a next iteration.
       // So, we will here simply track also any parent
+      // Initialize in case the Mapping provides no parents
+      $ado['anyparent'] = [];
+      $ado['parent'] = [];
       foreach ($data->adomapping->parents as $parent_key) {
         // Used to access parent columns using numerical indexes for when looking back inside $file_data_all
         $parent_to_index[$parent_key] = array_search(
@@ -1427,10 +1430,10 @@ class AmiUtilityService {
    *    data empty.
    */
   protected function validateAmiSet(array $file_data_all, \stdClass $data, $strict = FALSE ):bool {
-
     $valid = is_object($data->adomapping->base);
     $valid = $valid && is_object($data->adomapping->uuid);
-    $valid = $valid && is_object($data->adomapping->parents);
+    // Parents may be empty. Not required?
+    $valid = $valid && (is_object($data->adomapping->parents) || is_array($data->adomapping->parents));
     $valid = $valid && isset($data->pluginconfig->op) && is_string($data->pluginconfig->op);
     $valid = $valid && $file_data_all && count($file_data_all['headers']);
     $valid = $valid && (!$strict || (is_array($data->column_keys) && count($data->column_keys)));
