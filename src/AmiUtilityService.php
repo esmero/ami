@@ -1550,8 +1550,8 @@ class AmiUtilityService {
   /**
    * Processes Data through a Metadata Display Entity.
    *
-   * @param \stdClass $conf
-   *      $conf->info['row']
+   * @param \stdClass $data
+   *      $data->info['row']
    *      has the following format
    *      [
    *      "type" => "Book"
@@ -1579,17 +1579,23 @@ class AmiUtilityService {
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function processMetadataDisplay(\stdClass $conf) {
-    $row = $conf->info['row'];
-    $row_id = $row['row_id'];
-    $set_id = $conf->info['set_id'];
-    $setURL = $conf->info['set_url'];
+  public function processMetadataDisplay(\stdClass $data) {
+    $op = $data->pluginconfig->op;
+    $ophuman = [
+      'create' => 'created',
+      'update' => 'updated',
+      'patch' => 'patched',
+    ];
+
+    $row_id = $data->info['row']['row_id'];
+    $set_id = $data->info['set_id'];
+    $setURL = $data->info['set_url'];
     // Should never happen but better stop processing here
-    if (!$row['data']) {
+    if (!$data->info['row']['data']) {
       $message = $this->t(
         'Empty or Null Data Row. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
         [
-          '@uuid' => $row['uuid'],
+          '@uuid' => $data->info['row']['uuid'],
           '@row' => $row_id,
           '@setid' => $set_id,
         ]
@@ -1598,20 +1604,104 @@ class AmiUtilityService {
       return NULL;
     }
     $jsonstring = NULL;
-    if ($conf->mapping->globalmapping == "custom") {
-      $metadatadisplay_id
-        = $conf->mapping->custommapping_settings->{$row['type']}->metadata_config->template;
+    if ($data->mapping->globalmapping == "custom") {
+      $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template;
     }
     else {
-      $metadatadisplay_id
-        = $conf->mapping->globalmapping_settings->metadata_config->template;
+      $metadatadisplay_id = $data->mapping->globalmapping_settings->metadata_config->template;
     }
     $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
-      $context['data'] = $this->expandJson($row['data']);
+      $node = NULL;
+      $original_value = NULL;
+      // Deal with passing current to be updated data as context to the template.
+      if ($op == 'update' || $op == 'patch') {
+        /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
+        $existing = $this->entityTypeManager->getStorage('node')
+          ->loadByProperties(
+            ['uuid' => $data->info['row']['uuid']]
+          );
+
+        if (!count($existing) == 1) {
+          $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',
+            [
+              '@uuid' => $data->info['row']['uuid'],
+              '@setid' => $set_id,
+              '@ophuman' => $ophuman[$op],
+            ]));
+          return NULL;
+        }
+
+        $account = $data->info['uid'] == \Drupal::currentUser()
+          ->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')
+          ->load($data->info['uid']);
+
+        if ($account) {
+          $existing_object = reset($existing);
+          if (!$existing_object->access('update', $account)) {
+            $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',
+              [
+                '@uuid' => $data->info['row']['uuid'],
+                '@setid' => $set_id,
+                '@ophuman' => $ophuman[$op],
+              ]));
+            return NULL;
+          }
+
+          $vid = $this->entityTypeManager
+            ->getStorage('node')
+            ->getLatestRevisionId($existing_object->id());
+
+          $node = $vid ? $this->entityTypeManager->getStorage('node')
+            ->loadRevision($vid) : $existing[0];
+
+          if ($data->mapping->globalmapping == "custom") {
+            $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
+          }
+          else {
+            $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
+          }
+          $property_path_split = explode(':', $property_path);
+          if (!$property_path_split || count($property_path_split) < 2) {
+            $this->messenger()->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',
+              [
+                '@uuid' => $data->info['row']['uuid'],
+                '@setid' => $data->info['set_id']
+              ]));
+            return NULL;
+          }
+
+          $field_name = $property_path_split[1];
+          // @TODO make this configurable.
+          // This allows us not to pass an offset if the SBF is multivalued.
+          // WE do not do this, Why would you want that? Who knows but possible.
+          $field_name_offset = $property_path_split[2] ?? 0;
+          /** @var \Drupal\Core\Field\FieldItemInterface $field */
+          $field = $node->get($field_name);
+          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
+          if (!$field->isEmpty()) {
+            /** @var $field \Drupal\Core\Field\FieldItemList */
+            foreach ($field->getIterator() as $delta => $itemfield) {
+              /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
+              if ($field_name_offset == $delta) {
+                $original_value = $itemfield->provideDecoded(TRUE);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      $context['data'] = $this->expandJson($data->info['row']['data']);
+      $context['dataOriginal'] = $original_value;
       $context['setURL'] = $setURL;
-      $context['node'] = NULL;
+      $context['setId'] = $set_id;
+      $context['rowId'] = $row_id;
+      $context['setOp'] = ucfirst($op);
+
+      $context['node'] = $node;
+
       $original_context = $context;
       // Allow other modules to provide extra Context!
       // Call modules that implement the hook, and let them add items.
@@ -1638,7 +1728,7 @@ class AmiUtilityService {
             'We could not generate JSON via Metadata Display with ID @metadatadisplayid for AMI Set ID @setid, Row @row, future ADO with UUID @uuid. This is the Template %output',
             [
               '@metadatadisplayid' => $metadatadisplay_id,
-              '@uuid' => $row['uuid'],
+              '@uuid' => $data->info['row']['uuid'],
               '@row' => $row_id,
               '@setid' => $set_id,
               '%output' => $jsonstring,
@@ -1654,7 +1744,7 @@ class AmiUtilityService {
         'Metadata Display with ID @metadatadisplayid could not be found for AMI Set ID @setid, Row @row for a future node with UUID @uuid.',
         [
           '@metadatadisplayid' => $metadatadisplay_id,
-          '@uuid' => $row['uuid'],
+          '@uuid' => $data->info['row']['uuid'],
           '@row' => $row_id,
           '@setid' => $set_id,
         ]
