@@ -8,10 +8,13 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
-use Drupal\Component\Serialization\Json;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Swaggest\JsonDiff\JsonDiff;
+use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
+use Swaggest\JsonDiff\Exception as JsonDiffException;
+use Swaggest\JsonDiff\JsonPatch;
 
 /**
  * Process the JSON payload provided by the webhook.
@@ -116,15 +119,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
-  /* Data info has this structire
-    $data->info = [
-      'row' => The actual data
-      'set_id' => The Set id
-      'uid' => The User ID that processed the Set
-      'set_url' => A direct URL to the set.
-      'attempt' => The number of attempts to process. We always start with a 1
-    ];
-  */
+    /* Data info has this structire
+      $data->info = [
+        'row' => The actual data
+        'set_id' => The Set id
+        'uid' => The User ID that processed the Set
+        'set_url' => A direct URL to the set.
+        'attempt' => The number of attempts to process. We always start with a 1
+      ];
+    */
 
     // Before we do any processing. Check if Parent(s) exists?
     // If not, re-enqueue: we try twice only. Should we try more?
@@ -170,7 +173,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
     if (!$processed_metadata) {
-      $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used and/or your data ROW in your CSV for set @setid.',[
+      $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]));
@@ -178,21 +181,30 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $cleanvalues = [];
     // Now process Files and Nodes
-    $ado_columns = array_values(get_object_vars($data->adomapping->parents));
+    $ado_object = $data->adomapping->parents ?? NULL;
+
     if ($data->mapping->globalmapping == "custom") {
-      $file_columns = array_values(get_object_vars($data->mapping->custommapping_settings->{$data->info['row']['type']}->files));
+      $file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files ?? NULL;
     }
-    else
-    {
-      $file_columns = array_values(get_object_vars($data->mapping->globalmapping_settings->files));
+    else {
+      $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
+    }
+
+    $file_columns = [];
+    $ado_columns = [];
+    if ($file_object && is_object($file_object)) {
+     $file_columns = array_values(get_object_vars($file_object));
+    }
+
+    if ($ado_object && is_object($ado_object)) {
+      $ado_columns = array_values(get_object_vars($ado_object));
     }
 
     $entity_mapping_structure['entity:file'] = $file_columns;
     $entity_mapping_structure['entity:node'] =  $ado_columns;
     $processed_metadata = json_decode($processed_metadata, true);
-    $cleanvalues["ap:entitymapping"] = $entity_mapping_structure;
+    $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
-
     // Assign parents as NODE Ids.
 
     foreach ($parent_nodes as $parent_property => $node_ids) {
@@ -230,10 +242,35 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->persistEntity($data, $processed_metadata);
   }
 
+
+  /**
+   * Quick helper is Remote or local helper
+   *
+   * @param $uri
+   *
+   * @return bool
+   */
+  private function isRemote($uri) {
+    // WE do have a similar code in \Drupal\ami\AmiUtilityService::file_get
+    // @TODO refactor to a single method.
+    $parsed_url = parse_url($uri);
+    $remote_schemes = ['http', 'https', 'feed'];
+    $remote = FALSE;
+    if (isset($parsed_url['scheme']) && in_array($parsed_url['scheme'], $remote_schemes)) {
+      $remote = TRUE;
+    }
+    return $remote;
+  }
+
+
   /**
    * Saves an ADO (NODE Entity).
    *
    * @param \stdClass $data
+   * @param array $processed_metadata
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   private function persistEntity(\stdClass $data, array $processed_metadata) {
 
@@ -248,45 +285,73 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $ophuman = [
       'create' => 'created',
       'update' => 'updated',
-      'patched' => 'patched',
-      'delete' => 'deleted',
+      'patch' => 'patched',
     ];
 
-    //@TODO persist needs to update too.
+    /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
     );
 
-    if ($existing && $op == 'create') {
-      $this->messenger->addError($this->t('Sorry, you requested an ADO with @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
+    if (count($existing) && $op == 'create') {
+      $this->messenger->addError($this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]));
       return;
     }
+    elseif (!count($existing) && $op !== 'create') {
+      $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
+        '@uuid' => $data->info['row']['uuid'],
+        '@setid' => $data->info['set_id'],
+        '@ophuman' => $ophuman[$op],
+      ]));
+      return;
+    }
+    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+
+    if ($op !== 'create' && $account && $existing && count($existing) == 1) {
+      $existing_object = reset($existing);
+      if (!$existing_object->access('update', $account)) {
+        $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
+          '@uuid' => $data->info['row']['uuid'],
+          '@setid' => $data->info['set_id'],
+          '@ophuman' => $ophuman[$op],
+        ]));
+        return;
+      }
+    }
 
     if ($data->mapping->globalmapping == "custom") {
-      $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle;
+      $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
     }
     else {
-      $property_path = $data->mapping->globalmapping_settings->bundle;
+      $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
     }
-    $label_column = $data->adomapping->base->label;
-    //@TODO check if the column is there!
-    $label = $processed_metadata[$label_column] ?? 'Untitled ADO';
+
+    $label_column = $data->adomapping->base->label ?? 'label';
+    $label = $processed_metadata[$label_column] ?? NULL;
     $property_path_split = explode(':', $property_path);
-    if (!$property_path_split || count($property_path_split) != 2 ) {
+
+    if (!$property_path_split || count($property_path_split) < 2 ) {
       $this->messenger->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]));
       return;
     }
+
     $bundle = $property_path_split[0];
     $field_name = $property_path_split[1];
+    // @TODO make this configurable.
+    // This would allows us to pass an offset if the SBF is multivalued.
+    // WE do not do this, Why would you want that? Who knows but possible.
+    // @see also \Drupal\ami\AmiUtilityService::processMetadataDisplay
+    $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
-
+    // default Sortfile which will respect the ingest order.
+    $processed_metadata['ap:tasks']['ap:sortfiles'] = 'index';
     // JSON_ENCODE AGAIN
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
@@ -306,8 +371,70 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
-        $node = $this->entityTypeManager->getStorage('node')
-          ->create($nodeValues);
+        if ($op ==='create') {
+          $node = $this->entityTypeManager->getStorage('node')
+            ->create($nodeValues);
+        }
+        else {
+          $vid = $this->entityTypeManager
+            ->getStorage('node')
+            ->getLatestRevisionId($existing_object->id());
+
+          $node = $vid ? $this->entityTypeManager->getStorage('node')
+            ->loadRevision($vid) : $existing[0];
+
+          /** @var \Drupal\Core\Field\FieldItemInterface $field*/
+          $field = $node->get($field_name);
+          if ($status && is_string($status)) {
+            $node->set('moderation_state', $status);
+            $status = 0;
+          }
+          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
+          if (!$field->isEmpty()) {
+            /** @var $field \Drupal\Core\Field\FieldItemList */
+            foreach ($field->getIterator() as $delta => $itemfield) {
+              /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
+              if ($field_name_offset == $delta) {
+                $original_value = $itemfield->provideDecoded(TRUE);
+                // Now calculate what we need to do here regarding files/node mappings
+                $original_file_mappings = $original_value['ap:entitymapping']['entity:file'] ?? [];
+                $original_node_mappings = $original_value['ap:entitymapping']['entity:node'] ?? [];
+                foreach ($original_file_mappings as $filekey) {
+                  if (!in_array($filekey, $processed_metadata['ap:entitymapping']['entity:file'])) {
+                    $processed_metadata[$filekey] = $original_value[$filekey] ?? [];
+                    $processed_metadata['ap:entitymapping']['entity:file'][] = $filekey;
+                  }
+                }
+                foreach ($original_node_mappings as $nodekey) {
+                  if (!in_array($nodekey, $processed_metadata['ap:entitymapping']['entity:node'])) {
+                    $processed_metadata[$nodekey] = $original_value[$nodekey] ?? [];
+                    $processed_metadata['ap:entitymapping']['entity:node'][] = $nodekey;
+                  }
+                }
+                // Really not needed?
+                $processed_metadata['ap:entitymapping']['entity:node'] = array_unique($processed_metadata['ap:entitymapping']['entity:node']);
+                $processed_metadata['ap:entitymapping']['entity:file'] = array_unique($processed_metadata['ap:entitymapping']['entity:file']);
+
+                // Copy directly all as:mediatype into the child, the File Persistent Event will clean this up if redundant.
+                foreach(StrawberryfieldJsonHelper::AS_FILE_TYPE as $as_file_type) {
+                  if (isset($original_value[$as_file_type])) {
+                    $processed_metadata[$as_file_type] = $original_value[$as_file_type];
+                  }
+                }
+                // Finally set the original ap task or index as default.
+                $processed_metadata['ap:tasks']['ap:sortfiles'] = $original_value['ap:tasks']['ap:sortfiles'] ?? 'index';
+                $this->patchJson($original_value, $processed_metadata);
+                $itemfield->setMainValueFromArray($processed_metadata);
+                break;
+              }
+            }
+          }
+          else {
+            // if the Saved one is empty use the new always.
+            // Applies to Patch/Update.
+            $field->setValue($jsonstring);
+          }
+        }
         // In case $status was not moderated.
         if ($status) {
           $node->setPublished();
@@ -316,8 +443,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // Only unpublish if not moderated.
           $node->setUnpublished();
         }
-
         $node->save();
+
         $link = $node->toUrl()->toString();
         $this->messenger->addStatus($this->t('ADO <a href=":link" target="_blank">%title</a> with UUID:@uuid on Set @setid was @ophuman!',[
           '@uuid' => $data->info['row']['uuid'],
@@ -328,19 +455,43 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         ]));
       }
       catch (\Exception $exception) {
-        $this->messenger->addError($this->t('Sorry we did all right but failed persisting the ADO with @uuid on Set @setid are wrong. Please check your Drupal Logs and notify your admin.',[
+        $this->messenger->addError($this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
-          '@setid' => $data->info['set_id']
+          '@setid' => $data->info['set_id'],
+          '@ophuman' => $ophuman[$op],
         ]));
         return;
       }
     }
     else {
-      $this->messenger->addError($this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not persist the ADO with @uuid on Set @setid are wrong. This is quite strange. Please check your Drupal Logs and notify your admin.',[
+      $this->messenger->addError($this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
-        '@setid' => $data->info['set_id']
+        '@setid' => $data->info['set_id'],
+        '@ophuman' => $ophuman[$op],
       ]));
       return;
+    }
+  }
+
+  /**
+   * Returns a Patched array using on original/new arrays.
+   *
+   * @param array $original
+   * @param array $new
+   *
+   * @throws \Swaggest\JsonDiff\Exception
+   */
+  protected function patchJson(array $original, array $new) {
+    $r = new JsonDiff(
+      $original,
+      $new,
+      JsonDiff::REARRANGE_ARRAYS
+    );
+    // We just keep track of the changes. If none! Then we do not set
+    // the formstate flag.
+    if ($r->getDiffCnt() > 0) {
+      //error_log(print_r($r->getPatch(),true));
+      //error_log(print_r($r->getMergePatch(),true));
     }
   }
 }

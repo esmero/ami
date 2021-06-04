@@ -18,7 +18,8 @@ use Drupal\file\Entity\File;
  * @ImporterAdapter(
  *   id = "spreadsheet",
  *   label = @Translation("Spreadsheet Importer"),
- *   remote = false
+ *   remote = false,
+ *   batch = false,
  * )
  */
 class SpreadsheetImporter extends ImporterAdapterBase {
@@ -94,8 +95,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   /**
    * {@inheritdoc}
    */
-  public function getData(array $config, $page = 0, $per_page = 20): array {
-    $data = parent::getData($config,$page, $per_page);
+  public function getData(array $config,  $page = 0, $per_page = 20): array {
+    $data = parent::getData($config, $page, $per_page);
     /* @var File $file */
     $file = $this->entityTypeManager->getStorage('file')
       ->load($config['file'][0]);
@@ -140,8 +141,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
         $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
         $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
         $rowHeaders_utf8 = array_filter($rowHeaders_utf8);
-
         $headercount = count($rowHeaders_utf8);
+
         foreach ($worksheet->getRowIterator() as $row) {
           $rowindex = $row->getRowIndex();
           if (($rowindex > 1) && ($rowindex > ($offset)) && (($rowindex <= ($offset + $per_page + 1)) || $per_page == -1)) {
@@ -165,8 +166,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
               $headercount,
               $datarow[0]
             );
-
-            $table[$rowindex] = $datarow[0];
+            $table[$rowindex] = $row;
           }
           $maxRow = $rowindex;
         }
@@ -179,4 +179,9 @@ class SpreadsheetImporter extends ImporterAdapterBase {
       $objPHPExcel->disconnectWorksheets();
       return $tabdata;
   }
+
+  public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
+     return $this->getData($config, $page, $per_page);
+  }
+
 }

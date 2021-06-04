@@ -36,4 +36,11 @@ class ImporterAdapter extends Plugin {
    */
   public $remote;
 
+  /**
+   * If data fetching should run via batch or directly all
+   *
+   * @var boolean
+   */
+  public $batch;
+
 }

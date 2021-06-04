@@ -606,10 +606,58 @@ class AmiUtilityService {
       return $file;
     }
     catch (FileException $e) {
-      error_log($e->getMessage());
       return FALSE;
     }
   }
+
+  /**
+   * Creates an empty CSV returns file.
+   *
+   * @return int|string|null
+   * @throws \Drupal\Core\Entity\EntityStorageException
+   */
+  public function csv_touch() {
+    $path = 'public://ami/csv';
+    $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
+    // Ensure the directory
+    if (!$this->fileSystem->prepareDirectory(
+      $path,
+      FileSystemInterface::CREATE_DIRECTORY
+      | FileSystemInterface::MODIFY_PERMISSIONS
+    )
+    ) {
+      $this->messenger()->addError(
+        $this->t(
+          'Unable to create directory for CSV file. Verify permissions please'
+        )
+      );
+      return NULL;
+    }
+    // Ensure the file
+    $file = file_save_data(
+      '', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE
+    );
+    if (!$file) {
+      $this->messenger()->addError(
+        $this->t('Unable to create AMI CSV file. Verify permissions please.')
+      );
+      return NULL;
+    }
+    $file->setPermanent();
+    $file->save();
+    // Tell the user where we have it.
+    $this->messenger()->addMessage(
+      $this->t(
+        'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
+        [
+          '@url' => file_create_url($file->getFileUri()),
+          '@filename' => $file->getFilename(),
+        ]
+      )
+    );
+    return $file->id();
+  }
+
 
   /**
    * Creates an CSV from array and returns file.
@@ -710,6 +758,67 @@ class AmiUtilityService {
       )
     );
 
+    return $file->id();
+  }
+
+
+  /**
+   * Creates an CSV from array and returns file.
+   *
+   * @param array $data
+   *   Same as import form handles, to be dumped to CSV.
+   *
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @param string $uuid_key
+   * @param bool $append_header
+   *
+   * @return int|string|null
+   * @throws \Drupal\Core\Entity\EntityStorageException
+   */
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header) {
+
+    $realpath = $this->fileSystem->realpath($file->getFileUri());
+    $fh = new \SplFileObject($realpath, 'a');
+    if (!$fh) {
+      $this->messenger()->addError(
+        $this->t('Error reading the CSV file!.')
+      );
+      return NULL;
+    }
+    array_walk($data['headers'], 'htmlspecialchars');
+    // How we want to get the key number that contains the $uuid_key
+    $haskey = array_search($uuid_key, $data['headers']);
+    if ($haskey === FALSE) {
+      array_unshift($data['headers'], $uuid_key);
+    }
+
+    if ($append_header) {
+      $fh->fputcsv($data['headers']);
+    }
+
+    foreach ($data['data'] as $row) {
+      if ($haskey === FALSE) {
+        array_unshift($row, $uuid_key);
+        $row[0] = Uuid::uuid4();
+      }
+      else {
+        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+          $row[$haskey] = Uuid::uuid4();
+        }
+      }
+
+      array_walk($row, 'htmlspecialchars');
+      $fh->fputcsv($row);
+    }
+    // PHP Bug! This should happen automatically
+    clearstatcache(TRUE, $realpath);
+    $size = $fh->getSize();
+    // This is how you close a \SplFileObject
+    $fh = NULL;
+    // Notify the filesystem of the size change
+    $file->setSize($size);
+    $file->save();
     return $file->id();
   }
 
@@ -891,6 +1000,32 @@ class AmiUtilityService {
 
     return $result;
   }
+
+  /**
+   * Returns WebformOptions marked as Archipelago
+   *
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function getWebformOptions():array {
+    try {
+    /** @var \Drupal\webform\WebformOptionsInterface[] $webform_options */
+    $webform_options  = $this->entityTypeManager->getStorage('webform_options')->loadByProperties(['category' => 'archipelago']);
+    $options = [];
+    foreach($webform_options as $webform_option) {
+      $options = array_merge($options, $webform_option->getOptions());
+    }
+    }
+    catch (\Exception $e) {
+      // Return some basic defaults in case there are no Options.
+      // @TODO tell the user to create a few.
+      $options = ['Document' => 'Document', 'Photograph' => 'Photograph', 'Book' => 'Book', 'Article' => 'Article', 'Thing' => 'Thing', 'Video' => 'Video', 'Audio' => 'Audio'];
+    }
+    return array_unique($options);
+  }
+
+
 
   /**
    * Returns a list of Webforms.
@@ -1323,7 +1458,7 @@ class AmiUtilityService {
     }
     else {
       $message = $this->t(
-        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.',
+        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.'
       );
       $this->messenger()->addError($message);
       return FALSE;
@@ -1415,8 +1550,8 @@ class AmiUtilityService {
   /**
    * Processes Data through a Metadata Display Entity.
    *
-   * @param \stdClass $conf
-   *      $conf->info['row']
+   * @param \stdClass $data
+   *      $data->info['row']
    *      has the following format
    *      [
    *      "type" => "Book"
@@ -1444,17 +1579,23 @@ class AmiUtilityService {
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function processMetadataDisplay(\stdClass $conf) {
-    $row = $conf->info['row'];
-    $row_id = $row['row_id'];
-    $set_id = $conf->info['set_id'];
-    $setURL = $conf->info['set_url'];
+  public function processMetadataDisplay(\stdClass $data) {
+    $op = $data->pluginconfig->op;
+    $ophuman = [
+      'create' => 'created',
+      'update' => 'updated',
+      'patch' => 'patched',
+    ];
+
+    $row_id = $data->info['row']['row_id'];
+    $set_id = $data->info['set_id'];
+    $setURL = $data->info['set_url'];
     // Should never happen but better stop processing here
-    if (!$row['data']) {
+    if (!$data->info['row']['data']) {
       $message = $this->t(
         'Empty or Null Data Row. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
         [
-          '@uuid' => $row['uuid'],
+          '@uuid' => $data->info['row']['uuid'],
           '@row' => $row_id,
           '@setid' => $set_id,
         ]
@@ -1463,20 +1604,104 @@ class AmiUtilityService {
       return NULL;
     }
     $jsonstring = NULL;
-    if ($conf->mapping->globalmapping == "custom") {
-      $metadatadisplay_id
-        = $conf->mapping->custommapping_settings->{$row['type']}->metadata_config->template;
+    if ($data->mapping->globalmapping == "custom") {
+      $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template;
     }
     else {
-      $metadatadisplay_id
-        = $conf->mapping->globalmapping_settings->metadata_config->template;
+      $metadatadisplay_id = $data->mapping->globalmapping_settings->metadata_config->template;
     }
     $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
-      $context['data'] = $this->expandJson($row['data']);
+      $node = NULL;
+      $original_value = NULL;
+      // Deal with passing current to be updated data as context to the template.
+      if ($op == 'update' || $op == 'patch') {
+        /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
+        $existing = $this->entityTypeManager->getStorage('node')
+          ->loadByProperties(
+            ['uuid' => $data->info['row']['uuid']]
+          );
+
+        if (!count($existing) == 1) {
+          $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',
+            [
+              '@uuid' => $data->info['row']['uuid'],
+              '@setid' => $set_id,
+              '@ophuman' => $ophuman[$op],
+            ]));
+          return NULL;
+        }
+
+        $account = $data->info['uid'] == \Drupal::currentUser()
+          ->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')
+          ->load($data->info['uid']);
+
+        if ($account) {
+          $existing_object = reset($existing);
+          if (!$existing_object->access('update', $account)) {
+            $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',
+              [
+                '@uuid' => $data->info['row']['uuid'],
+                '@setid' => $set_id,
+                '@ophuman' => $ophuman[$op],
+              ]));
+            return NULL;
+          }
+
+          $vid = $this->entityTypeManager
+            ->getStorage('node')
+            ->getLatestRevisionId($existing_object->id());
+
+          $node = $vid ? $this->entityTypeManager->getStorage('node')
+            ->loadRevision($vid) : $existing[0];
+
+          if ($data->mapping->globalmapping == "custom") {
+            $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
+          }
+          else {
+            $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
+          }
+          $property_path_split = explode(':', $property_path);
+          if (!$property_path_split || count($property_path_split) < 2) {
+            $this->messenger()->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',
+              [
+                '@uuid' => $data->info['row']['uuid'],
+                '@setid' => $data->info['set_id']
+              ]));
+            return NULL;
+          }
+
+          $field_name = $property_path_split[1];
+          // @TODO make this configurable.
+          // This allows us not to pass an offset if the SBF is multivalued.
+          // WE do not do this, Why would you want that? Who knows but possible.
+          $field_name_offset = $property_path_split[2] ?? 0;
+          /** @var \Drupal\Core\Field\FieldItemInterface $field */
+          $field = $node->get($field_name);
+          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
+          if (!$field->isEmpty()) {
+            /** @var $field \Drupal\Core\Field\FieldItemList */
+            foreach ($field->getIterator() as $delta => $itemfield) {
+              /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
+              if ($field_name_offset == $delta) {
+                $original_value = $itemfield->provideDecoded(TRUE);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      $context['data'] = $this->expandJson($data->info['row']['data']);
+      $context['dataOriginal'] = $original_value;
       $context['setURL'] = $setURL;
-      $context['node'] = NULL;
+      $context['setId'] = $set_id;
+      $context['rowId'] = $row_id;
+      $context['setOp'] = ucfirst($op);
+
+      $context['node'] = $node;
+
       $original_context = $context;
       // Allow other modules to provide extra Context!
       // Call modules that implement the hook, and let them add items.
@@ -1503,7 +1728,7 @@ class AmiUtilityService {
             'We could not generate JSON via Metadata Display with ID @metadatadisplayid for AMI Set ID @setid, Row @row, future ADO with UUID @uuid. This is the Template %output',
             [
               '@metadatadisplayid' => $metadatadisplay_id,
-              '@uuid' => $row['uuid'],
+              '@uuid' => $data->info['row']['uuid'],
               '@row' => $row_id,
               '@setid' => $set_id,
               '%output' => $jsonstring,
@@ -1519,7 +1744,7 @@ class AmiUtilityService {
         'Metadata Display with ID @metadatadisplayid could not be found for AMI Set ID @setid, Row @row for a future node with UUID @uuid.',
         [
           '@metadatadisplayid' => $metadatadisplay_id,
-          '@uuid' => $row['uuid'],
+          '@uuid' => $data->info['row']['uuid'],
           '@row' => $row_id,
           '@setid' => $set_id,
         ]

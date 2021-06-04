@@ -120,11 +120,39 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
-    $form['delete_enqueued'] = [
-      '#type' => 'fieldset',
-      '#title' => $this->t('Delete Ingested ADOs via this Set'),
-      '#description' => $this->t('Confirming will trigger a Batch Delete for already ingested ADOs you have permission to delete.'),
-    ];
+    $data = new \stdClass();
+    foreach ($this->entity->get('set') as $item) {
+      /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
+      $data = $item->provideDecoded(FALSE);
+    }
+    if ($data !== new \stdClass()) {
+      $op = $data->pluginconfig->op ?? NULL;
+      $ops = [
+        'update',
+        'patch',
+      ];
+      if (in_array($op, $ops)) {
+        $form['status'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' => $this->t(
+            'Info'
+          ),
+          '#markup' => $this->t(
+            'This AMI set is setup to perform a <em><b>@op</b></em> operation so it can not be used to delete ADOs.',
+            ['@op' => $op]
+          ),
+        ];
+        return $form;
+      }
+
+
+      $form['delete_enqueued'] = [
+        '#type' => 'fieldset',
+        '#title' => $this->t('Delete Ingested ADOs via this Set'),
+        '#description' => $this->t('Confirming will trigger a Batch Delete for already ingested ADOs you have permission to delete.'),
+      ];
+    }
     return $form + parent::buildForm($form, $form_state);
   }
 

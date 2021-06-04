@@ -15,6 +15,7 @@
     "require": {
         "drupal/core": "^8.9 || ^9",
         "ext-zip": "*",
+        "ext-json": "*",
         "drupal/views_bulk_operations": "^3.9",
         "strawberryfield/strawberryfield":"dev-1.0.0-RC2",
         "strawberryfield/webform_strawberryfield":"dev-1.0.0-RC2",
