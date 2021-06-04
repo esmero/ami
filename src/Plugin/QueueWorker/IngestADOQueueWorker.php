@@ -12,6 +12,7 @@ use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
+use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use Swaggest\JsonDiff\Exception as JsonDiffException;
 use Swaggest\JsonDiff\JsonPatch;
 
@@ -172,7 +173,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
     if (!$processed_metadata) {
-      $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used and/or your data ROW in your CSV for set @setid.',[
+      $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]));
@@ -180,27 +181,30 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $cleanvalues = [];
     // Now process Files and Nodes
-    $ado_columns = array_values(get_object_vars($data->adomapping->parents));
-    // Do we have any?
+    $ado_object = $data->adomapping->parents ?? NULL;
 
     if ($data->mapping->globalmapping == "custom") {
       $file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files ?? NULL;
-
     }
     else {
       $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
     }
+
     $file_columns = [];
+    $ado_columns = [];
     if ($file_object && is_object($file_object)) {
      $file_columns = array_values(get_object_vars($file_object));
+    }
+
+    if ($ado_object && is_object($ado_object)) {
+      $ado_columns = array_values(get_object_vars($ado_object));
     }
 
     $entity_mapping_structure['entity:file'] = $file_columns;
     $entity_mapping_structure['entity:node'] =  $ado_columns;
     $processed_metadata = json_decode($processed_metadata, true);
-    $cleanvalues["ap:entitymapping"] = $entity_mapping_structure;
+    $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
-
     // Assign parents as NODE Ids.
 
     foreach ($parent_nodes as $parent_property => $node_ids) {
@@ -263,6 +267,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * Saves an ADO (NODE Entity).
    *
    * @param \stdClass $data
+   * @param array $processed_metadata
+   *
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   private function persistEntity(\stdClass $data, array $processed_metadata) {
 
@@ -323,23 +331,27 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     $label_column = $data->adomapping->base->label ?? 'label';
     $label = $processed_metadata[$label_column] ?? NULL;
-
     $property_path_split = explode(':', $property_path);
 
-    if (!$property_path_split || count($property_path_split) != 2 ) {
+    if (!$property_path_split || count($property_path_split) < 2 ) {
       $this->messenger->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]));
       return;
     }
+
     $bundle = $property_path_split[0];
     $field_name = $property_path_split[1];
     // @TODO make this configurable.
-    $field_name_offset = 0;
+    // This would allows us to pass an offset if the SBF is multivalued.
+    // WE do not do this, Why would you want that? Who knows but possible.
+    // @see also \Drupal\ami\AmiUtilityService::processMetadataDisplay
+    $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
-
+    // default Sortfile which will respect the ingest order.
+    $processed_metadata['ap:tasks']['ap:sortfiles'] = 'index';
     // JSON_ENCODE AGAIN
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
@@ -364,11 +376,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             ->create($nodeValues);
         }
         else {
-          $vid = \Drupal::entityTypeManager()
+          $vid = $this->entityTypeManager
             ->getStorage('node')
             ->getLatestRevisionId($existing_object->id());
 
-          $node = $vid ? \Drupal::entityTypeManager()->getStorage('node')
+          $node = $vid ? $this->entityTypeManager->getStorage('node')
             ->loadRevision($vid) : $existing[0];
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
@@ -384,7 +396,34 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
               if ($field_name_offset == $delta) {
                 $original_value = $itemfield->provideDecoded(TRUE);
-                $this->patchJson($itemfield->provideDecoded(TRUE), $processed_metadata);
+                // Now calculate what we need to do here regarding files/node mappings
+                $original_file_mappings = $original_value['ap:entitymapping']['entity:file'] ?? [];
+                $original_node_mappings = $original_value['ap:entitymapping']['entity:node'] ?? [];
+                foreach ($original_file_mappings as $filekey) {
+                  if (!in_array($filekey, $processed_metadata['ap:entitymapping']['entity:file'])) {
+                    $processed_metadata[$filekey] = $original_value[$filekey] ?? [];
+                    $processed_metadata['ap:entitymapping']['entity:file'][] = $filekey;
+                  }
+                }
+                foreach ($original_node_mappings as $nodekey) {
+                  if (!in_array($nodekey, $processed_metadata['ap:entitymapping']['entity:node'])) {
+                    $processed_metadata[$nodekey] = $original_value[$nodekey] ?? [];
+                    $processed_metadata['ap:entitymapping']['entity:node'][] = $nodekey;
+                  }
+                }
+                // Really not needed?
+                $processed_metadata['ap:entitymapping']['entity:node'] = array_unique($processed_metadata['ap:entitymapping']['entity:node']);
+                $processed_metadata['ap:entitymapping']['entity:file'] = array_unique($processed_metadata['ap:entitymapping']['entity:file']);
+
+                // Copy directly all as:mediatype into the child, the File Persistent Event will clean this up if redundant.
+                foreach(StrawberryfieldJsonHelper::AS_FILE_TYPE as $as_file_type) {
+                  if (isset($original_value[$as_file_type])) {
+                    $processed_metadata[$as_file_type] = $original_value[$as_file_type];
+                  }
+                }
+                // Finally set the original ap task or index as default.
+                $processed_metadata['ap:tasks']['ap:sortfiles'] = $original_value['ap:tasks']['ap:sortfiles'] ?? 'index';
+                $this->patchJson($original_value, $processed_metadata);
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
               }
@@ -451,8 +490,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // We just keep track of the changes. If none! Then we do not set
     // the formstate flag.
     if ($r->getDiffCnt() > 0) {
-      error_log(print_r($r->getPatch(),true));
-      error_log(print_r($r->getMergePatch(),true));
+      //error_log(print_r($r->getPatch(),true));
+      //error_log(print_r($r->getMergePatch(),true));
     }
   }
 }
