@@ -1458,7 +1458,7 @@ class AmiUtilityService {
     }
     else {
       $message = $this->t(
-        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.',
+        'Your AMI Set has invalid/missing/incomplete settings or CSV data. Please check, correct or create a new one via the "Create AMI Set" Form. Cancelling Processing.'
       );
       $this->messenger()->addError($message);
       return FALSE;
