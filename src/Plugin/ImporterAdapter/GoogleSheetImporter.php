@@ -97,8 +97,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
       '#options' => [
         'create' => 'Create New ADOs',
         'update' => 'Update existing ADOs',
-        'patch' => 'Patch existing ADOs',
-        'delete' => 'Delete existing ADOs',
+        //'patch' => 'Patch existing ADOs',
       ],
       '#description' => $this->t('The desired Operation'),
       '#required' => TRUE,

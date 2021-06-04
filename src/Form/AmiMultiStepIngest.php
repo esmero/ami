@@ -119,12 +119,14 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       // We should never reach this point if data is not enough. Submit handler
       // will back to Step 2 if so.
       $data = $this->store->get('data');
+      $pluginconfig = $this->store->get('pluginconfig');
+      $op = $pluginconfig['op'];
       $column_keys = $data['headers'];
       $mapping = $this->store->get('mapping');
       $metadata = [
         'direct' => 'Direct ',
         'template' => 'Template',
-        'webform' => 'Webform',
+        //'webform' => 'Webform',
       ];
       $template = $this->getMetadatadisplays();
       $webform = $this->getWebforms();
@@ -230,7 +232,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
             '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : reset($metadata),
             '#options' => $metadata,
-            '#description' => $this->t('How your source data will be transformed into ADOs Metadata.'),
+            '#description' => $this->t('How your source data will be transformed into ADOs (JSON) Metadata.'),
             '#required' => TRUE,
             '#attributes' =>  [
               'data-adotype' => 'metadata_'.$machine_type
@@ -255,14 +257,23 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
           $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : reset($bundle);
 
+          if ($op == 'update' || $op == 'patch') {
+            $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type replacing/clearing existing ones if there is already data in the same key in your ADO.', ['@type' => $type]);
+            $files_description = $this->t('<b>WARNING:</b> If you want to keep existing files for an existing column, Do <em>not</em> select it. <br/> If you do so those will be replaced by the new ones provided in your data set or deleted if the value under that column is EMPTY.<br/> AMI uses semicolons ";" to separate multiple files or URLs inside a single cell.');
+          }
+          else {
+            $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type', ['@type' => $type]);
+            $files_description = $this->t('From where your files will be fetched to be uploaded and attached to an ADOs and described in the Metadata. <br/> AMI uses semicolons ";" to separate multiple files or URLs inside a single cell.');
+          }
+
           $form['ingestsetup']['custommapping'][$type]['files'] = [
             '#type' => 'select',
-            '#title' => $this->t('Select which columns contain filenames, entities or URLs where we can fetch the files for @type', ['@type' => $type]),
+            '#title' => $files_title,
             '#default_value' => isset($mapping['custommapping_settings'][$type]['files']) ? $mapping['custommapping_settings'][$type]['files'] : [],
             '#options' => array_combine($column_keys, $column_keys),
             '#size' => count($column_keys),
             '#multiple' => TRUE,
-            '#description' => $this->t('From where your files will be fetched to be uploaded and attached to an ADOs and described in the Metadata. AMI uses semicolons ";" to separate multiple files inside a single cell.'),
+            '#description' => $files_description,
             '#empty_option' => $this->t('- Please select columns for @type -', ['@type' => $type]),
           ];
         }
@@ -271,6 +282,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
 
     if ($this->step == 4) {
       $data = $this->store->get('data');
+      $pluginconfig = $this->store->get('pluginconfig');
+      $op = $pluginconfig['op'];
       $column_keys = $data['headers'];
       $column_options = array_combine($column_keys, $column_keys);
       $mapping = $this->store->get('mapping');
@@ -284,6 +297,16 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#tree' => TRUE,
         '#title' => t('Please select your Global ADO mappings'),
       ];
+
+      if ($op == 'update' || $op == 'patch') {
+        $node_description = $this->t('Columns that hold either other row <b>numbers</b> or <b>UUIDs</b>(an existing ADO) connecting ADOs between each other (e.g "ismemberof"). You can choose multiple. <br/><b>WARNING:</b> If you want to keep existing relationships (e.g Collection Membership) for an existing column, Do <em>not</em> select it. If you do so relationships will be replaced by the new ones provided in your data set or deleted if the value under that column is EMPTY.');
+      }
+      else {
+        $node_description = $this->t('Columns that hold either other row <b>numbers</b> or <b>UUIDs</b>(an existing ADO) connecting ADOs between each other (e.g "ismemberof"). You can choose multiple.');
+      }
+
+
+
       $form['ingestsetup']['adomapping']['parents'] = [
         '#type' => 'select',
         '#title' => $this->t('ADO Parent Columns'),
@@ -292,18 +315,32 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#size' => count($column_keys),
         '#multiple' => TRUE,
         '#required' => FALSE,
-        '#description' => $this->t('Columns that hold either other row numbers or UUIDs(an existing ADO) connecting ADOs between each other (e.g ismemberof). You can choose multiple'),
+        '#description' => $node_description,
         '#empty_option' => $this->t('- Please select columns -'),
       ];
-      $form['ingestsetup']['adomapping']['autouuid'] = [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Automatically assign UUID'),
-        '#description' => $this->t(
-          'Check this to automatically Assign UUIDs to each ADO'
-        ),
-        '#required' => FALSE,
-        '#default_value' => isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE,
-      ];
+      if  ($op == 'update' || $op == 'patch') {
+        $form['ingestsetup']['adomapping']['autouuid'] = [
+          '#type' => 'checkbox',
+          '#title' => $this->t('No automatically assign UUID possible'),
+          '#description' => $this->t(
+            'For an Update Operation you have to provide the UUIDs.'
+          ),
+          '#required' => FALSE,
+          '#disabled' => TRUE,
+          '#default_value' => FALSE,
+        ];
+      }
+      else {
+        $form['ingestsetup']['adomapping']['autouuid'] = [
+          '#type' => 'checkbox',
+          '#title' => $this->t('Automatically assign UUID'),
+          '#description' => $this->t(
+            'Check this to automatically Assign UUIDs to each ADO'
+          ),
+          '#required' => FALSE,
+          '#default_value' => isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE,
+        ];
+      }
       $form['ingestsetup']['adomapping']['uuid'] = [
         '#type' => 'webform_mapping',
         '#title' => $this->t('UUID assignment'),
@@ -328,8 +365,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           ]
         ]
       ];
+      if ($op == 'update' || $op == 'patch') {
+        unset($form['ingestsetup']['adomapping']['uuid']['#states']);
+        $form['ingestsetup']['adomapping']['uuid']['#required'] = TRUE;
+      }
 
-      $form['ingestsetup']['adomapping']['base'] = [
+        $form['ingestsetup']['adomapping']['base'] = [
         '#type' => 'webform_mapping',
         '#title' => $this->t('Required ADO mappings'),
         '#format' => 'list',

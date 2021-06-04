@@ -86,7 +86,7 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
       '#options' => [
         'create' => 'Create New ADOs',
         'update' => 'Update existing ADOs',
-        'patch' => 'Patch existing ADOs',
+        //'patch' => 'Patch existing ADOs',
       ],
       '#description' => $this->t('The desired Operation'),
       '#required' => TRUE,
