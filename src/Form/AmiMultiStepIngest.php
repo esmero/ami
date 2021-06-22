@@ -514,7 +514,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $amisetdata->total_rows = $data['totalrows'];
         }
 
-
         // We should probably add the UUIDs here right now.
         $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
         // We want to reset this value now
@@ -530,6 +529,21 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           if ($plugin_instance->getPluginDefinition()['batch']) {
             $batch = $plugin_instance->getBatch($form_state,
               $this->store->get('pluginconfig'), $amisetdata);
+            $batch_data = $this->store->get('batch_finished');
+            $amisetdata->column_keys = $batch_data['headers'] ?? [];
+            $amisetdata->total_rows = $batch_data['totalrows'] ?? 0;
+            $id = $this->AmiUtilityService->createAmiSet($amisetdata);
+            if ($id) {
+              $url = Url::fromRoute('entity.ami_set_entity.canonical',
+                ['ami_set_entity' => $id]);
+              $this->messenger()
+                ->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
+                  ['@url' => $url->toString()]));
+              $this->store->delete('data');
+              $form_state->setRebuild(FALSE);
+              $form_state->setRedirect('entity.ami_set_entity.canonical',
+                ['ami_set_entity' => $id]);
+            }
           }
           else {
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);

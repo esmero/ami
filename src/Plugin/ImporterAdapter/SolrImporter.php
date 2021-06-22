@@ -11,6 +11,7 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use GuzzleHttp\ClientInterface;
 use Hoa\Math\Sampler\Random;
+use Solarium\Core\Query\AbstractQuery as SolariumAbstractQuery;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\ami\AmiUtilityService;
 use Solarium\Core\Client\Adapter\Curl as SolariumCurl;
@@ -235,6 +236,13 @@ class SolrImporter extends SpreadsheetImporter {
     if (empty($cmodels)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
+
+    $default_parent = $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'parent_ado'], NULL));
+    if ($default_parent) {
+      $default_parent = $this->entityTypeManager->getStorage('node')->load($default_parent);
+    }
+
     $form['solarium_mapping'] = [
       'collapse' => [
         '#type' => 'checkbox',
@@ -249,6 +257,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('The ADO used as parent of the Imported Objects'),
         '#target_type' => 'node',
         '#maxlength' => 1024,
+        '#default_value' => $default_parent,
         '#selection_handler' => 'default:nodewithstrawberry',
       ],
       'cmodel_mapping' => [
@@ -401,7 +410,7 @@ class SolrImporter extends SpreadsheetImporter {
         $allheaders_array = str_getcsv($allheaders);
         $allheaders_array = array_map([$this, 'multipleToSingleFieldName'], $allheaders_array);
         // Reuse the query now
-        $query->setResponseWriter(\Solarium\Core\Query\AbstractQuery::WT_JSON);
+        $query->setResponseWriter(SolariumAbstractQuery::WT_JSON);
         $query->setStart($config['solarium_config']['start'] ?? 0)->setRows($rows);
         $resultset = $client->select($query);
         // display the total number of documents found by solr
@@ -436,7 +445,15 @@ class SolrImporter extends SpreadsheetImporter {
         return $tabdata;
       }
       $table = [];
-      $headers = [];
+      // Add 'type' because we provide it always.
+
+      $headers['type'] = 'type';
+      $headers['ismemberof'] = 'ismemberof';
+      $headers['ispartof'] = 'ispartof';
+
+      foreach ($allheaders_array as $headerkey) {
+        $headers[$headerkey] = $headerkey;
+      }
       $highestRow = 0;
 
       for ($resultset_iterator->rewind(); $resultset_iterator->valid(); $resultset_iterator->next()) {
@@ -473,6 +490,7 @@ class SolrImporter extends SpreadsheetImporter {
       foreach (static::FILE_COLUMNS as $column) {
         $headers[$column] = $column;
       }
+
 
       if (($highestRow) >= 1) {
         // Returns Row Headers.
@@ -641,7 +659,8 @@ class SolrImporter extends SpreadsheetImporter {
 
           $datastream = $this->buildDatastreamURL($config, $document);
           if (count($datastream)) {
-            $sp_data[$resultset_iterator->key()][array_key_first($datastream)] = reset($datastream);
+            $first_datastream = reset($datastream);
+            $sp_data[$resultset_iterator->key()][key($datastream)] = $first_datastream;
           }
           // Fetch Children
           if (in_array($sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri'], static::MULTICHILDREN_CMODELS)) {
@@ -702,9 +721,9 @@ class SolrImporter extends SpreadsheetImporter {
                     $j++;
                   }
                 }
-                // Only add an offset if we are not collapsing
-                $childrenoffset = !$collapse_children ? $childrenoffset + count($children_data) : $childrenoffset;
               }
+              // Only add an offset if we are not collapsing
+              $childrenoffset = !$collapse_children ? $childrenoffset + count($children_data) : $childrenoffset;
             }
           }
         }
@@ -893,9 +912,7 @@ class SolrImporter extends SpreadsheetImporter {
     $batch = [
       'title' => $this->t('Batch fetching from Solr'),
       'operations' => [],
-      'finished' => [
-        '\Drupal\ami\Plugin\ImporterAdapter\SolrImporter::finishfetchFromSolr'
-      ],
+      'finished' => '\Drupal\ami\Plugin\ImporterAdapter\SolrImporter::finishfetchFromSolr',
       'progress_message' => t('Processing Set @current of @total.'),
     ];
 
@@ -951,9 +968,9 @@ class SolrImporter extends SpreadsheetImporter {
         \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
-        error_log($context['sandbox']['progress']);
 
-        $context['results']['processed'][] = $data['headers'];
+        $context['results']['processed']['headers'][] = $data['headers'];
+        $context['results']['processed']['total_rows'] = $context['sandbox']['prev_index'] + $data['totalfound'];
         $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
       }
     } catch (\Exception $e) {
@@ -966,8 +983,19 @@ class SolrImporter extends SpreadsheetImporter {
   }
 
   public static function finishfetchFromSolr($success, $results, $operations) {
-    error_log(print_r($results));
+    error_log('finished');
+    $allheaders = $results['processed']['headers'] ?? [];
+    $cleanheaders = [];
+    foreach($allheaders as $headerarray) {
+      $cleanheaders = array_unique(array_merge($cleanheaders, $headerarray));
+    }
+    error_log(var_export($cleanheaders, true));
 
+    $data['headers'] = array_values($cleanheaders);
+    $data['total_rows'] = $results['processed']['total_rows'] ?? 0;
+    error_log(var_export($data['total_rows'], true));
+
+    \Drupal::service('tempstore.private')->get('ami_multistep_data')->set('batch_finished', $data);
   }
 
 
