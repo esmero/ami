@@ -527,10 +527,11 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         if (isset($fileid)) {
           $amisetdata->csv = $fileid;
           if ($plugin_instance->getPluginDefinition()['batch']) {
+            $data = $this->store->get('data');
+            $amisetdata->column_keys = $data['headers'];
             $batch = $plugin_instance->getBatch($form_state,
               $this->store->get('pluginconfig'), $amisetdata);
             $batch_data = $this->store->get('batch_finished');
-            $amisetdata->column_keys = $batch_data['headers'] ?? [];
             $amisetdata->total_rows = $batch_data['totalrows'] ?? 0;
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);
             if ($id) {

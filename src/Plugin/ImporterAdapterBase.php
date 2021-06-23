@@ -119,7 +119,7 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
   /**
    * {@inheritdoc}
    */
-  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, File $file, \stdClass $amisetdata, array &$context):void {
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void {
   }
 
 

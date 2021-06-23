@@ -99,7 +99,7 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *  Only applies to plugins with batch = true annotations
    *
    * @param array $config
-   * @param \Drupal\ami\Plugin\ImporterAdapterInterface $plugin_instace
+   * @param \Drupal\ami\Plugin\ImporterAdapterInterface $plugin_instance
    * @param \Drupal\file\Entity\File $file
    *    A File ID of an existing CSV to append data to.
    * @param \stdClass $amisetdata
@@ -107,6 +107,6 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *
    * @return mixed
    */
-  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, File $file, \stdClass $amisetdata, array &$context):void;
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void;
 
 }

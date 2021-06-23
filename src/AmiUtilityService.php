@@ -808,7 +808,8 @@ class AmiUtilityService {
         }
       }
 
-      array_walk($row, 'htmlspecialchars');
+      //array_walk($row, 'htmlspecialchars');
+      array_walk($row,'htmlentities');
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
@@ -891,6 +892,80 @@ class AmiUtilityService {
     return $tabdata;
 
   }
+
+  /**
+   * Removes columns from an existing CSV
+   *
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @param array $headerwithdata
+   *
+   * @return array|null
+   */
+  public function csv_clean(File $file, array $headerwithdata = []) {
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
+    $url = $wrapper->realpath();
+    // New temp file for the output
+    $path = 'public://ami/csv';
+    $filenametemp = $this->currentUser->id() . '-' . uniqid() . '_clean.csv';
+    // Ensure the directory
+    if (!$this->fileSystem->prepareDirectory(
+      $path,
+      FileSystemInterface::CREATE_DIRECTORY
+      | FileSystemInterface::MODIFY_PERMISSIONS
+    )) {
+      $this->messenger()->addError(
+        $this->t(
+          'Unable to create directory for Temporary CSV file. Verify permissions please'
+        )
+      );
+      return NULL;
+    }
+    // Ensure the file
+    $tempurl = $this->fileSystem->saveData( '', $path . '/' . $filenametemp, FileSystemInterface::EXISTS_REPLACE);
+
+    if (!$tempurl) {
+      return NULL;
+    }
+    $keys = [];
+
+    $spl = new \SplFileObject($url, 'r');
+    $spltmp = new \SplFileObject($tempurl, 'a');
+    $i = 1;
+    $data = [];
+    while (!$spl->eof()) {
+      $data = $spl->fgetcsv();
+      if ($i == 1) {
+        $removecolumns = array_diff($data, $headerwithdata);
+        foreach ($removecolumns as $column) {
+          $keys[] = array_search($column, $data);
+        }
+        array_filter($keys);
+      }
+      foreach ($keys as $key) {
+        unset($data[$key]);
+      }
+      $data = array_values($data);
+      $spltmp->fputcsv($data);
+      $i++;
+    }
+    $size = $spltmp->getSize();
+    $spltmp = NULL;
+    $spl = NULL;
+    clearstatcache(TRUE, $tempurl);
+    $file->setFileUri($tempurl);
+
+    // This is how you close a \SplFileObject
+    // Notify the filesystem of the size change
+    $file->setSize($size);
+    $file->save();
+    return $file->id();
+  }
+
+
 
   /**
    * Deal with different sized arrays for combining
