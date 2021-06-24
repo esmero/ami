@@ -645,16 +645,6 @@ class AmiUtilityService {
     }
     $file->setPermanent();
     $file->save();
-    // Tell the user where we have it.
-    $this->messenger()->addMessage(
-      $this->t(
-        'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
-        [
-          '@url' => file_create_url($file->getFileUri()),
-          '@filename' => $file->getFilename(),
-        ]
-      )
-    );
     return $file->id();
   }
 
@@ -957,9 +947,7 @@ class AmiUtilityService {
     $spl = NULL;
     clearstatcache(TRUE, $tempurl);
     $file->setFileUri($tempurl);
-
-    // This is how you close a \SplFileObject
-    // Notify the filesystem of the size change
+    $file->setFilename($filenametemp);
     $file->setSize($size);
     $file->save();
     return $file->id();

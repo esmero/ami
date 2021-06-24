@@ -231,12 +231,20 @@ class SolrImporter extends SpreadsheetImporter {
     ];
 
     $cmodels = $form_state->get('facet_cmodel') ?? $form_state->getValue(array_merge($parents,
-        ['solarium_mapping', 'cmodel_mapping'], []));
+        ['solarium_mapping', 'cmodel_mapping']), []);
+    $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
+        ['solarium_mapping', 'cmodel_children'], []));
+
     if (empty($cmodels)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
 
-    $default_parent = $form_state->getValue(array_merge($parents,
+    if (empty($cmodels_children) && $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'collapse']), FALSE)) {
+      $form_state->setValue(['pluginconfig','ready'], FALSE);
+    }
+
+      $default_parent = $form_state->getValue(array_merge($parents,
       ['solarium_mapping', 'parent_ado']), NULL);
     if ($default_parent) {
       try {
@@ -250,7 +258,18 @@ class SolrImporter extends SpreadsheetImporter {
       }
     }
 
+    $types = $this->AmiUtilityService->getWebformOptions();
+    $cmodels_source = $cmodels ? array_combine(array_keys($cmodels),
+      array_keys($cmodels)) : [];
+    $cmodels_source_children = $cmodels_children ? array_combine(array_keys($cmodels_children),
+      array_keys($cmodels_children)) : [];
+
     $form['solarium_mapping'] = [
+      '#tree' => TRUE,
+      '#prefix' => '<div id="ami-solrmapping">',
+      '#suffix' => '</div>',
+      '#tree' => TRUE,
+      '#type' => 'fieldset',
       'collapse' => [
         '#type' => 'checkbox',
         '#title' => $this->t('Collapse Multi Children Objects'),
@@ -279,11 +298,32 @@ class SolrImporter extends SpreadsheetImporter {
         '#empty_value' => NULL,
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_mapping', 'cmodel_mapping'], [])),
-        '#source' => $cmodels ? array_combine(array_keys($cmodels),
-          array_keys($cmodels)) : [],
+        '#source' => $cmodels_source,
         '#source__title' => $this->t('CMODELs found'),
         '#destination__title' => $this->t('ADO Types'),
-        '#destination' => $this->AmiUtilityService->getWebformOptions(),
+        '#destination' => $types,
+      ],
+      'cmodel_children' => [
+        '#type' => 'webform_mapping',
+        '#title' => $this->t('ADO mappings for Child Objects.'),
+        '#description_display' => 'before',
+        '#description' => $this->t('Your Islandora Content Models to ADO types mapping for possible Children, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
+        '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
+        '#empty_value' => NULL,
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_mapping', 'cmodel_children'], [])),
+        '#source' => $cmodels_source_children,
+        '#source__title' => $this->t('Other CMODELs'),
+        '#destination__title' => $this->t('ADO Types'),
+        '#destination' => $types,
+        '#states' => [
+          'visible' => [
+            ':input[name="pluginconfig[solarium_mapping][collapse]"]' => ['checked' => FALSE],
+          ],
+          'required' => [
+            ':input[name="pluginconfig[solarium_mapping][collapse]"]' => ['checked' => FALSE],
+          ]
+        ]
       ],
       'server_domain' => [
         '#access' => !empty($cmodels),
@@ -430,12 +470,16 @@ class SolrImporter extends SpreadsheetImporter {
         $cmodel = [];
         $collapse_children =  $config['solarium_mapping']['collapse'] ?? FALSE;
         foreach ($facet as $value => $count) {
-          if ($count || !$collapse_children) {
+          if ($count) {
             $cmodel[$value] = $value;
+          }
+          else{
+            $cmodel_children[$value] = $value;
           }
         }
         // Set extracted CMODELS in a temp value
         $form_state->set('facet_cmodel', $cmodel);
+        $form_state->set('facet_cmodel_children', $cmodel_children);
         // Unset the passed ones so we do not carry those over
 
         $resultset_iterator = $resultset->getIterator();
@@ -525,6 +569,7 @@ class SolrImporter extends SpreadsheetImporter {
         'data' => $table,
         'totalrows' => $highestRow,
       ];
+      //dpm($tabdata);
 
       // Check if we still have the same CMODELS after running this. In case something changed.
       if ((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_mapping'], []), $cmodel)) == count($cmodel)) && count($cmodel) >= 1) {
@@ -532,6 +577,15 @@ class SolrImporter extends SpreadsheetImporter {
       } else {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
+      if (((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_children'], []), $cmodel_children)) == count($cmodel_children))
+        && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
+        $form_state->setValue(['pluginconfig', 'ready'], TRUE);
+      } else {
+        $form_state->setValue(['pluginconfig', 'ready'], FALSE);
+      }
+
+
+
       if ((int) $form_state->getValue(['pluginconfig', 'solarium_config', 'rows'],0) == 0) {
         $user_input = $form_state->getUserInput();
         $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
@@ -864,7 +918,10 @@ class SolrImporter extends SpreadsheetImporter {
         foreach (static::FILE_COLUMNS as $column) {
           $sp_data[$resultset_iterator->key()][$column] = '';
         }
-        $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+        // Try with both main mapping and children mapping
+        $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL;
+        $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL);
+        $sp_data[$resultset_iterator->key()]['type'] = $type2 ?? 'Thing';
         // Get me the datastream
         $datastream = $this->buildDatastreamURL($config, $document);
         if (count($datastream)) {
@@ -1060,5 +1117,19 @@ class SolrImporter extends SpreadsheetImporter {
     \Drupal::service('tempstore.private')->get('ami_multistep_data')->set('batch_finished', $data);
   }
 
+  public function provideTypes(array $config, array $data): array {
+    $keys = $config['solarium_mapping']['cmodel_mapping'] ?? [];
+    $keys_children = $config['solarium_mapping']['cmodel_children'] ?? [];
+    $keys = array_unique(array_merge(array_values($keys), array_values($keys_children)));
+    unset($keys_children);
+    return $keys;
+  }
 
+  public function provideKeys(array $config, array $data): array {
+    if (count($data) > 0) {
+      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label'], static::FILE_COLUMNS);
+      return $columns;
+    }
+    return [];
+  }
 }

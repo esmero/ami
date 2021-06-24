@@ -8,6 +8,7 @@ use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerTrait;
+use Drupal\ami\AmiUtilityService;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Entity\ImporterAdapterInterface;
@@ -34,11 +35,26 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
   protected $httpClient;
 
   /**
-   * {@inheritdoc}
+   * @var \Drupal\ami\AmiUtilityService
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager) {
+  protected $AmiUtilityService;
+
+
+  /**
+   * ImporterAdapterBase constructor.
+   *
+   * @param array $configuration
+   * @param $plugin_id
+   * @param $plugin_definition
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
+   * @param \Drupal\ami\AmiUtilityService $ami_utility
+   *
+   * @throws \Drupal\Component\Plugin\Exception\PluginException
+   */
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  AmiUtilityService $ami_utility) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entityTypeManager;
+    $this->AmiUtilityService = $ami_utility;
 
     //@TODO we do not need always a new config.
     // Configs can be empty/unsaved.
@@ -49,7 +65,7 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
     if (!$configuration['config'] instanceof ImporterAdapterInterface) {
       throw new PluginException('Wrong AMI ImporterAdapter configuration.');
     }
-    }
+  }
 
   /**
    * {@inheritdoc}
@@ -59,7 +75,8 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
       $configuration,
       $plugin_id,
       $plugin_definition,
-      $container->get('entity_type.manager')
+      $container->get('entity_type.manager'),
+      $container->get('ami.utility')
     );
   }
 
@@ -120,6 +137,26 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
    * {@inheritdoc}
    */
   public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void {
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function provideKeys(array $config, array $data): array {
+    return $data['headers']?? [];
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function provideTypes(array $config, array $data): array {
+    $type_column_index = array_search('type', $this->provideKeys($config, $data));
+    $alltypes = [];
+    if ($type_column_index !== FALSE) {
+      $alltypes = $this->AmiUtilityService->getDifferentValuesfromColumn($data,
+        $type_column_index);
+    }
+    return $alltypes;
   }
 
 

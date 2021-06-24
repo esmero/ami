@@ -109,4 +109,25 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    */
   public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void;
 
+
+  /**
+   * Allows Plugin to provide its own version of the Data Keys (columns) it wants to expose to the UI
+   *
+   * @param array $config
+   * @param array $data
+   *
+   * @return array
+   */
+  public function provideKeys(array $config, array $data):array;
+
+  /**
+   *  Allows Plugin to provide its own version of the ADO types it wants to expose to the UI
+   *
+   * @param array $config
+   * @param array $data
+   *
+   * @return array
+   */
+  public function provideTypes(array $config, array $data):array;
+
 }
