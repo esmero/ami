@@ -136,6 +136,7 @@ class SolrImporter extends SpreadsheetImporter {
       '#suffix' => '</div>',
       '#tree' => TRUE,
       '#type' => 'fieldset',
+      '#title' => 'Solr Server Configuration',
       '#element_validate' => [[get_class($this), 'validateSolrConfig']],
       'islandora_collection' => [
         '#type' => 'textfield',
@@ -270,6 +271,7 @@ class SolrImporter extends SpreadsheetImporter {
       '#suffix' => '</div>',
       '#tree' => TRUE,
       '#type' => 'fieldset',
+      '#title' => 'Islandora Mappings',
       'collapse' => [
         '#type' => 'checkbox',
         '#title' => $this->t('Collapse Multi Children Objects'),
@@ -346,7 +348,8 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     $config = $form_state->getValue($element['#parents']);
-    if (empty($config['host']) ||  empty($config['path']) || (empty($config['collection']) || empty($config['core']))) {
+
+    if ((empty($config['host']) || empty($config['path']))) {
       $form_state->setError($element,
         t('Please fill Solr Server Config.'));
     }
@@ -363,10 +366,18 @@ class SolrImporter extends SpreadsheetImporter {
     ];
     if ($config['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['core'];
+      if (empty($config['core'])) {
+        $form_state->setError($element['core'],
+          t('Please Setup your Solr Core.'));
+      }
     }
     else {
       // Solr Cloud uses collection instead of core
       $solr_config['endpoint']['amiremote']['collection'] = $config['collection'];
+      if (empty($config['collection'])) {
+        $form_state->setError($element['collection'],
+          t('Please Setup your Solr Cloud Collection.'));
+      }
     }
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
@@ -419,7 +430,7 @@ class SolrImporter extends SpreadsheetImporter {
       $ping_sucessful = $result->getData();
     } catch (\Exception $e) {
       $form_state->setError($element,
-        $this->t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address.'));
+        $this->t('Ups. We could not contact your server. Check if your settings,ports,core,etc are correct and/or firewalls are open for this IP address.'));
       $form_state->setValue(['pluginconfig','ready'], FALSE);
       return $tabdata;
     }
