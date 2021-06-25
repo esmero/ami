@@ -346,7 +346,7 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     $config = $form_state->getValue($element['#parents']);
-    if (empty($config['host']) ||  empty($config['path']) || empty($config['collection'])) {
+    if (empty($config['host']) ||  empty($config['path']) || (empty($config['collection']) || $config['core'])) {
       $form_state->setError($element,
         t('Please fill Solr Server Config.'));
     }
