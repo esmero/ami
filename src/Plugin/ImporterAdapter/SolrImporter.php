@@ -686,6 +686,9 @@ class SolrImporter extends SpreadsheetImporter {
         // also note that the same can be done using the placeholder syntax, see example 6.3
         $helper = $query->getHelper();
         $query->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $helper->escapePhrase($input));
+        // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
+        $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
+
         $query->setStart($offset)->setRows($per_page);
         $query->setFields([
           'PID',
