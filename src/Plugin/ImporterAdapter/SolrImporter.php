@@ -218,7 +218,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#title' => $this->t('Starting Row'),
         '#description' => $this->t('Initial Row to fetch. This is an offset. Defaults to 0'),
         '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_config', 'start'])),
+          ['solarium_config', 'start']), 0),
       ],
       'rows' => [
         '#type' => 'number',
@@ -340,7 +340,18 @@ class SolrImporter extends SpreadsheetImporter {
   }
 
   public static function validateSolrConfig($element, FormStateInterface $form_state) {
+
+    if (isset($form_state->getTriggeringElement()['#name']) && $form_state->getTriggeringElement()['#name'] == 'prev') {
+      return;
+    }
+
     $config = $form_state->getValue($element['#parents']);
+    if (empty($config['host']) ||  empty($config['path']) || empty($config['collection'])) {
+      $form_state->setError($element,
+        t('Please fill Solr Server Config.'));
+    }
+    $config['port'] = !empty($config['port']) ? (int)$config['port'] : NULL;
+
     $solr_config = [
       'endpoint' => [
         'amiremote' => [
@@ -1127,7 +1138,7 @@ class SolrImporter extends SpreadsheetImporter {
 
   public function provideKeys(array $config, array $data): array {
     if (count($data) > 0) {
-      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label'], static::FILE_COLUMNS);
+      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleInfo_title'], static::FILE_COLUMNS);
       return $columns;
     }
     return [];
