@@ -325,6 +325,7 @@ class AmiUtilityService {
       }
     }
     else {
+      // This is remote!
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
       $localfile = file_build_uri(
@@ -361,6 +362,7 @@ class AmiUtilityService {
         $finaluri = $localfile;
       }
     }
+    // This is the actual file creation independently of the source.
     if ($finaluri) {
       $file = $this->create_file_from_uri($finaluri);
       return $file;

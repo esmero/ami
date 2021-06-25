@@ -793,7 +793,7 @@ class SolrImporter extends SpreadsheetImporter {
 
           $table[$realrowindex] = $newrow;
           if (isset($pids_to_fetch[$rowindex])) {
-            $children_data = $this->getDataChildren($config, $client, 'info:fedora/'.$pids_to_fetch[$rowindex]);
+            $children_data = $this->getDataChildren($config, $client, $pids_to_fetch[$rowindex]);
             if (count($children_data)) {
               foreach ($children_data as $childrenindex => $childrenrow) {
                 $j = 0;
@@ -871,7 +871,9 @@ class SolrImporter extends SpreadsheetImporter {
     $sp_data = [];
     $query = $client->createSelect();
     $helper = $query->getHelper();
-    $escaped = $helper->escapePhrase($input);
+    $escaped = $helper->escapePhrase('info:fedora/' . $input);
+    $escaped_pid = str_replace(':', '_', $input);
+    $query->addSort("RELS_EXT_isSequenceNumberOf{$escaped_pid}_literal_intDerivedFromString_l", 'asc');
     $query->createFilterQuery('constituent')->setQuery('RELS_EXT_isConstituentOf_uri_ms:'.$escaped .' OR RELS_EXT_isPageOf_uri_ms:'.$escaped .' OR RELS_EXT_isMemberOf_uri_ms:'.$escaped );
     $query->setQuery('*:*');
     $query->setStart(0)->setRows(3000);
