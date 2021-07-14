@@ -99,7 +99,7 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *  Only applies to plugins with batch = true annotations
    *
    * @param array $config
-   * @param \Drupal\ami\Plugin\ImporterAdapterInterface $plugin_instace
+   * @param \Drupal\ami\Plugin\ImporterAdapterInterface $plugin_instance
    * @param \Drupal\file\Entity\File $file
    *    A File ID of an existing CSV to append data to.
    * @param \stdClass $amisetdata
@@ -107,6 +107,27 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *
    * @return mixed
    */
-  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, File $file, \stdClass $amisetdata, array &$context):void;
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void;
+
+
+  /**
+   * Allows Plugin to provide its own version of the Data Keys (columns) it wants to expose to the UI
+   *
+   * @param array $config
+   * @param array $data
+   *
+   * @return array
+   */
+  public function provideKeys(array $config, array $data):array;
+
+  /**
+   *  Allows Plugin to provide its own version of the ADO types it wants to expose to the UI
+   *
+   * @param array $config
+   * @param array $data
+   *
+   * @return array
+   */
+  public function provideTypes(array $config, array $data):array;
 
 }

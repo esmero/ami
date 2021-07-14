@@ -120,8 +120,9 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       // will back to Step 2 if so.
       $data = $this->store->get('data');
       $pluginconfig = $this->store->get('pluginconfig');
+      $plugin_instance = $this->store->get('plugininstance');
       $op = $pluginconfig['op'];
-      $column_keys = $data['headers'];
+      $column_keys = $plugin_instance->provideKeys($pluginconfig, $data);
       $mapping = $this->store->get('mapping');
       $metadata = [
         'direct' => 'Direct ',
@@ -204,9 +205,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       // Get all headers and check for a 'type' key first, if not allow the user to select one?
       // Wonder if we can be strict about this and simply require always a "type"?
       // @TODO WE need to check for 'type' always. Maybe even in the submit handler?
-      $type_column_index = array_search('type', $data['headers']);
-      if ($type_column_index !== FALSE) {
-        $alltypes = $this->AmiUtilityService->getDifferentValuesfromColumn($data, $type_column_index);
+      $alltypes = $plugin_instance->provideTypes($pluginconfig, $data);
+      if (!empty($alltypes)) {
         $form['ingestsetup']['custommapping'] = [
           '#type' => 'fieldset',
           '#tree' => TRUE,
@@ -278,13 +278,19 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           ];
         }
       }
+      else {
+        $form['message-error'] = [
+          '#markup' => '<div class="error">' . $this->t('Your data needs to provide a "type" column and at least one ADO type value under that column. None found ') . '</div>',
+        ];
+      }
     }
 
     if ($this->step == 4) {
       $data = $this->store->get('data');
       $pluginconfig = $this->store->get('pluginconfig');
       $op = $pluginconfig['op'];
-      $column_keys = $data['headers'];
+      $plugin_instance = $this->store->get('plugininstance');
+      $column_keys = $plugin_instance->provideKeys($pluginconfig, $data);
       $column_options = array_combine($column_keys, $column_keys);
       $mapping = $this->store->get('mapping');
       $adomapping = $this->store->get('adomapping');
@@ -527,18 +533,17 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         if (isset($fileid)) {
           $amisetdata->csv = $fileid;
           if ($plugin_instance->getPluginDefinition()['batch']) {
+            $data = $this->store->get('data');
+            $amisetdata->column_keys = $data['headers'];
             $batch = $plugin_instance->getBatch($form_state,
               $this->store->get('pluginconfig'), $amisetdata);
             $batch_data = $this->store->get('batch_finished');
-            $amisetdata->column_keys = $batch_data['headers'] ?? [];
             $amisetdata->total_rows = $batch_data['totalrows'] ?? 0;
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);
             if ($id) {
               $url = Url::fromRoute('entity.ami_set_entity.canonical',
                 ['ami_set_entity' => $id]);
-              $this->messenger()
-                ->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
-                  ['@url' => $url->toString()]));
+              $this->messenger()->addStatus($this->t('Well Done! New AMI Set was created'));
               $this->store->delete('data');
               $form_state->setRebuild(FALSE);
               $form_state->setRedirect('entity.ami_set_entity.canonical',

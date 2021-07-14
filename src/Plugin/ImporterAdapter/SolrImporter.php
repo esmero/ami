@@ -10,7 +10,6 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use GuzzleHttp\ClientInterface;
-use Hoa\Math\Sampler\Random;
 use Solarium\Core\Query\AbstractQuery as SolariumAbstractQuery;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\ami\AmiUtilityService;
@@ -137,6 +136,7 @@ class SolrImporter extends SpreadsheetImporter {
       '#suffix' => '</div>',
       '#tree' => TRUE,
       '#type' => 'fieldset',
+      '#title' => 'Solr Server Configuration',
       '#element_validate' => [[get_class($this), 'validateSolrConfig']],
       'islandora_collection' => [
         '#type' => 'textfield',
@@ -219,7 +219,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#title' => $this->t('Starting Row'),
         '#description' => $this->t('Initial Row to fetch. This is an offset. Defaults to 0'),
         '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_config', 'start'])),
+          ['solarium_config', 'start']), 0),
       ],
       'rows' => [
         '#type' => 'number',
@@ -232,18 +232,46 @@ class SolrImporter extends SpreadsheetImporter {
     ];
 
     $cmodels = $form_state->get('facet_cmodel') ?? $form_state->getValue(array_merge($parents,
-        ['solarium_mapping', 'cmodel_mapping'], []));
+        ['solarium_mapping', 'cmodel_mapping']), []);
+    $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
+        ['solarium_mapping', 'cmodel_children'], []));
+
     if (empty($cmodels)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
 
-    $default_parent = $form_state->getValue(array_merge($parents,
-      ['solarium_mapping', 'parent_ado'], NULL));
-    if ($default_parent) {
-      $default_parent = $this->entityTypeManager->getStorage('node')->load($default_parent);
+    if (empty($cmodels_children) && $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'collapse']), FALSE)) {
+      $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
 
+      $default_parent = $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'parent_ado']), NULL);
+    if ($default_parent) {
+      try {
+        $default_parent = $this->entityTypeManager->getStorage('node')
+          ->load($default_parent);
+      }
+      catch (\Exception $e) {
+        $this->messenger()->addError('Could not load Parent ADO with message @e'. [
+          '@e' => $e->getMessage(),
+          ]);
+      }
+    }
+
+    $types = $this->AmiUtilityService->getWebformOptions();
+    $cmodels_source = $cmodels ? array_combine(array_keys($cmodels),
+      array_keys($cmodels)) : [];
+    $cmodels_source_children = $cmodels_children ? array_combine(array_keys($cmodels_children),
+      array_keys($cmodels_children)) : [];
+
     $form['solarium_mapping'] = [
+      '#tree' => TRUE,
+      '#prefix' => '<div id="ami-solrmapping">',
+      '#suffix' => '</div>',
+      '#tree' => TRUE,
+      '#type' => 'fieldset',
+      '#title' => 'Islandora Mappings',
       'collapse' => [
         '#type' => 'checkbox',
         '#title' => $this->t('Collapse Multi Children Objects'),
@@ -272,11 +300,32 @@ class SolrImporter extends SpreadsheetImporter {
         '#empty_value' => NULL,
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_mapping', 'cmodel_mapping'], [])),
-        '#source' => $cmodels ? array_combine(array_keys($cmodels),
-          array_keys($cmodels)) : [],
+        '#source' => $cmodels_source,
         '#source__title' => $this->t('CMODELs found'),
         '#destination__title' => $this->t('ADO Types'),
-        '#destination' => $this->AmiUtilityService->getWebformOptions(),
+        '#destination' => $types,
+      ],
+      'cmodel_children' => [
+        '#type' => 'webform_mapping',
+        '#title' => $this->t('ADO mappings for Child Objects.'),
+        '#description_display' => 'before',
+        '#description' => $this->t('Your Islandora Content Models to ADO types mapping for possible Children, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
+        '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
+        '#empty_value' => NULL,
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_mapping', 'cmodel_children'], [])),
+        '#source' => $cmodels_source_children,
+        '#source__title' => $this->t('Other CMODELs'),
+        '#destination__title' => $this->t('ADO Types'),
+        '#destination' => $types,
+        '#states' => [
+          'visible' => [
+            ':input[name="pluginconfig[solarium_mapping][collapse]"]' => ['checked' => FALSE],
+          ],
+          'required' => [
+            ':input[name="pluginconfig[solarium_mapping][collapse]"]' => ['checked' => FALSE],
+          ]
+        ]
       ],
       'server_domain' => [
         '#access' => !empty($cmodels),
@@ -293,7 +342,19 @@ class SolrImporter extends SpreadsheetImporter {
   }
 
   public static function validateSolrConfig($element, FormStateInterface $form_state) {
+
+    if (isset($form_state->getTriggeringElement()['#name']) && $form_state->getTriggeringElement()['#name'] == 'prev') {
+      return;
+    }
+
     $config = $form_state->getValue($element['#parents']);
+
+    if ((empty($config['host']) || empty($config['path']))) {
+      $form_state->setError($element,
+        t('Please fill Solr Server Config.'));
+    }
+    $config['port'] = !empty($config['port']) ? (int)$config['port'] : NULL;
+
     $solr_config = [
       'endpoint' => [
         'amiremote' => [
@@ -305,10 +366,18 @@ class SolrImporter extends SpreadsheetImporter {
     ];
     if ($config['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['core'];
+      if (empty($config['core'])) {
+        $form_state->setError($element['core'],
+          t('Please Setup your Solr Core.'));
+      }
     }
     else {
       // Solr Cloud uses collection instead of core
       $solr_config['endpoint']['amiremote']['collection'] = $config['collection'];
+      if (empty($config['collection'])) {
+        $form_state->setError($element['collection'],
+          t('Please Setup your Solr Cloud Collection.'));
+      }
     }
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
@@ -339,7 +408,7 @@ class SolrImporter extends SpreadsheetImporter {
         ],
       ],
     ];
-    if ($config['solarium_config']['type'] == 'single') {
+     if ($config['solarium_config']['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['solarium_config']['core'];
     }
     else {
@@ -361,7 +430,7 @@ class SolrImporter extends SpreadsheetImporter {
       $ping_sucessful = $result->getData();
     } catch (\Exception $e) {
       $form_state->setError($element,
-        $this->t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address.'));
+        $this->t('Ups. We could not contact your server. Check if your settings,ports,core,etc are correct and/or firewalls are open for this IP address.'));
       $form_state->setValue(['pluginconfig','ready'], FALSE);
       return $tabdata;
     }
@@ -409,6 +478,11 @@ class SolrImporter extends SpreadsheetImporter {
         $allheaders = $resultset->getResponse()->getBody();
         $allheaders_array = str_getcsv($allheaders);
         $allheaders_array = array_map([$this, 'multipleToSingleFieldName'], $allheaders_array);
+        // Remove this non sense of mods_*_authority_marcrelator
+        array_filter($allheaders_array, function ($value) {
+          return $this->endsWith($value, 'authority_marcrelator');
+        });
+
         // Reuse the query now
         $query->setResponseWriter(SolariumAbstractQuery::WT_JSON);
         $query->setStart($config['solarium_config']['start'] ?? 0)->setRows($rows);
@@ -418,12 +492,16 @@ class SolrImporter extends SpreadsheetImporter {
         $cmodel = [];
         $collapse_children =  $config['solarium_mapping']['collapse'] ?? FALSE;
         foreach ($facet as $value => $count) {
-          if ($count || $collapse_children) {
+          if ($count) {
             $cmodel[$value] = $value;
+          }
+          else{
+            $cmodel_children[$value] = $value;
           }
         }
         // Set extracted CMODELS in a temp value
         $form_state->set('facet_cmodel', $cmodel);
+        $form_state->set('facet_cmodel_children', $cmodel_children);
         // Unset the passed ones so we do not carry those over
 
         $resultset_iterator = $resultset->getIterator();
@@ -462,13 +540,16 @@ class SolrImporter extends SpreadsheetImporter {
           $document = $resultset_iterator->current();
           foreach ($document as $field => $value) {
             $fieldname = $field;
+            $fieldname = $this->multipleToSingleFieldName($field);
             // Exclude this non-sense fields
             if (strpos($field, '_roleTerm_', 0) !== FALSE) {
               continue;
             }
-            // this converts multi valued fields to a |@|  string
-            $fieldname = $this->multipleToSingleFieldName($field);
+            if ($this->endsWith($fieldname, 'authority_marcrelator')) {
+              continue;
+            }
             $headers[$fieldname] = $fieldname;
+            // this converts multi valued fields to a |@|  string
             if (is_array($value)) {
               $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
               $value = $this->concatValues($value, $original_value);
@@ -510,6 +591,7 @@ class SolrImporter extends SpreadsheetImporter {
         'data' => $table,
         'totalrows' => $highestRow,
       ];
+      //dpm($tabdata);
 
       // Check if we still have the same CMODELS after running this. In case something changed.
       if ((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_mapping'], []), $cmodel)) == count($cmodel)) && count($cmodel) >= 1) {
@@ -517,6 +599,15 @@ class SolrImporter extends SpreadsheetImporter {
       } else {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
+      if (((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_children'], []), $cmodel_children)) == count($cmodel_children))
+        && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
+        $form_state->setValue(['pluginconfig', 'ready'], TRUE);
+      } else {
+        $form_state->setValue(['pluginconfig', 'ready'], FALSE);
+      }
+
+
+
       if ((int) $form_state->getValue(['pluginconfig', 'solarium_config', 'rows'],0) == 0) {
         $user_input = $form_state->getUserInput();
         $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
@@ -549,6 +640,11 @@ class SolrImporter extends SpreadsheetImporter {
         ],
       ],
     ];
+    $parent_ado =  $config['parent_ado_uuid'] ?? NULL;
+    // Passed by batch operation
+    $headers = $config['headers'] ?? [];
+    $headers = array_combine($headers, $headers);
+    $headersWithData = $config['headerswithdata'] ?? [];
 
     if ($config['solarium_config']['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['solarium_config']['core'];
@@ -560,14 +656,16 @@ class SolrImporter extends SpreadsheetImporter {
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
     $eventDispatcher = new EventDispatcher();
-    $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0, 'totalfound' => 0];
+    // This adds 'headerswithdata' so we can clean our mess up once finished
+    $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0, 'totalfound' => 0, 'headerswithdata' => $headersWithData];
     $client = new SolariumClient($adapter, $eventDispatcher, $solr_config);
     $ping = $client->createPing();
     // execute the ping query
     try {
       $result = $client->ping($ping);
       $ping_sucessful = $result->getStatus() + 1;
-    } catch (\Exception $e) {
+    }
+    catch (\Exception $e) {
       return $tabdata;
     }
 
@@ -588,6 +686,9 @@ class SolrImporter extends SpreadsheetImporter {
         // also note that the same can be done using the placeholder syntax, see example 6.3
         $helper = $query->getHelper();
         $query->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $helper->escapePhrase($input));
+        // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
+        $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
+
         $query->setStart($offset)->setRows($per_page);
         $query->setFields([
           'PID',
@@ -623,12 +724,14 @@ class SolrImporter extends SpreadsheetImporter {
       }
       $table = [];
       foreach (static::FILE_COLUMNS as $column) {
-        $headers[$column] = $column;
+        $headers[$column] = $headersWithData[$column] = $column;
       }
-      $headers['type'] = 'type';
-      $headers['ismemberof'] = 'ismemberof';
-      $headers['ispartof'] = 'ispartof';
-      $maxRow = 0;
+      // Ensure the basic fields for this data
+      $headers['type'] =  $headersWithData['type'] = 'type';
+      $headers['ismemberof'] = $headersWithData['ismemberof'] = 'ismemberof';
+      $headers['ispartof'] = $headersWithData['ispartof'] = 'ispartof';
+      $headersWithData['node_uuid'] = 'node_uuid';
+
       $highestRow = 0;
       $pids_to_fetch = [];
       $previous_index = $config['prev_index'] ?? 0;
@@ -638,7 +741,6 @@ class SolrImporter extends SpreadsheetImporter {
           $highestRow = $resultset_iterator->key() + 1;
           $document = $resultset_iterator->current();
           foreach ($document as $field => $value) {
-            $fieldname = $field;
             // Exclude this non-sense fields
             if (strpos($field, '_roleTerm_', 0) !== FALSE) {
               continue;
@@ -654,6 +756,9 @@ class SolrImporter extends SpreadsheetImporter {
           // Let's add generic all columns needed for files.
           foreach (static::FILE_COLUMNS as $column) {
             $sp_data[$resultset_iterator->key()][$column] = '';
+          }
+          if ($parent_ado) {
+            $sp_data[$resultset_iterator->key()]['ismemberof'] = $parent_ado;
           }
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
 
@@ -681,19 +786,26 @@ class SolrImporter extends SpreadsheetImporter {
           $newrow = [];
           $realrowindex = $rowindex + $childrenoffset + $previous_index;
           foreach ($headers as $field) {
+            // We keep track of empty headers here.
+            if (!empty($sp_data[$rowindex][$field])) {
+              $headersWithData[$field] = $field;
+            }
             $newrow[$i] = $sp_data[$rowindex][$field] ?? '';
             $i++;
           }
 
           $table[$realrowindex] = $newrow;
           if (isset($pids_to_fetch[$rowindex])) {
-            $children_data = $this->getDataChildren($config, $client, 'info:fedora/'.$pids_to_fetch[$rowindex]);
+            $children_data = $this->getDataChildren($config, $client, $pids_to_fetch[$rowindex]);
             if (count($children_data)) {
               foreach ($children_data as $childrenindex => $childrenrow) {
                 $j = 0;
                 $newrow = [];
                 if (!$collapse_children) {
                   foreach ($headers as $field) {
+                    if (!empty($children_data[$childrenindex][$field])) {
+                      $headersWithData[$field] = $field;
+                    }
                     if ($field == 'ispartof') {
                       // Arrays. Headers is 0, first row is 1, but in CSV
                       // Headers is 1. You got this.
@@ -729,11 +841,15 @@ class SolrImporter extends SpreadsheetImporter {
         }
       }
 
+      // Clean empty headers
+
+
       $tabdata = [
         'headers' => array_keys($headers),
         'data' => $table,
         'totalrows' => $highestRow,
         'totalfound' => count($table),
+        'headerswithdata' => $headersWithData,
       ];
     }
     else {
@@ -758,7 +874,9 @@ class SolrImporter extends SpreadsheetImporter {
     $sp_data = [];
     $query = $client->createSelect();
     $helper = $query->getHelper();
-    $escaped = $helper->escapePhrase($input);
+    $escaped = $helper->escapePhrase('info:fedora/' . $input);
+    $escaped_pid = str_replace(':', '_', $input);
+    $query->addSort("RELS_EXT_isSequenceNumberOf{$escaped_pid}_literal_intDerivedFromString_l", 'asc');
     $query->createFilterQuery('constituent')->setQuery('RELS_EXT_isConstituentOf_uri_ms:'.$escaped .' OR RELS_EXT_isPageOf_uri_ms:'.$escaped .' OR RELS_EXT_isMemberOf_uri_ms:'.$escaped );
     $query->setQuery('*:*');
     $query->setStart(0)->setRows(3000);
@@ -776,7 +894,6 @@ class SolrImporter extends SpreadsheetImporter {
       'fedora_datastreams_ms'
     ]);
 
-    error_log($client->createRequest($query)->getUri());
     $resultset = $client->select($query);
     // display the total number of documents found by solr
     error_log('NumFound: ' . $resultset->getNumFound());
@@ -797,9 +914,12 @@ class SolrImporter extends SpreadsheetImporter {
         $highestRow = $resultset_iterator->key() + 1;
         $document = $resultset_iterator->current();
         foreach ($document as $field => $value) {
-          $fieldname = $field;
+          $fieldname = $this->multipleToSingleFieldName($field);
           // Exclude this non-sense fields
           if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+            continue;
+          }
+          if ($this->endsWith($fieldname, 'authority_marcrelator')) {
             continue;
           }
           // this converts multi valued fields to a comma-separated string
@@ -825,11 +945,15 @@ class SolrImporter extends SpreadsheetImporter {
         foreach (static::FILE_COLUMNS as $column) {
           $sp_data[$resultset_iterator->key()][$column] = '';
         }
-        $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+        // Try with both main mapping and children mapping
+        $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL;
+        $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL);
+        $sp_data[$resultset_iterator->key()]['type'] = $type2 ?? 'Thing';
         // Get me the datastream
         $datastream = $this->buildDatastreamURL($config, $document);
         if (count($datastream)) {
-          $sp_data[$resultset_iterator->key()][array_key_first($datastream)] = reset($datastream);
+          $first_datastream = reset($datastream);
+          $sp_data[$resultset_iterator->key()][key($datastream)] = $first_datastream;
         }
       } catch (\Exception $exception) {
         // @TODO log the error here.
@@ -888,6 +1012,21 @@ class SolrImporter extends SpreadsheetImporter {
     return $field;
   }
 
+
+  /**
+   * Checks if string ends in another string. PHP 7.
+   *
+   * @param $haystack
+   * @param $needle
+   *
+   * @return bool
+   */
+  protected function endsWith($haystack, $needle) {
+    $length = strlen($needle);
+    return $length > 0 ? substr($haystack, -$length) === $needle : true;
+  }
+
+
   /**
    * Implodes array and concatenates to existing string using common delimiter.
    *
@@ -915,9 +1054,13 @@ class SolrImporter extends SpreadsheetImporter {
       'finished' => '\Drupal\ami\Plugin\ImporterAdapter\SolrImporter::finishfetchFromSolr',
       'progress_message' => t('Processing Set @current of @total.'),
     ];
-
-    $file =  $this->entityTypeManager->getStorage('file')->load($amisetdata->csv);
-
+    $parent_ado_uuid = NULL;
+    $file = $this->entityTypeManager->getStorage('file')->load($amisetdata->csv);
+    if (!empty($config['solarium_mapping']['parent_ado']) && is_scalar($config['solarium_mapping']['parent_ado'])) {
+      $parent_ado = $this->entityTypeManager->getStorage('node')->load($config['solarium_mapping']['parent_ado']);
+      $parent_ado_uuid = $parent_ado->uuid();
+    }
+    $config['parent_ado_uuid'] = $parent_ado_uuid;
     $batch['operations'][] = [
       '\Drupal\ami\Plugin\ImporterAdapter\SolrImporter::fetchBatch',
       [$config, $this, $file, $amisetdata],
@@ -928,7 +1071,7 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * {@inheritdoc}
    */
-  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instace, File $file, \stdClass $amisetdata, array &$context):void {
+  public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void {
 
     $rows = $config['solarium_config']['rows'] ?? 500;
     $offset = $config['solarium_config']['start'] ?? 0;
@@ -957,7 +1100,11 @@ class SolrImporter extends SpreadsheetImporter {
       // And we pass that data into the ::getData to offset the next set of
       // Parents/Children.
       $config['prev_index'] = $context['sandbox']['prev_index'];
-      $data = $plugin_instace->getData($config, $context['sandbox']['progress'] + $offset,
+      // Pass the headers into the config so we have a unified/normalized version
+      // And not the mess each doc returns
+      $config['headers'] = $amisetdata->column_keys ?? [];
+      $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
+      $data = $plugin_instance->getData($config, $context['sandbox']['progress'] + $offset,
         $increment);
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
@@ -968,9 +1115,10 @@ class SolrImporter extends SpreadsheetImporter {
         \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
-
-        $context['results']['processed']['headers'][] = $data['headers'];
-        $context['results']['processed']['total_rows'] = $context['sandbox']['prev_index'] + $data['totalfound'];
+        $context['results']['processed']['fileuuid'] = $file->uuid();
+        $context['results']['processed']['headers'] = $data['headers'];
+        $context['results']['processed']['total_rows'] = $data['totalrows'] ?? 0;
+        $context['results']['processed']['headerswithdata'] = $data['headerswithdata'] ?? [];
         $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
       }
     } catch (\Exception $e) {
@@ -985,18 +1133,30 @@ class SolrImporter extends SpreadsheetImporter {
   public static function finishfetchFromSolr($success, $results, $operations) {
     error_log('finished');
     $allheaders = $results['processed']['headers'] ?? [];
-    $cleanheaders = [];
-    foreach($allheaders as $headerarray) {
-      $cleanheaders = array_unique(array_merge($cleanheaders, $headerarray));
-    }
-    error_log(var_export($cleanheaders, true));
 
-    $data['headers'] = array_values($cleanheaders);
+    $data['headers'] = array_values($allheaders);
     $data['total_rows'] = $results['processed']['total_rows'] ?? 0;
-    error_log(var_export($data['total_rows'], true));
-
+    // Clean the CSV removing empty headers!
+    $file = \Drupal::service('entity.repository')->loadEntityByUuid('file', $results['processed']['fileuuid']);
+    if ($file) {
+      \Drupal::service('ami.utility')->csv_clean($file, $results['processed']['headerswithdata']);
+    }
     \Drupal::service('tempstore.private')->get('ami_multistep_data')->set('batch_finished', $data);
   }
 
+  public function provideTypes(array $config, array $data): array {
+    $keys = $config['solarium_mapping']['cmodel_mapping'] ?? [];
+    $keys_children = $config['solarium_mapping']['cmodel_children'] ?? [];
+    $keys = array_unique(array_merge(array_values($keys), array_values($keys_children)));
+    unset($keys_children);
+    return $keys;
+  }
 
+  public function provideKeys(array $config, array $data): array {
+    if (count($data) > 0) {
+      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleInfo_title'], static::FILE_COLUMNS);
+      return $columns;
+    }
+    return [];
+  }
 }
