@@ -8,3 +8,8 @@ services:
     arguments: [ '@file_system', '@file.usage', '@entity_type.manager', '@stream_wrapper_manager', '@plugin.manager.archiver', '@config.factory', '@current_user', '@language_manager', '@transliteration', '@module_handler', '@logger.factory', '@strawberryfield.utility', '@entity_field.manager', '@entity_type.bundle.info', '@http_client']
     tags:
       - { name: backend_overridable }
+  ami.lod:
+    class: Drupal\ami\AmiLoDService
+    arguments: [ '@file_system', '@file.usage', '@entity_type.manager', '@stream_wrapper_manager', '@plugin.manager.archiver', '@config.factory', '@current_user', '@language_manager', '@transliteration', '@module_handler', '@logger.factory', '@strawberryfield.utility', '@http_client', '@ami.utility' ]
+    tags:
+      - { name: backend_overridable }

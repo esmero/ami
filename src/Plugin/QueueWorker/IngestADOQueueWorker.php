@@ -17,7 +17,7 @@ use Swaggest\JsonDiff\Exception as JsonDiffException;
 use Swaggest\JsonDiff\JsonPatch;
 
 /**
- * Process the JSON payload provided by the webhook.
+ * Processes and Ingests each AMI Set CSV row.
  *
  * @QueueWorker(
  *   id = "ami_ingest_ado",
@@ -119,7 +119,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
-    /* Data info has this structire
+    /* Data info has this structure
       $data->info = [
         'row' => The actual data
         'set_id' => The Set id

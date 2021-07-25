@@ -83,6 +83,7 @@ use Drupal\Component\Utility\Environment;
  *       "delete" = "Drupal\ami\Form\amiSetEntityDeleteForm",
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteprocessed" = "Drupal\ami\Form\amiSetEntityDeleteProcessedForm",
+ *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm"
  *     },
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
@@ -100,6 +101,7 @@ use Drupal\Component\Utility\Environment;
  *     "edit-form" = "/amiset/{ami_set_entity}/edit",
  *     "process-form" = "/amiset/{ami_set_entity}/process",
  *     "delete-process-form" = "/amiset/{ami_set_entity}/deleteprocessed",
+ *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
  *     "collection" = "/amiset/list"
  *   },

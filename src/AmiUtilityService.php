@@ -762,7 +762,9 @@ class AmiUtilityService {
    *
    * @param \Drupal\file\Entity\File $file
    *
-   * @param string $uuid_key
+   * @param string|null $uuid_key
+   *    IF NULL then no attempt of using UUIDS will be made.
+   *    Needed for LoD Reconciling CSVs
    * @param bool $append_header
    *
    * @return int|string|null
@@ -780,26 +782,28 @@ class AmiUtilityService {
     }
     array_walk($data['headers'], 'htmlspecialchars');
     // How we want to get the key number that contains the $uuid_key
-    $haskey = array_search($uuid_key, $data['headers']);
-    if ($haskey === FALSE) {
-      array_unshift($data['headers'], $uuid_key);
+    if ($uuid_key) {
+      $haskey = array_search($uuid_key, $data['headers']);
+      if ($haskey === FALSE) {
+        array_unshift($data['headers'], $uuid_key);
+      }
     }
-
     if ($append_header) {
       $fh->fputcsv($data['headers']);
     }
 
     foreach ($data['data'] as $row) {
-      if ($haskey === FALSE) {
-        array_unshift($row, $uuid_key);
-        $row[0] = Uuid::uuid4();
-      }
-      else {
-        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
-          $row[$haskey] = Uuid::uuid4();
+      if ($uuid_key) {
+        if ($haskey === FALSE) {
+          array_unshift($row, $uuid_key);
+          $row[0] = Uuid::uuid4();
+        }
+        else {
+          if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+            $row[$haskey] = Uuid::uuid4();
+          }
         }
       }
-
       //array_walk($row, 'htmlspecialchars');
       array_walk($row,'htmlentities');
       $fh->fputcsv($row);

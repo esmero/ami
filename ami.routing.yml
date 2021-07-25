@@ -86,3 +86,11 @@ entity.ami_set_entity.delete_process_form:
     _title: 'Process Ami Set'
   requirements:
     _entity_access: 'ami_set_entity.deleteados'
+
+entity.ami_set_entity.reconcile_form:
+  path: '/amiset/{ami_set_entity}/reconcile'
+  defaults:
+    _entity_form: ami_set_entity.reconcile
+    _title: 'Reconcile LoD'
+  requirements:
+    _entity_access: 'ami_set_entity.process'

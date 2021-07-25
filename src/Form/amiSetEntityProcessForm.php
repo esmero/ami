@@ -51,7 +51,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
       $container->get('ami.utility'),
-      $container->get('strawberryfield.utility'),
+      $container->get('strawberryfield.utility')
     );
   }
 

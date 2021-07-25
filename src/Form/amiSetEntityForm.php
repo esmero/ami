@@ -31,5 +31,4 @@ class amiSetEntityForm extends ContentEntityForm {
     $form_state->setRedirectUrl($entity->toUrl('collection'));
     return $status;
   }
-
 }

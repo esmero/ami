@@ -1131,7 +1131,7 @@ class SolrImporter extends SpreadsheetImporter {
   }
 
   public static function finishfetchFromSolr($success, $results, $operations) {
-    error_log('finished');
+
     $allheaders = $results['processed']['headers'] ?? [];
 
     $data['headers'] = array_values($allheaders);
