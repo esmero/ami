@@ -30,12 +30,6 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   protected $streamWrapperManager;
 
   /**
-   * @var \Drupal\ami\AmiUtilityService
-   */
-  protected $AmiUtilityService;
-
-
-  /**
    * SpreadsheetImporter constructor.
    *
    * @param array $configuration
@@ -48,9 +42,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
    * @throws \Drupal\Component\Plugin\Exception\PluginException
    */
   public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager);
+    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $ami_utility);
     $this->streamWrapperManager = $streamWrapperManager;
-    $this->AmiUtilityService = $ami_utility;
   }
 
   /**
