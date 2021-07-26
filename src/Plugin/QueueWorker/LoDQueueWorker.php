@@ -148,7 +148,7 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
       $data->info['csv']);
 
     if (empty($data->info['label']) || empty($data->info['domain']) || empty ($data->info['lodconfig'])) {
-      // Exception, means we have no label, no domain or emprt lodconfig
+      // Exception, means we have no label, no domain or empty lodconfig
       return;
     }
     $newdata['headers'] = $data->info['headers'];
@@ -160,16 +160,14 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
         $lod_route_argument_list = explode(';', $lod_route_argument);
         //@TODO allow the number of results to be set on the \Drupal\ami\Form\amiSetEntityReconcileForm
         // And passed as an argument. Same with Language? Not all LoD Routes can make use or more languages.
-        $lod_route_column_name = implode('_', $lod_route_argument_list);
-
-
+        $lod_route_column_name = strtolower(implode('_', $lod_route_argument_list));
         $lod = $this->AmiLoDService->invokeLoDRoute($data->info['domain'],
           $data->info['label'], $lod_route_argument_list[0],
           $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1);
-        dpm($lod);
-        $newdata['data'][0][$lod_route_column_name] = json_encode($lod);
+        $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT);
+        $newdata['data'][0]['original'] = $data->info['label'];
+        $newdata['data'][0]['csv_columns'] = json_encode((array)$data->info['csv_columns']);
       }
-
       $this->AmiUtilityService->csv_append($newdata, $file_lod,NULL, FALSE);
     }
   }

@@ -615,12 +615,15 @@ class AmiUtilityService {
   /**
    * Creates an empty CSV returns file.
    *
+   * @param string|null $filename
+   *    If given it will use that, if null will create a new one
+   *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_touch() {
+  public function csv_touch(string $filename = NULL) {
     $path = 'public://ami/csv';
-    $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
+    $filename = $filename ?? $this->currentUser->id() . '-' . uniqid() . '.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
       $path,

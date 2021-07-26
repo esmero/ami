@@ -536,10 +536,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             $data = $this->store->get('data');
             $amisetdata->column_keys = [];
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);
-            $batch = $plugin_instance->getBatch($form_state,
-              $this->store->get('pluginconfig'), $amisetdata);
-
-
+            $batch = $plugin_instance->getBatch($form_state, $this->store->get('pluginconfig'), $amisetdata);
             if ($id) {
               $url = Url::fromRoute('entity.ami_set_entity.canonical',
                 ['ami_set_entity' => $id]);

@@ -95,10 +95,6 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
     }
-    $domain = $this->getRequest()->getSchemeAndHttpHost();
-
-    //$lod = $this->AmiLoDService->invokeLoDRoute($domain,'Diego', 'wikidata', 'subjects', 'thing', 'en', 5);
-
 
     if ($data !== new \stdClass()) {
       // Only Show this form if we got data from the SBF field.
@@ -135,10 +131,9 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           $csv_file_reference[0]['target_id']
         );
         if ($file) {
-          $reconcile_settings = $data->reconcile_settings->columns ?? [];
+          $reconcile_settings = $data->reconcileconfig->columns ?? [];
           $file_data_all = $this->AmiUtilityService->csv_read($file);
           $column_keys = $file_data_all['headers'] ?? [];
-
           $form['mapping']['lod_columns'] = [
             '#type' => 'select',
             '#title' => $this->t('Select which columns you want to reconcile against LoD providers'),
@@ -160,10 +155,6 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             '#suffix' => '</div>',
           ];
           if ($form_state->getValue(['mapping', 'lod_columns'], NULL)) {
-            error_log(var_export($form_state->getValue([
-              'mapping',
-              'lod_columns'
-            ]), TRUE));
 
             $source_options =  $form_state->getValue(['mapping', 'lod_columns']);
             $column_options = [
@@ -265,7 +256,8 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       /** @var \Drupal\file\Entity\File $file_lod */
       $file_lod = $this->entityTypeManager->getStorage('file')->load(
         $csv_file_processed[0]['target_id']);
-      $file_lod_id = $file_lod->id();
+      // Reset all values
+      $file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
     } else {
       $file_lod_id = $this->AmiUtilityService->csv_touch();
       $file_lod = $file_lod_id ? $this->entityTypeManager->getStorage('file')->load(
@@ -296,11 +288,8 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     }
     if ($file && $file_lod && $data !== new \stdClass()) {
       $domain = $this->getRequest()->getSchemeAndHttpHost();
-      $invalid = [];
       $mappings = $form_state->getValue(['lod_options','mappings']);
       $form_state->setRebuild(TRUE);
-      $file_data_all = $this->AmiUtilityService->csv_read($file);
-      $column_keys = $file_data_all['headers'] ?? [];
       $output = [];
       $output['table'] = [
         '#type' => 'table',
@@ -310,19 +299,23 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       $values_per_column = $this->AmiLoDService->provideLoDColumnValues($file,
         $columns);
       $inverted = [];
+      $column_map_inverted = [];
       $headers = ['original','csv_columns'];
       foreach($values_per_column as $column => $labels) {
         foreach($labels as $label) {
           $inverted[$label] = $inverted[$label] ?? [];
           $headers = array_unique(array_merge($headers,$mappings[$column]));
           $inverted[$label] = array_unique(array_merge($inverted[$label], $mappings[$column]));
+          $column_map_inverted[$label][] = $column;
+          $column_map_inverted[$label] = array_unique($column_map_inverted[$label]);
         }
       }
+
       ksort($inverted,SORT_NATURAL);
       foreach($headers as &$header) {
         // same is done in \Drupal\ami\Plugin\QueueWorker\LoDQueueWorker::processItem
         $exploded =  explode(';', $header);
-        $header = implode('_', $exploded);
+        $header = strtolower(implode('_', $exploded));
       }
 
       if (!count($inverted)) {
@@ -337,7 +330,8 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         $form_state->setRebuild();
         return;
       }
-
+      // Append the header to the CSV
+      $file_lod_id = $this->AmiUtilityService->csv_append(['headers' => $headers, 'data' => []], $file_lod, NULL, TRUE );
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
@@ -364,6 +358,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           'label' => $label,
           'domain' => $domain,
           'headers' => $headers,
+          'csv_columns' => $column_map_inverted[$label],
           'lodconfig' => $lodconfig,
           'set_id' => $this->entity->id(),
           'csv' => $file_lod_id,
