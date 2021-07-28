@@ -68,6 +68,9 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     );
   }
 
+  public function getConfirmText() {
+    return $this->t('Process LoD from Source');
+  }
 
   public function getQuestion() {
     return $this->t(
@@ -118,6 +121,29 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         ];
         return $form;
       }
+      $csv_file_processed = $this->entity->get('processed_data')->getValue();
+      if (isset($csv_file_processed[0]['target_id'])) {
+        /** @var \Drupal\file\Entity\File $file */
+        $lod_file = $this->entityTypeManager->getStorage('file')->load(
+          $csv_file_processed[0]['target_id']
+        );
+        if ($lod_file) {
+          $form['status'] = [
+            '#tree' => TRUE,
+            '#type' => 'fieldset',
+            '#title' =>  $this->t(
+              'You have LoD reconciled data!'
+            ),
+            '#markup' => $this->t(
+              'Please use the Edit Reconciled LoD tab to Fix/Correct/Enhance or '
+            ),
+          ];
+          $form['status']['download'] = Url::fromUri(file_create_url($lod_file->getFileUri()))->toRenderArray();
+          $form['status']['download']['#type'] = 'link';
+          $form['status']['download']['#title'] = $this->t('Download LoD CSV');
+
+        }
+      }
       $form['mapping'] = [
         '#tree' => TRUE,
         '#type' => 'fieldset',
@@ -131,13 +157,15 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           $csv_file_reference[0]['target_id']
         );
         if ($file) {
-          $reconcile_settings = $data->reconcileconfig->columns ?? [];
+
+          $reconcile_column_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->columns ?? []);
+          $reconcile_column_settings = (array) $reconcile_column_settings;
           $file_data_all = $this->AmiUtilityService->csv_read($file);
           $column_keys = $file_data_all['headers'] ?? [];
           $form['mapping']['lod_columns'] = [
             '#type' => 'select',
             '#title' => $this->t('Select which columns you want to reconcile against LoD providers'),
-            '#default_value' => $reconcile_settings,
+            '#default_value' => $reconcile_column_settings,
             '#options' => array_combine($column_keys, $column_keys),
             '#size' => count($column_keys),
             '#multiple' => TRUE,
@@ -154,9 +182,11 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             '#prefix' => '<div id="lod-options-wrapper">',
             '#suffix' => '</div>',
           ];
-          if ($form_state->getValue(['mapping', 'lod_columns'], NULL)) {
+          $reconcile_mapping_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->mappings ?? NULL);
+          $reconcile_mapping_settings = (array) $reconcile_mapping_settings;
+          if ($reconcile_column_settings) {
 
-            $source_options =  $form_state->getValue(['mapping', 'lod_columns']);
+            $source_options = $reconcile_column_settings;
             $column_options = [
               'loc;subjects;thing' => 'LoC subjects(LCSH)',
               'loc;names;thing' => 'LoC Name Authority File (LCNAF)',
@@ -190,7 +220,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
               '#description_display' => 'before',
               '#empty_option' => $this->t('- Let AMI decide -'),
               '#empty_value' => NULL,
-              '#default_value' => [],
+              '#default_value' => $reconcile_mapping_settings,
               '#required' => TRUE,
               '#destination__multiple' => TRUE,
               '#source' => $source_options,
@@ -242,7 +272,6 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
-
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
@@ -250,6 +279,8 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         $csv_file_reference[0]['target_id']
       );
     }
+
+
 
     $csv_file_processed = $this->entity->get('processed_data')->getValue();
     if (isset($csv_file_processed[0]['target_id'])) {
@@ -280,11 +311,29 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       }
     }
 
-
     $data = new \stdClass();
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
+      // Set also the new config back
+      $data->reconcileconfig = new \stdClass();
+      $data->reconcileconfig->columns = $form_state->getValue(['mapping', 'lod_columns'], NULL);
+      $data->reconcileconfig->mappings = $form_state->getValue(['lod_options','mappings'], NULL);
+      $jsonvalue = json_encode($data, JSON_PRETTY_PRINT);
+      $this->entity->set('set', $jsonvalue);
+      try {
+        $this->entity->save();
+      }
+      catch (\Exception $exception) {
+        $this->messenger()->addError(
+          t(
+            'Ami Set LoD Settings Failed to be persisted because of @message',
+            ['@message' => $exception->getMessage()]
+          )
+        );
+        $form_state->setRebuild(TRUE);
+        return;
+      }
     }
     if ($file && $file_lod && $data !== new \stdClass()) {
       $domain = $this->getRequest()->getSchemeAndHttpHost();
@@ -310,6 +359,19 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           $column_map_inverted[$label] = array_unique($column_map_inverted[$label]);
         }
       }
+      $normalized_mapping = [];
+      foreach($mappings as $source_column => $approaches) {
+        foreach($approaches as $approach) {
+          $exploded =  explode(';', $approach);
+          $normalized_mapping[$source_column][] = strtolower(implode('_', $exploded));
+        }
+      }
+
+      // This will be used to fetch the right values when passing to the twig template
+      // Could be read from the config but this is faster during process.
+      $this->AmiUtilityService->setKeyValueMappingsPerAmiSet($normalized_mapping, $this->entity->id());
+      // Clears old values before processing new ones.
+      $this->AmiUtilityService->cleanKeyValuesPerAmiSet($this->entity->id());
 
       ksort($inverted,SORT_NATURAL);
       foreach($headers as &$header) {
@@ -334,6 +396,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       $file_lod_id = $this->AmiUtilityService->csv_append(['headers' => $headers, 'data' => []], $file_lod, NULL, TRUE );
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
+
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = 'ami_lod_ado';
       if (!$notprocessnow) {
@@ -359,6 +422,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           'domain' => $domain,
           'headers' => $headers,
           'csv_columns' => $column_map_inverted[$label],
+          'normalized_mappings' => $normalized_mapping,
           'lodconfig' => $lodconfig,
           'set_id' => $this->entity->id(),
           'csv' => $file_lod_id,
@@ -383,6 +447,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       else {
         $count = count(array_filter($added));
         if ($count) {
+          $form_state->setRebuild();
           $this->submitBatch($form_state, $queue_name, $count);
         }
       }
@@ -460,7 +525,6 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           $column_preview = (array) $form_state->getValue(['lod_options','select_preview']) ?? [];
           $values_per_column = $this->AmiLoDService->provideLoDColumnValues($file,
             $column_preview);
-          dpm($form_state->getValue(['lod_options','select_preview']));
           $rows = $values_per_column[$form_state->getValue(['lod_options','select_preview'])] ?? ['Emtpy Column'];
           sort($rows, SORT_STRING);
 
@@ -482,6 +546,45 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     }
     return $response;
   }
+
+  /**
+   * AJAX callback.
+   */
+  public function ajaxLoDPreview($form, FormStateInterface $form_state) {
+    return $form['lod_cleanup'];
+
+
+
+    $response = new AjaxResponse();
+    $form['#attached']['library'][] = 'core/drupal.dialog.off_canvas';
+    $response->setAttachments($form['#attached']);
+
+    if (!empty($form_state->getValue(['edit']))) {
+      $entity = $form_state->getFormObject()->getEntity();
+      $csv_file_reference = $entity->get('source_data')->getValue();
+      if (isset($csv_file_reference[0]['target_id'])) {
+        /** @var \Drupal\file\Entity\File $file */
+        $file = $this->entityTypeManager->getStorage('file')->load(
+          $csv_file_reference[0]['target_id']
+        );
+        if ($file) {
+          $form = \Drupal::service('entity.form_builder')->getForm($entity, 'editreconcile', []);;
+        }
+        $response->addCommand(new OpenOffCanvasDialogCommand(t('Lod for @label', [
+          '@label' => $this->entity->label(),
+        ]),
+          $form, ['width' => '70%']));
+        if ($form_state->getErrors()) {
+          // Clear errors so the user does not get confused when reloading.
+          \Drupal::messenger()->deleteByType(MessengerInterface::TYPE_ERROR);
+          $form_state->clearErrors();
+        }
+      }
+    }
+    return $response;
+  }
+
+
 
 
 }

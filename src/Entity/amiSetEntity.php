@@ -83,7 +83,8 @@ use Drupal\Component\Utility\Environment;
  *       "delete" = "Drupal\ami\Form\amiSetEntityDeleteForm",
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteprocessed" = "Drupal\ami\Form\amiSetEntityDeleteProcessedForm",
- *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm"
+ *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm",
+ *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm"
  *     },
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
@@ -102,6 +103,7 @@ use Drupal\Component\Utility\Environment;
  *     "process-form" = "/amiset/{ami_set_entity}/process",
  *     "delete-process-form" = "/amiset/{ami_set_entity}/deleteprocessed",
  *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
+ *     "edit-reconcile-form" = "/amiset/{ami_set_entity}/editreconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
  *     "collection" = "/amiset/list"
  *   },
@@ -379,7 +381,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
         'weight' => -3,
       ])
       ->setDisplayConfigurable('view', TRUE)
-      ->setDisplayConfigurable('form', FALSE);
+      ->setDisplayConfigurable('form', TRUE);
     $validatorszip = [
       'file_validate_extensions' => ['zip'],
       'file_validate_size' => [Environment::getUploadMaxSize()],

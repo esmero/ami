@@ -17,6 +17,7 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerTrait;
@@ -149,6 +150,13 @@ class AmiUtilityService {
   protected $httpClient;
 
   /**
+   * Key value service.
+   *
+   * @var \Drupal\Core\KeyValueStore\KeyValueFactoryInterface
+   */
+  protected $keyValue;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -165,6 +173,8 @@ class AmiUtilityService {
    * @param StrawberryfieldUtilityService $strawberryfield_utility_service ,
    * @param \Drupal\Core\Entity\EntityFieldManagerInterface $entity_field_manager
    * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
+   * @param \GuzzleHttp\ClientInterface $http_client
+   * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -181,7 +191,8 @@ class AmiUtilityService {
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     EntityFieldManagerInterface $entity_field_manager,
     EntityTypeBundleInfoInterface $entity_type_bundle_info,
-    ClientInterface $http_client
+    ClientInterface $http_client,
+    KeyValueFactoryInterface $key_value
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -204,6 +215,7 @@ class AmiUtilityService {
     $this->entityTypeBundleInfo = $entity_type_bundle_info;
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
+    $this->keyValue = $key_value;
   }
 
 
@@ -807,8 +819,15 @@ class AmiUtilityService {
           }
         }
       }
-      //array_walk($row, 'htmlspecialchars');
-      array_walk($row,'htmlentities');
+      if (is_array($row) && !empty($row)) {
+        foreach ($row as &$value) {
+          if (!is_array($value) && !empty($value)) {
+            if (!$this->isJson($value)) {
+              $value = htmlspecialchars($value, ENT_COMPAT, 'UTF-8', FALSE);
+            }
+          }
+        }
+      }
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
@@ -1648,13 +1667,18 @@ class AmiUtilityService {
    *      "uuid" => "5d4f8ed7-7471-4115-beed-39dc1e625180"
    *      ]
    *
+   * @param array $additional_context
+   *    Any additional $context that may be passed. This is appended to the
+   *    Twig context but will never replace/override the one provided
+   *    by this method.
+   *
    * @return string|NULL
    *    Either a valid JSON String or NULL if casting via Twig template failed
    *
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function processMetadataDisplay(\stdClass $data) {
+  public function processMetadataDisplay(\stdClass $data, array $additional_context = []) {
     $op = $data->pluginconfig->op;
     $ophuman = [
       'create' => 'created',
@@ -1680,11 +1704,28 @@ class AmiUtilityService {
     }
     $jsonstring = NULL;
     if ($data->mapping->globalmapping == "custom") {
-      $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template;
+      $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template ?? NULL;
     }
     else {
-      $metadatadisplay_id = $data->mapping->globalmapping_settings->metadata_config->template;
+      $metadatadisplay_id = $data->mapping->globalmapping_settings->metadata_config->template ?? NULL;
     }
+    if (!$metadatadisplay_id) {
+      if (!$data->info['row']['data']) {
+        $message = $this->t(
+          'Ups. No template mapping for type @type. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
+          [
+            '@uuid' => $data->info['row']['uuid'],
+            '@row' => $row_id,
+            '@setid' => $set_id,
+            '@type' => $data->info['row']['type'],
+          ]
+        );
+        $this->loggerFactory->get('ami')->error($message);
+        return NULL;
+      }
+    }
+
+
     $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
@@ -1769,6 +1810,33 @@ class AmiUtilityService {
       }
 
       $context['data'] = $this->expandJson($data->info['row']['data']);
+      $context_lod = [];
+      // get the mappings for this set if any
+      // @TODO Refactor into a Method?
+      $lod_mappings = $this->getKeyValueValueMappingsPerAmiSet($set_id);
+      if ($lod_mappings) {
+        foreach($lod_mappings as $source_column => $destination) {
+          if (isset($context['data'][$source_column])) {
+            // sad here. Ok, this is a work around for our normally
+            // Strange CSV data structure
+            $data_to_clean['data'][0] = [$context['data'][$source_column]];
+            $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
+              0);
+            foreach($labels as $label) {
+              $lod_for_label = $this->getKeyValuePerAmiSet($label, $set_id);
+              if (is_array($lod_for_label) && count($lod_for_label) > 0) {
+                foreach ($lod_for_label as $approach => $lod) {
+                  if (isset($lod['lod'])) {
+                    $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      $context['data_lod'] = $context_lod;
       $context['dataOriginal'] = $original_value;
       $context['setURL'] = $setURL;
       $context['setId'] = $set_id;
@@ -1776,7 +1844,8 @@ class AmiUtilityService {
       $context['setOp'] = ucfirst($op);
 
       $context['node'] = $node;
-
+      // Add any extras passed to the caller.
+      $context = $context + $additional_context;
       $original_context = $context;
       // Allow other modules to provide extra Context!
       // Call modules that implement the hook, and let them add items.
@@ -1829,27 +1898,95 @@ class AmiUtilityService {
     }
     return $jsonstring;
   }
-
-  public function processWebform($data, array $row) {
-
+  public function setKeyValuePerAmiSet($label, $data, $set_id) {
+    // Too much trouble dealing with encodings/UTF-8 and MYSQL
+    // And drupal here. Simpler if the label is md5-ed
+    $label = md5($label);
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    $this->keyValue->get($keyvalue_collection)
+      ->set($label, $data);
+  }
+  public function setKeyValueMappingsPerAmiSet($data, $set_id) {
+    $keyvalue_collection = 'ami_lod_temp_mappings';
+    $this->keyValue->get($keyvalue_collection)
+      ->set($set_id, $data);
   }
 
-  public function ingestAdo($data, array $row) {
-
+  public function getKeyValuePerAmiSet($label, $set_id) {
+    $label = md5($label);
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    return $this->keyValue->get($keyvalue_collection)
+      ->get($label, NULL);
   }
 
-
-  public function updateAdo($data) {
-
+  public function getKeyValueValueMappingsPerAmiSet($set_id) {
+    $keyvalue_collection = 'ami_lod_temp_mappings';
+    return $this->keyValue->get($keyvalue_collection)
+      ->get($set_id, NULL);
   }
 
-  public function patchAdo($data) {
-
+  public function cleanKeyValuesPerAmiSet($set_id) {
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    $this->keyValue->get($keyvalue_collection)->deleteAll();
   }
 
-  public function deleteAdo($data) {
-
+  /**
+   * For a given Numeric Column index, get different/non json, split values
+   *
+   * @param array $data
+   * @param int $key
+   *
+   * @return array
+   */
+  public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
+    $unique = [];
+    $all = array_column($data['data'], $key);
+    $all_notJson = array_filter($all,  array($this, 'isNotJson'));
+    $all_entries = [];
+    // The difficulty. In case of multiple delimiters we need to see which one
+    // works/works better. But if none, assume it may be also right since a single
+    // Value is valid. So we need to accumulate, count and discern
+    foreach ($all_notJson as $entries) {
+      $current_entries = [];
+      foreach ($delimiters as $delimiter) {
+        $split_entries = explode($delimiter, $entries) ?? [];
+        $current_entries[$delimiter] = (array) $split_entries;
+      }
+      $chosen_entries = [];
+      foreach ($current_entries as $delimiter => $current_entry) {
+        $chosen_entries = $current_entry;
+        if (count($chosen_entries) > 1) {
+          break;
+        }
+      }
+      foreach ($chosen_entries as $chosen_entry) {
+        $all_entries[] = $chosen_entry;
+      }
+    }
+    $unique = array_map('trim', $all_entries);
+    $unique = array_unique(array_values($unique), SORT_STRING);
+    return $unique;
+  }
+  /**
+   * Checks if a string is valid JSON
+   *
+   * @param $string
+   *
+   * @return bool
+   */
+  public function isJson($string) {
+    json_decode($string);
+    return json_last_error() === JSON_ERROR_NONE;
   }
 
+  /**
+   * Helper function that negates ::isJson.
+   * @param $string
+   *
+   * @return bool
+   */
+  public function isNotJson($string) {
+    return !$this->isJson($string);
+  }
 
 }

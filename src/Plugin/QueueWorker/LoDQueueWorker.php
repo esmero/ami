@@ -70,7 +70,12 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
    * @param array $configuration
    * @param string $plugin_id
    * @param mixed $plugin_definition
-   * @param \Drupal\Core\Entity\EntityTypeManager $entity_field_manager
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
+   * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
+   * @param \Drupal\ami\AmiUtilityService $ami_utility
+   * @param \Drupal\ami\AmiLoDService $ami_lod
+   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
    */
   public function __construct(
     array $configuration,
@@ -130,6 +135,19 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
             'label' => The label passed to the Reconciling URL,
             'domain' => This Server's Domain name
             'headers' => All headers (LoD Routes)
+            'normalized_mappings' => an array with source columns and where to find the results
+             like
+              array:2 [▼
+                "mods_name_personal_namepart" => array:2 [▼
+                    0 => "loc_names_thing"
+                    1 => "loc_rdftype_personalname"
+              ]
+             "mods_genre" => array:3 [▼
+                0 => "loc_rdftype_genreform"
+                1 => "getty_aat_fuzzy"
+                2 => "wikidata_subjects_thing"
+      ]
+    ]
             'lodconfig' => an array of LoD URL Route arguments separated by comma in the form of,
                0 => "loc;subjects;thing"
                1 => "loc;rdftype;GenreForm"
@@ -141,7 +159,6 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
             'attempt' => The number of attempts to process. We always start with a 1
           ];
     */
-
     // Load the CSV
     /** @var \Drupal\file\Entity\File $file_lod */
     $file_lod = $this->entityTypeManager->getStorage('file')->load(
@@ -153,22 +170,31 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
     }
     $newdata['headers'] = $data->info['headers'];
     $newdata['data'][0] = array_fill_keys($newdata['headers'], '');
+    $context_data = [];
     if (isset($data->info['lodconfig']) && is_array($data->info['lodconfig']) && $file_lod) {
       $lod_route_arguments = $data->info['lodconfig'];
-
       foreach ($lod_route_arguments as $lod_route_argument) {
         $lod_route_argument_list = explode(';', $lod_route_argument);
         //@TODO allow the number of results to be set on the \Drupal\ami\Form\amiSetEntityReconcileForm
         // And passed as an argument. Same with Language? Not all LoD Routes can make use or more languages.
         $lod_route_column_name = strtolower(implode('_', $lod_route_argument_list));
         $lod = $this->AmiLoDService->invokeLoDRoute($data->info['domain'],
-          $data->info['label'], $lod_route_argument_list[0],
-          $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1);
-        $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT);
-        $newdata['data'][0]['original'] = $data->info['label'];
-        $newdata['data'][0]['csv_columns'] = json_encode((array)$data->info['csv_columns']);
+        $data->info['label'], $lod_route_argument_list[0],
+        $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1);
+
+        $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?? '';
+        $newdata['data'][0]['original'] = (string) $data->info['label'];
+        $newdata['data'][0]['csv_columns'] = json_encode((array)$data->info['csv_columns']) ?? '';
+        // Context data is simpler
+        $context_data[$lod_route_column_name]['lod'] = $lod;
+        $context_data[$lod_route_column_name]['columns'] = $data->info['csv_columns'];
       }
+
       $this->AmiUtilityService->csv_append($newdata, $file_lod,NULL, FALSE);
+      // Sets the same data, per label (as key) into keystore so we can fetch it as Twig Context when needed.
+      //@TODO also do similar if going for a "direct" in that case we replace the columns found in the original data
+
+      $this->AmiUtilityService->setKeyValuePerAmiSet($data->info['label'], $context_data, $data->info['set_id']);
     }
   }
 

@@ -1146,7 +1146,13 @@ class SolrImporter extends SpreadsheetImporter {
 
   public function provideTypes(array $config, array $data): array {
     $keys = $config['solarium_mapping']['cmodel_mapping'] ?? [];
-    $keys_children = $config['solarium_mapping']['cmodel_children'] ?? [];
+    // Remove children types if collapse is enabled
+    if ($config['solarium_mapping']['collapse'] == 0) {
+      $keys_children = $config['solarium_mapping']['cmodel_children'] ?? [];
+    }
+    else {
+      $keys_children = [];
+    }
     $keys = array_unique(array_merge(array_values($keys), array_values($keys_children)));
     unset($keys_children);
     return $keys;

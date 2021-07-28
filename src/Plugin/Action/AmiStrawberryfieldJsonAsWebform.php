@@ -130,6 +130,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
        $cleanelement['#submit'] = [[$this, 'dynamic_field_submit']];
        $cleanelement['#executes_submit_callback'] = TRUE;
        $form['elements_rendered']['jsonfind_element']= $cleanelement;
+       dpm($cleanelement);
        dpm($form['elements_rendered']['jsonfind_element']);
     }
 

@@ -295,7 +295,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $mapping = $this->store->get('mapping');
       $adomapping = $this->store->get('adomapping');
       $required_maps = [
-        'sequence' => 'Sequence Order',
         'label' => 'Ado Label',
       ];
       $form['ingestsetup']['adomapping'] = [
@@ -535,6 +534,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           if ($plugin_instance->getPluginDefinition()['batch']) {
             $data = $this->store->get('data');
             $amisetdata->column_keys = [];
+            $amisetdata->total_rows = NULL; // because we do not know yet
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);
             $batch = $plugin_instance->getBatch($form_state, $this->store->get('pluginconfig'), $amisetdata);
             if ($id) {

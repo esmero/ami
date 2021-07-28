@@ -17,6 +17,7 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerTrait;
@@ -141,6 +142,14 @@ class AmiLoDService {
   protected $AmiUtilityService;
 
   /**
+   * Key value service.
+   *
+   * @var \Drupal\Core\KeyValueStore\KeyValueFactoryInterface
+   */
+  protected $keyValue;
+
+
+  /**
    * AmiLoDService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -157,6 +166,7 @@ class AmiLoDService {
    * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param \GuzzleHttp\ClientInterface $http_client
    * @param \Drupal\ami\AmiUtilityService $ami_utility
+   * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -172,7 +182,8 @@ class AmiLoDService {
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     ClientInterface $http_client,
-    AmiUtilityService $ami_utility
+    AmiUtilityService $ami_utility,
+    KeyValueFactoryInterface $key_value
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -194,6 +205,7 @@ class AmiLoDService {
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
     $this->AmiUtilityService = $ami_utility;
+    $this->keyValue = $key_value;
 
   }
 
@@ -223,9 +235,7 @@ class AmiLoDService {
     }
     $cookieJar = CookieJar::fromArray($_COOKIE, $domain);
 
-
     $controller_path = $controller_url->setAbsolute()->toString(TRUE)->getGeneratedUrl();
-    error_log($controller_url->setAbsolute(FALSE)->toString(TRUE)->getGeneratedUrl());
     $csrf_token = \Drupal::csrfToken()->get($controller_url->setAbsolute(FALSE)->toString(TRUE)->getGeneratedUrl());
     $options = [
       'headers' =>  [
@@ -246,7 +256,13 @@ class AmiLoDService {
     $response = $this->httpClient->request('GET', $controller_path, $options);
     $sucessfull =  $response->getStatusCode() >= 200 && $response->getStatusCode() < 300;
     $response_encoded = $sucessfull ? json_decode($response->getBody()->getContents()) : [];
-    return $response_encoded;
+    // Removes desc , changes value for uri to make it SBF webform element compliant
+    $response_cleaned = [];
+    foreach ($response_encoded as $key => $entry) {
+      $response_cleaned[$key]['uri'] = $entry->value ?? '';
+      $response_cleaned[$key]['label'] = !empty($entry->desc) ? substr($entry->label ?? '', 0, -strlen($entry->desc)) : $entry->label ?? '';
+    }
+    return $response_cleaned;
   }
 
   /**
@@ -264,52 +280,12 @@ class AmiLoDService {
     $alldifferent = [];
     foreach ($columns as $column) {
       $column_index = array_search($column, $column_keys);
-      error_log($column_index);
       if ($column_index !== FALSE) {
-        $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
+        $alldifferent[$column] = $this->AmiUtilityService->getDifferentValuesfromColumnSplit($data,
           $column_index);
       }
     }
-    error_log(var_export($alldifferent, true));
     return $alldifferent;
-  }
-
-  /**
-   * For a given Numeric Column index, get different/non json, split values
-   *
-   * @param array $data
-   * @param int $key
-   *
-   * @return array
-   */
-  public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
-    $unique = [];
-    $all = array_column($data['data'], $key);
-    $all_notJson = array_filter($all,  array($this, 'isNotJson'));
-    $all_entries = [];
-    // The difficulty. In case of multiple delimiters we need to see which one
-    // works/works better. But if none, assume it may be also right since a single
-    // Value is valid. So we need to accumulate, count and discern
-    foreach ($all_notJson as $entries) {
-      $current_entries = [];
-      foreach ($delimiters as $delimiter) {
-        $split_entries = explode($delimiter, $entries) ?? [];
-        $current_entries[$delimiter] = (array) $split_entries;
-      }
-      $chosen_entries = [];
-      foreach ($current_entries as $delimiter => $current_entry) {
-        $chosen_entries = $current_entry;
-        if (count($chosen_entries) > 1) {
-          break;
-        }
-      }
-      foreach ($chosen_entries as $chosen_entry) {
-        $all_entries[] = $chosen_entry;
-      }
-    }
-    $unique = array_map('trim', $all_entries);
-    $unique = array_unique(array_values($unique), SORT_STRING);
-    return $unique;
   }
 
   /**

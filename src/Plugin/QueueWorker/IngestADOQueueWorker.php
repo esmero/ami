@@ -2,6 +2,7 @@
 
 namespace Drupal\ami\Plugin\QueueWorker;
 
+use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -62,12 +63,22 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected $messenger;
 
   /**
+   * @var \Drupal\ami\AmiLoDService
+   */
+  protected $AmiLoDService;
+
+  /**
    * Constructor.
    *
    * @param array $configuration
    * @param string $plugin_id
    * @param mixed $plugin_definition
-   * @param \Drupal\Core\Entity\EntityTypeManager $entity_field_manager
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
+   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
+   * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
+   * @param \Drupal\ami\AmiUtilityService $ami_utility
+   * @param \Drupal\ami\AmiLoDService $ami_lod
+   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
    */
   public function __construct(
     array $configuration,
@@ -77,6 +88,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     AmiUtilityService $ami_utility,
+    AmiLoDService $ami_lod,
     MessengerInterface $messenger
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
@@ -85,6 +97,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->strawberryfieldUtility = $strawberryfield_utility_service;
     $this->AmiUtilityService = $ami_utility;
     $this->messenger = $messenger;
+    $this->AmiLoDService = $ami_lod;
   }
 
   /**
@@ -111,6 +124,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('logger.factory'),
       $container->get('strawberryfield.utility'),
       $container->get('ami.utility'),
+      $container->get('ami.lod'),
       $container->get('messenger')
     );
   }
@@ -170,6 +184,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
       }
     }
+    // let's attach the LoD Context here
+    // - We need the columns that were Reconciliated from keystore
+    // - We need to fetch for this row the un-reconciliated columns and split them into labels
+    // - We need to fetch for every label from keystore the reconciliated values
+    // - Push them into $additional_context keyed by vocab and column
+
 
     $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
     if (!$processed_metadata) {
@@ -330,7 +350,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
 
     $label_column = $data->adomapping->base->label ?? 'label';
-    $label = $processed_metadata[$label_column] ?? NULL;
+    // Always (becaye of processed metadata via template) try to fetch again the mapped version
+    $label = $processed_metadata[$label_column] ?? ($processed_metadata['label'] ?? NULL);
     $property_path_split = explode(':', $property_path);
 
     if (!$property_path_split || count($property_path_split) < 2 ) {
