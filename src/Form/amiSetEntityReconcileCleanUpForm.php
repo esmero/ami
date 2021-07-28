@@ -23,6 +23,28 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
 
+
+  CONST LOD_COLUMN_TO_ARGUMENTS = [
+    'loc_subjects_thing' => 'loc;subjects;thing',
+    'loc_names_thing' => 'loc;names;thing',
+    'loc_genreforms_thing' => 'loc;genreForms;thing',
+    'loc_graphicmaterials_thing' => 'loc;graphicMaterials;thing',
+    'loc_geographicareas_thing' => 'loc;geographicAreas;thing',
+    'loc_relators_thing' => 'loc;relators;thing',
+    'loc_rdftype_corporatename' => 'loc;rdftype;CorporateName',
+    'loc_rdftype_personalname' =>  'loc;rdftype;PersonalName',
+    'loc_rdftype_familyname' => 'loc;rdftype;FamilyName',
+    'loc_rdftype_topic' => 'loc;rdftype;Topic',
+    'loc_rdftype_genreform' =>  'loc;rdftype;GenreForm',
+    'loc_rdftype_geographic' => 'loc;rdftype;Geographic',
+    'loc_rdftype_temporal' =>  'loc;rdftype;Temporal',
+    'loc_rdftype_extraterrestrialarea' => 'loc;rdftype;ExtraterrestrialArea',
+    'viaf_subjects_thing' => 'viaf;subjects;thing',
+    'getty_aat_fuzzy' => 'getty;aat;fuzzy',
+    'getty_aat_terms' => 'getty;aat;terms',
+    'getty_aat_exact' => 'getty;aat;exact',
+    'wikidata_subjects_thing' => 'wikidata;subjects;thing'
+  ];
   /**
    * @var \Drupal\ami\AmiUtilityService
    */
@@ -136,6 +158,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
         $access = TRUE;
 
         if ($file_lod) {
+
           $file_data_all = $this->AmiUtilityService->csv_read($file_lod);
           $column_keys = $file_data_all['headers'] ?? [];
 
@@ -147,16 +170,30 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             '#header' => $column_keys,
             '#empty' => $this->t('Sorry, There are LoD no items!'),
           ];
+          $elements = [];
           foreach ($column_keys as $column) {
-            $arguments =  explode('_', $column);
             if ($column !== 'original' && $column != 'csv_columns') {
-              $elements[$column] = [
-                '#type' => 'webform_metadata_' . $arguments[0],
-                '#title' => implode(' ' , $arguments),
-              ];
-              if ($arguments[1] == 'rdftype') {
-                $elements[$column]['#rdftype'] = $arguments[2] ?? '';
-                $elements[$column]['#vocab'] = 'rdftype';
+              $argument_string = static::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
+              if ($argument_string) {
+
+                $arguments = explode(';', $argument_string);
+                $elements[$column] = [
+                  '#type' => 'webform_metadata_' . $arguments[0],
+                  '#title' => implode(' ', $arguments),
+                ];
+
+                if ($arguments[1] == 'rdftype') {
+                  $elements[$column]['#rdftype'] = $arguments[2] ?? '';
+                  $elements[$column]['#vocab'] = 'rdftype';
+                }
+                else {
+                  $elements[$column]['#vocab'] = $arguments[1] ?? '';
+                }
+
+              }
+              else {
+                // Fallback to WIKIDATA
+                $elements[$column] = ['#type' => 'webform_metadata_wikidata'];
               }
             }
           }
