@@ -688,7 +688,7 @@ class SolrImporter extends SpreadsheetImporter {
         $query->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $helper->escapePhrase($input));
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
-
+        $query->addSort('PID', 'asc');
         $query->setStart($offset)->setRows($per_page);
         $query->setFields([
           'PID',
@@ -974,7 +974,6 @@ class SolrImporter extends SpreadsheetImporter {
         // Calculate the destination json key
       $dsid = 'OBJ';
       $mime = $document->fedora_datastream_latest_OBJ_MIMETYPE_ms[0];
-
     }
     elseif (!empty($document->fedora_datastream_latest_PDF_MIMETYPE_ms)) {
       $dsid = 'PDF';
