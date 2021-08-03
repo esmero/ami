@@ -1101,7 +1101,7 @@ class SolrImporter extends SpreadsheetImporter {
       $config['prev_index'] = $context['sandbox']['prev_index'];
       // Pass the headers into the config so we have a unified/normalized version
       // And not the mess each doc returns
-      $config['headers'] = $amisetdata->column_keys ?? [];
+      $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
       $data = $plugin_instance->getData($config, $context['sandbox']['progress'] + $offset,
         $increment);

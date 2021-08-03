@@ -533,10 +533,17 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $amisetdata->csv = $fileid;
           if ($plugin_instance->getPluginDefinition()['batch']) {
             $data = $this->store->get('data');
+            $config = $this->store->get('pluginconfig');
             $amisetdata->column_keys = [];
             $amisetdata->total_rows = NULL; // because we do not know yet
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);
-            $batch = $plugin_instance->getBatch($form_state, $this->store->get('pluginconfig'), $amisetdata);
+            // Batch Plugins may provide their Headers in the ::getInfo method by returning
+            // A 'headers' key. That may not be in the actual config!
+            if (empty($config['headers']) || is_array($config['headers']) && count($config['headers']) == 0 ) {
+              $config['headers'] = $data['headers'] ?? [];
+            }
+
+            $batch = $plugin_instance->getBatch($form_state, $config, $amisetdata);
             if ($id) {
               $url = Url::fromRoute('entity.ami_set_entity.canonical',
                 ['ami_set_entity' => $id]);
