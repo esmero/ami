@@ -877,6 +877,7 @@ class SolrImporter extends SpreadsheetImporter {
     $escaped = $helper->escapePhrase('info:fedora/' . $input);
     $escaped_pid = str_replace(':', '_', $input);
     $query->addSort("RELS_EXT_isSequenceNumberOf{$escaped_pid}_literal_intDerivedFromString_l", 'asc');
+    $query->addSort("RELS_EXT_isPageNumber_literal_intDerivedFromString_l", 'asc');
     $query->createFilterQuery('constituent')->setQuery('RELS_EXT_isConstituentOf_uri_ms:'.$escaped .' OR RELS_EXT_isPageOf_uri_ms:'.$escaped .' OR RELS_EXT_isMemberOf_uri_ms:'.$escaped );
     $query->setQuery('*:*');
     $query->setStart(0)->setRows(3000);
