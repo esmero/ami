@@ -316,7 +316,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     if (\Drupal::moduleHandler()->moduleExists('content_moderation')) {
       /** @var \Drupal\content_moderation\ModerationInformation $moderationInformation */
       $moderationInformation = \Drupal::service('content_moderation.moderation_information');
-      if ($moderationInformation->canModerateEntitiesOfEntityType($entity->getEntityType())) {
+      if ($moderationInformation->canModerateEntitiesOfEntityType($entity->getEntityType()) && $moderationInformation->getWorkflowForEntity($entity)) {
         $default = $moderationInformation->getOriginalState($entity);
         /** @var \Drupal\workflows\Transition[] $transitions */
         $transitions = \Drupal::service('content_moderation.state_transition_validation')
