@@ -81,7 +81,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ]) . '</div>',
     ];
     if ($this->step == 1) {
-      $pluginValue = $this->store->get('plugin', NULL);
+      $pluginValue = $this->store->get('plugin');
       $definitions = $this->importerManager->getDefinitions();
       $options = [];
       foreach ($definitions as $id => $definition) {
@@ -100,8 +100,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     if ($this->step == 2) {
       $parents = ['pluginconfig'];
-      $form_state->setValue('pluginconfig', $this->store->get('pluginconfig',[]));
-      $pluginValue = $this->store->get('plugin', NULL);
+      $form_state->setValue('pluginconfig', $this->store->get('pluginconfig'));
+      $pluginValue = $this->store->get('plugin');
       // Only create a new instance if we do not have the PluginInstace around
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface | NULL */
       $plugin_instance = $this->store->get('plugininstance');
@@ -227,7 +227,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             '#open' => TRUE, // Controls the HTML5 'open' attribute. Defaults to FALSE.
           ];
           $form['ingestsetup']['custommapping'][$type]['metadata'] = [
-            //'#name' => 'metadata_'.$machine_type,
+            '#name' => 'metadata_'.$machine_type,
             '#type' => 'select',
             '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
             '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : reset($metadata),

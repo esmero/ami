@@ -721,7 +721,6 @@ class AmiUtilityService {
       );
       return NULL;
     }
-    array_walk($data['headers'], 'htmlspecialchars');
     // How we want to get the key number that contains the $uuid_key
     $haskey = array_search($uuid_key, $data['headers']);
     if ($haskey === FALSE) {
@@ -741,7 +740,6 @@ class AmiUtilityService {
         }
       }
 
-      array_walk($row, 'htmlspecialchars');
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
@@ -795,7 +793,6 @@ class AmiUtilityService {
       );
       return NULL;
     }
-    array_walk($data['headers'], 'htmlspecialchars');
     // How we want to get the key number that contains the $uuid_key
     if ($uuid_key) {
       $haskey = array_search($uuid_key, $data['headers']);
@@ -819,15 +816,7 @@ class AmiUtilityService {
           }
         }
       }
-      if (is_array($row) && !empty($row)) {
-        foreach ($row as &$value) {
-          if (!is_array($value) && !empty($value)) {
-            if (!$this->isJson($value)) {
-              $value = htmlspecialchars($value, ENT_COMPAT, 'UTF-8', FALSE);
-            }
-          }
-        }
-      }
+
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically

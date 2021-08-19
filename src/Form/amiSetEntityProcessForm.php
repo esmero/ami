@@ -256,7 +256,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.',
+            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.'
           ),
         ];
         return $form;
