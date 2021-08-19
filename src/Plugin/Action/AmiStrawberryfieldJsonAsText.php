@@ -88,7 +88,7 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
    * {@inheritdoc}
    */
   public function execute($entity = NULL) {
- ;
+
     /** @var \Drupal\Core\Entity\EntityInterface $entity */
     $patched = FALSE;
     if ($entity) {
