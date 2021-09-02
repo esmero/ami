@@ -125,14 +125,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $column_keys = $plugin_instance->provideKeys($pluginconfig, $data);
       $mapping = $this->store->get('mapping');
       $metadata = [
-        'direct' => 'Direct ',
+        'direct' => 'Direct',
         'template' => 'Template',
-        //'webform' => 'Webform',
       ];
       $template = $this->getMetadatadisplays();
-      $webform = $this->getWebforms();
+      // $webform = $this->getWebforms();
       $bundle = $this->getBundlesAndFields();
-
 
       $global_metadata_options = $metadata + ['custom' => 'Custom (Expert Mode)'];
       //Each row (based on its type column) can have its own approach setup(expert mode)
@@ -152,24 +150,24 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#description' => $this->t('Columns will be casted to ADO metadata (JSON) using a Twig template setup for JSON output'),
       ];
 
-      $element_conditional['webform'] =[
+     /* $element_conditional['webform'] =[
         '#type' => 'select',
         '#title' => $this->t('Webform'),
         '#options' => $webform,
         '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
-      ];
+      ];*/
 
       $form['ingestsetup']['globalmapping'] = [
         '#type' => 'select',
         '#title' => $this->t('Select the data transformation approach'),
-        '#default_value' => isset($mapping['globalmapping']) && !empty($mapping['globalmapping']) ? $mapping['globalmapping'] : reset($global_metadata_options),
+        '#default_value' => isset($mapping['globalmapping']) && !empty($mapping['globalmapping']) ? $mapping['globalmapping'] : key($global_metadata_options),
         '#options' => $global_metadata_options,
         '#description' => $this->t('How your source data will be transformed into ADOs Metadata.'),
         '#required' => TRUE,
       ];
       $newelements_global = $element_conditional;
       foreach ($newelements_global as $key => &$subelement) {
-        $subelement['#default_value'] = isset($mapping['globalmapping_settings']['metadata_config'][$key]) ? $mapping['globalmapping_settings']['metadata_config'][$key]: reset(${$key});
+        $subelement['#default_value'] = isset($mapping['globalmapping_settings']['metadata_config'][$key]) ? $mapping['globalmapping_settings']['metadata_config'][$key]: key(${$key});
         $subelement['#states'] = [
           'visible' => [
             ':input[name*="globalmapping"]' => ['value' => $key],
@@ -195,7 +193,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
 
       $form['ingestsetup']['bundle'] = $element['bundle'];
-      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['globalmapping_settings']['bundle']) ? $mapping['globalmapping_settings']['bundle'] : reset($bundle);
+      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['globalmapping_settings']['bundle']) ? $mapping['globalmapping_settings']['bundle'] : key($bundle);
       $form['ingestsetup']['bundle']['#states'] = [
         'visible' => [
           ':input[name*="globalmapping"]' => ['!value' => 'custom'],
@@ -230,7 +228,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             '#name' => 'metadata_'.$machine_type,
             '#type' => 'select',
             '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
-            '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : reset($metadata),
+            '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : (key($metadata) ?? NULL),
             '#options' => $metadata,
             '#description' => $this->t('How your source data will be transformed into ADOs (JSON) Metadata.'),
             '#required' => TRUE,
@@ -241,7 +239,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           // We need to reassign or if not circular references mess with the render array
           $newelements = $element_conditional;
           foreach ($newelements as $key => &$subelement) {
-            $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : reset(${$key});
+            $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : key(${$key});
             $subelement['#states'] = [
               'visible' => [
                 ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
@@ -255,7 +253,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $form['ingestsetup']['custommapping'][$type]['metadata_config'] = $newelements;
           $form['ingestsetup']['custommapping'][$type]['bundle'] = $element['bundle'];
 
-          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : reset($bundle);
+          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : key($bundle);
 
           if ($op == 'update' || $op == 'patch') {
             $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type replacing/clearing existing ones if there is already data in the same key in your ADO.', ['@type' => $type]);
