@@ -27,6 +27,7 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
+use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Ramsey\Uuid\Uuid;
@@ -442,10 +443,11 @@ class AmiUtilityService {
     catch (\Exception $exception) {
       $this->messenger()->addError(
         $this->t(
-          'Unable to download remote file from @uri to local @path. Verify URL exists, its openly accessible and destination is writable.',
+          'Unable to download remote file from @uri to local @path with error: @error. Verify URL exists, its openly accessible and destination is writable.',
           [
             '@uri' => $uri,
             '@path' => $path,
+            '@error' => $exception->getMessage()
           ]
         )
       );
@@ -671,6 +673,8 @@ class AmiUtilityService {
    *
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
+   *   $data should contain two keys, 'headers' and 'data'
+   *   'data' will be rows and may/not be associative.
    *
    * @param string $uuid_key
    *
@@ -735,8 +739,16 @@ class AmiUtilityService {
         $row[0] = Uuid::uuid4();
       }
       else {
-        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
-          $row[$haskey] = Uuid::uuid4();
+        // In case Data is passed as an associative Array
+        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($row)) {
+          if (!isset($row[$uuid_key]) || empty(trim($row[$uuid_key])) || !Uuid::isValid(trim($row[$uuid_key]))) {
+            $row[$uuid_key] = Uuid::uuid4();
+          }
+        }
+        else {
+          if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+            $row[$haskey] = Uuid::uuid4();
+          }
         }
       }
 
@@ -768,7 +780,7 @@ class AmiUtilityService {
 
 
   /**
-   * Creates an CSV from array and returns file.
+   * Appends CSV from array and returns file.
    *
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
@@ -811,8 +823,16 @@ class AmiUtilityService {
           $row[0] = Uuid::uuid4();
         }
         else {
-          if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
-            $row[$haskey] = Uuid::uuid4();
+          // In case Data is passed as an associative Array
+          if (StrawberryfieldJsonHelper::arrayIsMultiSimple($row)) {
+            if (!isset($row[$uuid_key]) || empty(trim($row[$uuid_key])) || !Uuid::isValid(trim($row[$uuid_key]))) {
+              $row[$uuid_key] = Uuid::uuid4();
+            }
+          }
+          else {
+            if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+              $row[$haskey] = Uuid::uuid4();
+            }
           }
         }
       }
@@ -1219,6 +1239,15 @@ class AmiUtilityService {
     return $fields;
   }
 
+  /**
+   * Creates an AMI Set using a stdClass Object
+   *
+   * @param \stdClass $data
+   *
+   * @return int|mixed|string|null
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
   public function createAmiSet(\stdClass $data) {
     // See \Drupal\ami\Entity\amiSetEntity
     $current_user_name = $this->currentUser->getDisplayName();
@@ -1232,10 +1261,11 @@ class AmiUtilityService {
       'column_keys' => $data->column_keys,
       'total_rows' => $data->total_rows,
     ];
+    $name = $data->name ?? 'AMI Set of ' . $current_user_name;
     $jsonvalue = json_encode($set, JSON_PRETTY_PRINT);
     /* @var \Drupal\ami\Entity\amiSetEntity $entity */
     $entity = $this->entityTypeManager->getStorage('ami_set_entity')->create(
-      ['name' => 'AMI Set of ' . $current_user_name]
+      ['name' => $name]
     );
     $entity->set('set', $jsonvalue);
     $entity->set('source_data', [$data->csv]);
