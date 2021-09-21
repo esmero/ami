@@ -860,9 +860,14 @@ class AmiUtilityService {
    *    Number of results, 0 will fetch all
    * @param bool $always_include_header
    *    Always return header even with an offset.
+   *
    * @return array|null
+   *   Returning array will be in this form:
+   *    'headers' => $rowHeaders_utf8 or [] if $always_include_header == FALSE
+   *    'data' => $table,
+   *    'totalrows' => $maxRow,
    */
-  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = true) {
+  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
@@ -887,13 +892,14 @@ class AmiUtilityService {
       $spl->seek($offset);
     }
     $data = [];
-    while (!$spl->eof() && ($count == 0 || $spl->key() < ($offset + $count)))  {
+    $seek_to_offset = ($offset > 0 && $always_include_header);
+    while (!$spl->eof() && ($count == 0 || ($spl->key() < ($offset + $count)))) {
       $data[] = $spl->fgetcsv();
-      if ($offset > 0 && $always_include_header) {
+      if ($seek_to_offset) {
         $spl->seek($offset);
         $offset = $offset + 1;
         // So we do not process this again.
-        $always_include_header = false;
+        $seek_to_offset = FALSE;
       }
     }
 
