@@ -280,8 +280,6 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       );
     }
 
-
-
     $csv_file_processed = $this->entity->get('processed_data')->getValue();
     if (isset($csv_file_processed[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file_lod */

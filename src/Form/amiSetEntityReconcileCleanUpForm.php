@@ -158,8 +158,13 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
         $access = TRUE;
 
         if ($file_lod) {
+          $num_per_page = 10;
+          $total_rows =  $this->AmiUtilityService->csv_count($file_lod);
+          $pager = \Drupal::service('pager.manager')->createPager($total_rows, $num_per_page);
+          $page = $pager->getCurrentPage();
+          $offset = $num_per_page * $page;
+          $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page);
 
-          $file_data_all = $this->AmiUtilityService->csv_read($file_lod);
           $column_keys = $file_data_all['headers'] ?? [];
 
           $form['lod_cleanup']['table-row'] = [
@@ -175,7 +180,6 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             if ($column !== 'original' && $column != 'csv_columns') {
               $argument_string = static::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
               if ($argument_string) {
-
                 $arguments = explode(';', $argument_string);
                 $elements[$column] = [
                   '#type' => 'webform_metadata_' . $arguments[0],
@@ -219,13 +223,13 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
                     '#label__title' => 'Label',
                     '#default_value' => json_decode($row[$key], TRUE),
                   ] +  $elements[$header];
-
               }
             }
           }
           \Drupal::service('plugin.manager.webform.element')->processElements($form);
           // Attach the webform library.
           $form['#attached']['library'][] = 'webform/webform.form';
+          $form['lod_cleanup']['pager'] = ['#type' => 'pager'];
         }
       }
       $form = $form + parent::buildForm($form, $form_state);

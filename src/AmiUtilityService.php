@@ -32,6 +32,7 @@ use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
+use SplFileObject;
 
 class AmiUtilityService {
 
@@ -853,10 +854,15 @@ class AmiUtilityService {
 
   /**
    * @param \Drupal\file\Entity\File $file
-   *
+   * @param int $offset
+   *    Where to start to read the file
+   * @param int $count
+   *    Number of results, 0 will fetch all
+   * @param bool $always_include_header
+   *    Always return header even with an offset.
    * @return array|null
    */
-  public function csv_read(File $file) {
+  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = true) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
@@ -865,23 +871,50 @@ class AmiUtilityService {
 
     $url = $wrapper->realpath();
     $spl = new \SplFileObject($url, 'r');
+    if ($offset > 0) {
+      // We only set this flags when an offset is present.
+      // Because if not fgetcsv is already dealing with multi line CSV rows.
+      $spl->setFlags(
+        SplFileObject::READ_CSV |
+        SplFileObject::READ_AHEAD |
+        SplFileObject::SKIP_EMPTY |
+        SplFileObject::DROP_NEW_LINE
+      );
+    }
+
+    if ($offset > 0 && !$always_include_header) {
+      // If header needs to be included then we offset later on
+      $spl->seek($offset);
+    }
     $data = [];
-    while (!$spl->eof()) {
+    while (!$spl->eof() && ($count == 0 || $spl->key() < ($offset + $count)))  {
       $data[] = $spl->fgetcsv();
+      if ($offset > 0 && $always_include_header) {
+        $spl->seek($offset);
+        $offset = $offset + 1;
+        // So we do not process this again.
+        $always_include_header = false;
+      }
     }
 
     $table = [];
     $maxRow = 0;
 
     $highestRow = count($data);
+    if ($always_include_header) {
+      $rowHeaders = $data[0];
+      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
+      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $headercount = count($rowHeaders);
+    }
+    else {
+      $rowHeaders = $rowHeaders_utf8 = [];
+      $not_a_header = $data[0] ?? [];
+      $headercount = count($not_a_header);
+    }
 
-    $rowHeaders = $data[0];
-    $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
-    $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-    $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-    $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
-
-    $headercount = count($rowHeaders);
 
     if (($highestRow) >= 1) {
       // Returns Row Headers.
@@ -892,6 +925,8 @@ class AmiUtilityService {
           // Skip header
           continue;
         }
+        // Ensure row is always an array.
+        $row = $row ?? [];
         $flat = trim(implode('', $row));
         //check for empty row...if found stop there.
         if (strlen($flat) == 0) {
@@ -917,7 +952,6 @@ class AmiUtilityService {
     ];
 
     return $tabdata;
-
   }
 
   /**
@@ -990,7 +1024,30 @@ class AmiUtilityService {
     return $file->id();
   }
 
+  /**
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @return int
+   */
+  public function csv_count(File $file) {
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
 
+    $url = $wrapper->realpath();
+    $spl = new \SplFileObject($url, 'r');
+    $spl->setFlags(
+      SplFileObject::READ_CSV |
+      SplFileObject::READ_AHEAD |
+      SplFileObject::SKIP_EMPTY |
+      SplFileObject::DROP_NEW_LINE
+    );
+    $spl->seek(PHP_INT_MAX);
+    $key = $spl->key() + 1;
+    $spl = NULL;
+    return $key;
+  }
 
   /**
    * Deal with different sized arrays for combining
