@@ -1747,14 +1747,10 @@ class AmiUtilityService {
           $possiblejson  = strtr($value, $quotes);
           $expanded = json_decode($possiblejson, TRUE);
           $json_error = json_last_error();
-          // Last chance to be JSON.
+          // Last chance to be JSON. Allison says e.g EDTF may start with []
+          // So do not nullify. Simply keep the mess.
           if ($json_error == JSON_ERROR_NONE) {
             $value = $expanded;
-          }
-          else {
-            // But here we do unset the value
-            // Because it may really mess things out.
-            $value = NULL;
           }
         }
       }
