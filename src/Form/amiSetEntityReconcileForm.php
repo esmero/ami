@@ -347,7 +347,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         $columns);
       $inverted = [];
       $column_map_inverted = [];
-      $headers = ['original','csv_columns'];
+      $headers = ['original','csv_columns', 'checked'];
       foreach($values_per_column as $column => $labels) {
         foreach($labels as $label) {
           $inverted[$label] = $inverted[$label] ?? [];

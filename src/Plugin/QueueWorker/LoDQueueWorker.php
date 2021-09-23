@@ -134,7 +134,7 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
      $data->info = [
             'label' => The label passed to the Reconciling URL,
             'domain' => This Server's Domain name
-            'headers' => All headers (LoD Routes)
+            'headers' => All headers (LoD Routes) as key => value pairs
             'normalized_mappings' => an array with source columns and where to find the results
              like
               array:2 [▼
@@ -185,6 +185,8 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
         $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?? '';
         $newdata['data'][0]['original'] = (string) $data->info['label'];
         $newdata['data'][0]['csv_columns'] = json_encode((array)$data->info['csv_columns']) ?? '';
+        // Adds a "Checked" column used to mark manually reconciliated elements.
+        $newdata['data'][0]['checked'] = FALSE;
         // Context data is simpler
         $context_data[$lod_route_column_name]['lod'] = $lod;
         $context_data[$lod_route_column_name]['columns'] = $data->info['csv_columns'];
@@ -193,7 +195,6 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
       $this->AmiUtilityService->csv_append($newdata, $file_lod,NULL, FALSE);
       // Sets the same data, per label (as key) into keystore so we can fetch it as Twig Context when needed.
       //@TODO also do similar if going for a "direct" in that case we replace the columns found in the original data
-
       $this->AmiUtilityService->setKeyValuePerAmiSet($data->info['label'], $context_data, $data->info['set_id']);
     }
   }

@@ -166,16 +166,29 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page);
 
           $column_keys = $file_data_all['headers'] ?? [];
-
+          $form['lod_cleanup']['pager_top'] = ['#type' => 'pager'];
           $form['lod_cleanup']['table-row'] = [
             '#type' => 'table',
             '#tree' => TRUE,
             '#prefix' => '<div id="table-fieldset-wrapper">',
             '#suffix' => '</div>',
             '#header' => $column_keys,
-            '#empty' => $this->t('Sorry, There are LoD no items!'),
+            '#empty' => $this->t('Sorry, There are LoD no items or you have not a header column. Check your CSV for errors.'),
           ];
           $elements = [];
+          $form['lod_cleanup']['offset'] = [
+            '#type' => 'value',
+            '#value' => $offset,
+          ];
+          $form['lod_cleanup']['num_per_page'] = [
+            '#type' => 'value',
+            '#value' => $num_per_page,
+          ];
+          $form['lod_cleanup']['column_keys'] = [
+            '#type' => 'value',
+            '#value' => $column_keys,
+          ];
+
           foreach ($column_keys as $column) {
             if ($column !== 'original' && $column != 'csv_columns') {
               $argument_string = static::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
@@ -205,13 +218,13 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           foreach ($file_data_all['data'] as $index => $row) {
             foreach($file_data_all['headers'] as $key => $header) {
               if ($header == 'original' || $header == 'csv_columns') {
-                $form['lod_cleanup']['table-row'][$index - 1][$header.'-'.$index] = [
+                $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
                   '#type' => 'markup',
                   '#markup' => $row[$key],
                 ];
               }
               else {
-                $form['lod_cleanup']['table-row'][$index - 1][$header.'-'.$index] = [
+                $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
                     '#multiple' => 5,
                     '#multiple__header' => FALSE,
                     '#multiple__no_items_message' => '',
@@ -274,8 +287,8 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             }
           }
         }
-        $file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
-        $success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod,NULL, TRUE);
+        //$file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
+        //$success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod,NULL, TRUE);
         if (!$success) {
           $this->messenger()->addError(
             $this->t(

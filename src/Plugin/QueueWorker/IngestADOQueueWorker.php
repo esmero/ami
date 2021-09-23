@@ -184,21 +184,34 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
       }
     }
-    // let's attach the LoD Context here
-    // - We need the columns that were Reconciliated from keystore
-    // - We need to fetch for this row the un-reconciliated columns and split them into labels
-    // - We need to fetch for every label from keystore the reconciliated values
-    // - Push them into $additional_context keyed by vocab and column
 
-
-    $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
-    if (!$processed_metadata) {
-      $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
-        '@uuid' => $data->info['row']['uuid'],
-        '@setid' => $data->info['set_id']
-      ]));
-      return;
+    $method = $data->mapping->globalmapping ?? "direct";
+    if ($method == 'custom') {
+      $method = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata ?? "direct";
     }
+    if ($method == "metadata") {
+      $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
+      if (!$processed_metadata) {
+        $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
+          '@uuid' => $data->info['row']['uuid'],
+          '@setid' => $data->info['set_id']
+        ]));
+        return;
+      }
+    }
+    if ($method == "direct") {
+      $processed_metadata = $this->AmiUtilityService->expandJson($data->info['row']['data']);
+      $processed_metadata = !empty($processed_metadata) ? json_encode($processed_metadata) : NULL;
+      $json_error = json_last_error();
+      if ($json_error !== JSON_ERROR_NONE || !$processed_metadata) {
+          $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
+            '@uuid' => $data->info['row']['uuid'],
+            '@setid' => $data->info['set_id']
+          ]));
+          return;
+      }
+    }
+
     $cleanvalues = [];
     // Now process Files and Nodes
     $ado_object = $data->adomapping->parents ?? NULL;
@@ -220,13 +233,23 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $ado_columns = array_values(get_object_vars($ado_object));
     }
 
-    $entity_mapping_structure['entity:file'] = $file_columns;
-    $entity_mapping_structure['entity:node'] =  $ado_columns;
+    // deal with possible overrides from either Direct ingest of
+    // A Smart twig template that adds extra mappings
+
     $processed_metadata = json_decode($processed_metadata, true);
+
+    $custom_file_mapping = $processed_metadata['entity:file'] ?? [];
+    $custom_node_mapping = $processed_metadata['entity:node'] ?? [];
+
+    $entity_mapping_structure['entity:file'] = array_unique(array_merge($custom_file_mapping,$file_columns));
+    $entity_mapping_structure['entity:node'] =  array_unique(array_merge($custom_node_mapping,$ado_columns));
+    // Unset so we do not lose our merge after '+' both arrays
+    unset($processed_metadata['entity:file']);
+    unset($processed_metadata['entity:node']);
+
     $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
     // Assign parents as NODE Ids.
-
     foreach ($parent_nodes as $parent_property => $node_ids) {
       $processed_metadata[$parent_property] = $node_ids;
     }
@@ -350,7 +373,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
 
     $label_column = $data->adomapping->base->label ?? 'label';
-    // Always (becaye of processed metadata via template) try to fetch again the mapped version
+    // Always (because of processed metadata via template) try to fetch again the mapped version
     $label = $processed_metadata[$label_column] ?? ($processed_metadata['label'] ?? NULL);
     $property_path_split = explode(':', $property_path);
 
@@ -371,8 +394,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
-    // default Sortfile which will respect the ingest order.
-    $processed_metadata['ap:tasks']['ap:sortfiles'] = 'index';
+    // default Sortfile which will respect the ingest order. If there was already one set, preserve.
+    $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? 'index';
     // JSON_ENCODE AGAIN
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
@@ -443,7 +466,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   }
                 }
                 // Finally set the original ap task or index as default.
-                $processed_metadata['ap:tasks']['ap:sortfiles'] = $original_value['ap:tasks']['ap:sortfiles'] ?? 'index';
+                $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? 'index';
                 $this->patchJson($original_value, $processed_metadata);
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
