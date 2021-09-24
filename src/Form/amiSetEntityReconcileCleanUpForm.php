@@ -92,7 +92,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
   }
 
   public function getConfirmText() {
-    return $this->t('Save LoD');
+    return $this->t('Save Current LoD Page');
   }
 
 
@@ -108,6 +108,22 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
    */
   public function getCancelUrl() {
     return new Url('entity.ami_set_entity.collection');
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  protected function actions(array $form, FormStateInterface $form_state) {
+    $actions = parent::actions($form, $form_state);
+    $actions['submit_csv'] = [
+          '#type' => 'submit',
+          '#value' => t('Save all LoD back to CSV File'),
+          '#submit' => [
+            [$this, 'submitFormPersistCSV'],
+          ],
+        ];
+    return $actions;
+
   }
 
   /**
@@ -160,6 +176,8 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
         if ($file_lod) {
           $num_per_page = 10;
           $total_rows =  $this->AmiUtilityService->csv_count($file_lod);
+          // Remove the header in the calculations.
+          $total_rows = $total_rows - 1;
           $pager = \Drupal::service('pager.manager')->createPager($total_rows, $num_per_page);
           $page = $pager->getCurrentPage();
           $offset = $num_per_page * $page;
@@ -188,6 +206,11 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             '#type' => 'value',
             '#value' => $column_keys,
           ];
+          $form['lod_cleanup']['total_rows'] = [
+            '#type' => 'value',
+            '#value' => $total_rows,
+          ];
+
 
           foreach ($column_keys as $column) {
             if ($column !== 'original' && $column != 'csv_columns') {
@@ -214,16 +237,28 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
               }
             }
           }
-
+          $original_index = array_search('original', $column_keys);
           foreach ($file_data_all['data'] as $index => $row) {
+            // Find the label first
+            $label = $row[$original_index];
+            $persisted_lod_reconciliation = $this->AmiUtilityService->getKeyValuePerAmiSet($label, $this->entity->id());
             foreach($file_data_all['headers'] as $key => $header) {
               if ($header == 'original' || $header == 'csv_columns') {
                 $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
                   '#type' => 'markup',
                   '#markup' => $row[$key],
+                  $header.'-'.($index-1) => [
+                    '#tree' => true,
+                  '#type' => 'hidden',
+                  '#value' => $row[$key],
+                  ]
                 ];
               }
               else {
+                // Given the incremental save option we have now
+                // We need to load check first if there is
+                // A Key Value equivalent of the row
+
                 $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
                     '#multiple' => 5,
                     '#multiple__header' => FALSE,
@@ -234,7 +269,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
                     '#multiple__add_more' => FALSE,
                     '#multiple__add_more_input' => FALSE,
                     '#label__title' => 'Label',
-                    '#default_value' => json_decode($row[$key], TRUE),
+                    '#default_value' => $persisted_lod_reconciliation[$header]['lod'] ?? json_decode($row[$key], TRUE),
                   ] +  $elements[$header];
               }
             }
@@ -268,6 +303,82 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $csv_file_processed = $this->entity->get('processed_data')->getValue();
+    if (isset($csv_file_processed[0]['target_id'])) /** @var \Drupal\file\Entity\File $file_lod */ {
+      $file_lod = $this->entityTypeManager->getStorage('file')->load(
+        $csv_file_processed[0]['target_id']);
+    }
+    if ($file_lod) {
+      /* $lod_settings will contain this
+         'lod_cleanup' => [
+            'offset' => 0
+            'num_per_page' => 10
+            'column_keys' = > [
+              "original",
+              "csv_columns",
+              "any_lod_vocabulary_selected",
+           ...
+      */
+      $lod_settings = $form_state->getValue('lod_cleanup', []);
+      $column_keys = $lod_settings['column_keys'] ?? [];
+      $iterations = min($lod_settings['total_rows'] - $lod_settings['offset'],
+        $lod_settings['num_per_page']);
+      for ($id = 1; $id <= $iterations ?? 10; $id++) {
+        $label = $form_state->getValue('original-' . $id, NULL);
+        $csv_columns = $form_state->getValue('csv_columns-' . $id, NULL);
+        $csv_columns = json_decode($csv_columns, TRUE);
+        // If these do not exist, we can not process.
+        if ($label && $csv_columns) {
+          foreach ($column_keys as $index => $column) {
+            if ($column !== 'original' && $column != 'csv_columns') {
+              $lod = $form_state->getValue($column . '-' . $id, NULL);
+              $context_data[$column]['lod'] = $lod;
+              $context_data[$column]['columns'] = $csv_columns;
+              $this->AmiUtilityService->setKeyValuePerAmiSet($label,
+                $context_data, $this->entity->id());
+            }
+          }
+        }
+        else {
+          $this->messenger()->addError(
+            $this->t(
+              'So Sorry. We can not process row @row. Check for missing "column_keys", wrong JSON for column_keys and/or "original" values.',
+              [
+                '@row' => $id,
+              ]
+            )
+          );
+        }
+      }
+      $this->messenger()->addMessage(
+        $this->t(
+          'LoD Reconciled data for @label was updated.',
+          [
+            '@label' => $this->entity->label(),
+          ]
+        )
+      );
+    }
+    else {
+      $this->messenger()->addError(
+        $this->t(
+          'LoD Reconciled source CSV for @label was not found. Please attach one or run Reconciliation again to generate on from your Source data',
+          [
+            '@label' => $this->entity->label(),
+          ]
+        )
+      );
+    }
+
+    $form_state->setRebuild(TRUE);
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function submitFormPersistCSV(array &$form, FormStateInterface $form_state) {
+    // Call the parent one so we also persist the current page
+    $this->submitForm($form, $form_state);
+    $csv_file_processed = $this->entity->get('processed_data')->getValue();
     if (isset($csv_file_processed[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file_lod */
       $file_lod = $this->entityTypeManager->getStorage('file')->load(
@@ -275,20 +386,23 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
       if ($file_lod) {
         $file_data_all = $this->AmiUtilityService->csv_read($file_lod);
         $column_keys = $file_data_all['headers'] ?? [];
+        $original_index = array_search('original', $column_keys);
         foreach ($file_data_all['data'] as $id => &$row) {
+          $label = $row[$original_index];
+          $persisted_lod_reconciliation = $this->AmiUtilityService->getKeyValuePerAmiSet($label, $this->entity->id());
           foreach ($file_data_all['headers'] as $index => $column) {
             if ($column !== 'original' && $column != 'csv_columns') {
-              $lod = $form_state->getValue($column . '-' . ((int)$id), NULL);
-              $row[$index] = json_encode($lod,
-                  JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?? '';
-              $context_data[$column]['lod'] = $lod;
-              $context_data[$column]['columns'] = json_decode($row[1], TRUE);
-              $this->AmiUtilityService->setKeyValuePerAmiSet($row[0], $context_data, $this->entity->id());
+              $lod = $persisted_lod_reconciliation[$column]['lod'] ?? NULL;
+              if ($lod) {
+                $row[$index] = json_encode($lod,
+                    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?? '';
+
+              }
             }
           }
         }
-        //$file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
-        //$success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod,NULL, TRUE);
+        $file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
+        $success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod,NULL, TRUE);
         if (!$success) {
           $this->messenger()->addError(
             $this->t(

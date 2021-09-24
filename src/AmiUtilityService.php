@@ -292,6 +292,7 @@ class AmiUtilityService {
     ) {
       // Now that we know its not remote, try with our registered schemas
       // means its either private/public/s3, etc
+
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
         if (!file_exists($uri)) {
@@ -855,7 +856,7 @@ class AmiUtilityService {
   /**
    * @param \Drupal\file\Entity\File $file
    * @param int $offset
-   *    Where to start to read the file
+   *    Where to start to read the file, starting from 0.
    * @param int $count
    *    Number of results, 0 will fetch all
    * @param bool $always_include_header
@@ -897,7 +898,6 @@ class AmiUtilityService {
       $data[] = $spl->fgetcsv();
       if ($seek_to_offset) {
         $spl->seek($offset);
-        $offset = $offset + 1;
         // So we do not process this again.
         $seek_to_offset = FALSE;
       }
@@ -1050,7 +1050,7 @@ class AmiUtilityService {
       SplFileObject::DROP_NEW_LINE
     );
     $spl->seek(PHP_INT_MAX);
-    $key = $spl->key() + 1;
+    $key = $spl->key();
     $spl = NULL;
     return $key;
   }
@@ -1930,7 +1930,7 @@ class AmiUtilityService {
       $context_lod = [];
       // get the mappings for this set if any
       // @TODO Refactor into a Method?
-      $lod_mappings = $this->getKeyValueValueMappingsPerAmiSet($set_id);
+      $lod_mappings = $this->getKeyValueMappingsPerAmiSet($set_id);
       if ($lod_mappings) {
         foreach($lod_mappings as $source_column => $destination) {
           if (isset($context['data'][$source_column])) {
@@ -2036,7 +2036,13 @@ class AmiUtilityService {
       ->get($label, NULL);
   }
 
-  public function getKeyValueValueMappingsPerAmiSet($set_id) {
+  public function getAllKeyValuesPerAmiSet($set_id) {
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    return $this->keyValue->get($keyvalue_collection)
+      ->getAll();
+  }
+
+  public function getKeyValueMappingsPerAmiSet($set_id) {
     $keyvalue_collection = 'ami_lod_temp_mappings';
     return $this->keyValue->get($keyvalue_collection)
       ->get($set_id, NULL);
