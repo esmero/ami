@@ -162,7 +162,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // Pushing to the end of the queue.
           $data->info['attempt']++;
           if ($data->info['attempt'] < 3) {
-            error_log('Re-enqueueing');
             \Drupal::queue('ami_ingest_ado')
               ->createItem($data);
             return;
@@ -236,13 +235,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // deal with possible overrides from either Direct ingest of
     // A Smart twig template that adds extra mappings
 
-    $processed_metadata = json_decode($processed_metadata, true);
+    $processed_metadata = json_decode($processed_metadata, TRUE);
 
-    $custom_file_mapping = $processed_metadata['entity:file'] ?? [];
-    $custom_node_mapping = $processed_metadata['entity:node'] ?? [];
+    $custom_file_mapping = isset($processed_metadata['entity:file']) && is_array($processed_metadata['entity:file']) ? $processed_metadata['entity:file'] : [];
+    $custom_node_mapping = isset($processed_metadata['entity:node']) && is_array($processed_metadata['entity:node']) ? $processed_metadata['entity:node'] : [];
 
-    $entity_mapping_structure['entity:file'] = array_unique(array_merge($custom_file_mapping,$file_columns));
-    $entity_mapping_structure['entity:node'] =  array_unique(array_merge($custom_node_mapping,$ado_columns));
+    $entity_mapping_structure['entity:file'] = array_unique(array_merge($custom_file_mapping, $file_columns));
+    $entity_mapping_structure['entity:node'] =  array_unique(array_merge($custom_node_mapping, $ado_columns));
     // Unset so we do not lose our merge after '+' both arrays
     unset($processed_metadata['entity:file']);
     unset($processed_metadata['entity:node']);
@@ -250,6 +249,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
     // Assign parents as NODE Ids.
+    // @TODO if we decide to allow multiple parents this is a place that
+    // Needs change.
     foreach ($parent_nodes as $parent_property => $node_ids) {
       $processed_metadata[$parent_property] = $node_ids;
     }
@@ -395,8 +396,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
-    $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? 'index';
-    // JSON_ENCODE AGAIN
+    $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
+
+    $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+    // JSON_ENCODE AGAIN!
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
     if ($jsonstring) {
@@ -465,8 +468,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     $processed_metadata[$as_file_type] = $original_value[$as_file_type];
                   }
                 }
-                // Finally set the original ap task or index as default.
-                $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? 'index';
                 $this->patchJson($original_value, $processed_metadata);
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
