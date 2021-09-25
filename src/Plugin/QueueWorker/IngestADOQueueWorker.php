@@ -153,7 +153,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $parent_uuids = (array) $parent_uuid;
         $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $parent_uuids]);
         if (count($existing) != count($parent_uuids)) {
-
           $this->messenger->addWarning($this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
             '@uuid' => $data->info['row']['uuid'],
             '@setid' => $data->info['set_id'],
@@ -184,11 +183,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       }
     }
 
+    $processed_metadata = NULL;
+
     $method = $data->mapping->globalmapping ?? "direct";
     if ($method == 'custom') {
       $method = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata ?? "direct";
     }
-    if ($method == "metadata") {
+    if ($method == 'template') {
       $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
       if (!$processed_metadata) {
         $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
@@ -209,6 +210,22 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           ]));
           return;
       }
+    }
+
+    // If at this stage $processed_metadata is empty or Null there was a wrong
+    // Manual added wrong mapping or any other User input induced error
+    // We do not process further
+    // Maybe someone wants to ingest FILES only without any Metadata?
+    // Not a good use case so let's stop that non sense here.
+
+    if (empty($processed_metadata)) {
+      $message = $this->t('Sorry, ADO with @uuid is empty or has wrong data/metadata. Check your data ROW in your CSV for set @setid or your Set Configuration for manually entered JSON that may break your setup.',[
+        '@uuid' => $data->info['row']['uuid'],
+        '@setid' => $data->info['set_id']
+      ]);
+      $this->messenger->addWarning($message);
+      $this->loggerFactory->get('ami')->error($message);
+      return;
     }
 
     $cleanvalues = [];
@@ -234,7 +251,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     // deal with possible overrides from either Direct ingest of
     // A Smart twig template that adds extra mappings
-
+    // This decode will always work because we already decoded and encoded again.
     $processed_metadata = json_decode($processed_metadata, TRUE);
 
     $custom_file_mapping = isset($processed_metadata['entity:file']) && is_array($processed_metadata['entity:file']) ? $processed_metadata['entity:file'] : [];
