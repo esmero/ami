@@ -12,9 +12,7 @@ namespace Drupal\ami;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
-use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
@@ -25,7 +23,6 @@ use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\Url;
-use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
@@ -137,11 +134,6 @@ class AmiLoDService {
   protected $httpClient;
 
   /**
-   * @var \Drupal\ami\AmiUtilityService
-   */
-  protected $AmiUtilityService;
-
-  /**
    * Key value service.
    *
    * @var \Drupal\Core\KeyValueStore\KeyValueFactoryInterface
@@ -165,7 +157,6 @@ class AmiLoDService {
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
    * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param \GuzzleHttp\ClientInterface $http_client
-   * @param \Drupal\ami\AmiUtilityService $ami_utility
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
    */
   public function __construct(
@@ -182,7 +173,6 @@ class AmiLoDService {
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     ClientInterface $http_client,
-    AmiUtilityService $ami_utility,
     KeyValueFactoryInterface $key_value
   ) {
     $this->fileSystem = $file_system;
@@ -204,14 +194,92 @@ class AmiLoDService {
     $this->strawberryfieldUtility = $strawberryfield_utility_service;
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
-    $this->AmiUtilityService = $ami_utility;
     $this->keyValue = $key_value;
-
   }
 
+  /**
+   * Deletes All LoD KeyValues for a given AMI Set ID.
+   *
+   * @param $set_id
+   */
+  public function cleanKeyValuesPerAmiSet($set_id) {
+    $keyvalue_collection = 'ami_lod_temp_' . $set_id;
+    $this->keyValue->get($keyvalue_collection)->deleteAll();
+    $keyvalue_collection_mappings = 'ami_lod_temp_mappings';
+    $this->keyValue->get($keyvalue_collection_mappings)->delete($set_id);
+  }
+
+  /**
+   * Inserts a new LoD KeyValue for a given Label/AMI Set ID pair.
+   *
+   * @param $label
+   * @param $data
+   * @param $set_id
+   */
+  public function setKeyValuePerAmiSet($label, $data, $set_id) {
+    // Too much trouble dealing with encodings/UTF-8 and MYSQL
+    // And drupal here. Simpler if the label is md5-ed
+    $label = md5($label);
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    $this->keyValue->get($keyvalue_collection)
+      ->set($label, $data);
+  }
+
+  /**
+   * Sets the JSON Key Mappings (original) for a given AMI Set ID.
+   *
+   * @param $data
+   * @param $set_id
+   */
+  public function setKeyValueMappingsPerAmiSet($data, $set_id) {
+    $keyvalue_collection = 'ami_lod_temp_mappings';
+    $this->keyValue->get($keyvalue_collection)
+      ->set($set_id, $data);
+  }
+
+  /**
+   * Gets the LoD KeyValue for a given Label/AMI Set ID pair.
+   *
+   * @param $label
+   * @param $set_id
+   *
+   * @return mixed
+   */
+  public function getKeyValuePerAmiSet($label, $set_id) {
+    $label = md5($label);
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    return $this->keyValue->get($keyvalue_collection)
+      ->get($label, NULL);
+  }
+
+  /**
+   * Gets all LoD KeyValue for a given AMI Set ID.
+   *
+   * @param $set_id
+   *
+   * @return array
+   *    Each Entry is keyed by the MD5 of the label.
+   */
+  public function getAllKeyValuesPerAmiSet($set_id) {
+    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
+    return $this->keyValue->get($keyvalue_collection)
+      ->getAll();
+  }
+
+  /**
+   * Gets the JSON Key Mappings (original) for a given AMI Set ID.
+   *
+   * @param $set_id
+   *
+   * @return mixed
+   */
+  public function getKeyValueMappingsPerAmiSet($set_id) {
+    $keyvalue_collection = 'ami_lod_temp_mappings';
+    return $this->keyValue->get($keyvalue_collection)
+      ->get($set_id, NULL);
+  }
 
   public function invokeLoDRoute(string $domain, string $query, string $auth_type, $vocab = 'subjects', $rdftype = 'thing', $lang = 'en' , $count = 5):array {
-
     $current_laguage = $lang ?? \Drupal::languageManager()
         ->getCurrentLanguage()
         ->getId();
@@ -266,29 +334,6 @@ class AmiLoDService {
   }
 
   /**
-   * From a given CSV files returns different values for a list of columns
-   *
-   * @param \Drupal\file\Entity\File $file
-   * @param array $columns
-   *
-   * @return array
-   *   An Associative Array keyed by Column name
-   */
-  public function provideLoDColumnValues(File $file, array $columns):array {
-    $data = $this->AmiUtilityService->csv_read($file);
-    $column_keys = $data['headers'] ?? [];
-    $alldifferent = [];
-    foreach ($columns as $column) {
-      $column_index = array_search($column, $column_keys);
-      if ($column_index !== FALSE) {
-        $alldifferent[$column] = $this->AmiUtilityService->getDifferentValuesfromColumnSplit($data,
-          $column_index);
-      }
-    }
-    return $alldifferent;
-  }
-
-  /**
    * Checks if a string is valid JSON
    *
    * @param $string
@@ -309,4 +354,6 @@ class AmiLoDService {
   public function isNotJson($string) {
     return !$this->isJson($string);
   }
+
+
 }

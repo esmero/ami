@@ -5,14 +5,10 @@ namespace Drupal\ami\Form;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\Component\Datetime\TimeInterface;
-use Drupal\Core\Ajax\AjaxResponse;
-use Drupal\Core\Ajax\OpenOffCanvasDialogCommand;
 use Drupal\Core\Entity\ContentEntityConfirmFormBase;
-use Drupal\Core\Entity\ContentEntityForm;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -86,8 +82,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
       $container->get('ami.utility'),
-      $container->get('ami.lod'),
-      $container->get('strawberryfield.utility')
+      $container->get('ami.lod')
     );
   }
 
@@ -171,7 +166,6 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           '#type' => 'fieldset',
           '#title' => $this->t('LoD reconciled Clean Up'),
         ];
-        $access = TRUE;
 
         if ($file_lod) {
           $num_per_page = 10;
@@ -213,7 +207,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
 
 
           foreach ($column_keys as $column) {
-            if ($column !== 'original' && $column != 'csv_columns') {
+            if ($column !== 'original' && $column != 'csv_columns' && $column !='checked') {
               $argument_string = static::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
               if ($argument_string) {
                 $arguments = explode(';', $argument_string);
@@ -241,7 +235,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           foreach ($file_data_all['data'] as $index => $row) {
             // Find the label first
             $label = $row[$original_index];
-            $persisted_lod_reconciliation = $this->AmiUtilityService->getKeyValuePerAmiSet($label, $this->entity->id());
+            $persisted_lod_reconciliation = $this->AmiLoDService->getKeyValuePerAmiSet($label, $this->entity->id());
             foreach($file_data_all['headers'] as $key => $header) {
               if ($header == 'original' || $header == 'csv_columns') {
                 $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
@@ -253,6 +247,14 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
                   '#value' => $row[$key],
                   ]
                 ];
+              }
+              elseif ($header == 'checked') {
+                $checked = $persisted_lod_reconciliation[$header] ?? $row[$key];
+                $checked = (bool) $checked;
+                $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
+                  '#type' => 'checkbox',
+                  '#default_value' => $checked
+                  ];
               }
               else {
                 // Given the incremental save option we have now
@@ -325,15 +327,17 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
       for ($id = 1; $id <= $iterations ?? 10; $id++) {
         $label = $form_state->getValue('original-' . $id, NULL);
         $csv_columns = $form_state->getValue('csv_columns-' . $id, NULL);
+        $checked = $form_state->getValue('checked-' . $id, FALSE);
         $csv_columns = json_decode($csv_columns, TRUE);
         // If these do not exist, we can not process.
         if ($label && $csv_columns) {
           foreach ($column_keys as $index => $column) {
-            if ($column !== 'original' && $column != 'csv_columns') {
+            if ($column !== 'original' && $column !== 'csv_columns' && $column !== 'checked') {
               $lod = $form_state->getValue($column . '-' . $id, NULL);
               $context_data[$column]['lod'] = $lod;
               $context_data[$column]['columns'] = $csv_columns;
-              $this->AmiUtilityService->setKeyValuePerAmiSet($label,
+              $context_data['checked'] = $checked;
+              $this->AmiLoDService->setKeyValuePerAmiSet($label,
                 $context_data, $this->entity->id());
             }
           }
@@ -389,20 +393,23 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
         $original_index = array_search('original', $column_keys);
         foreach ($file_data_all['data'] as $id => &$row) {
           $label = $row[$original_index];
-          $persisted_lod_reconciliation = $this->AmiUtilityService->getKeyValuePerAmiSet($label, $this->entity->id());
+          $persisted_lod_reconciliation = $this->AmiLoDService->getKeyValuePerAmiSet($label, $this->entity->id());
+          $checked = $persisted_lod_reconciliation['checked'] ?? NULL;
           foreach ($file_data_all['headers'] as $index => $column) {
-            if ($column !== 'original' && $column != 'csv_columns') {
+            if ($column !== 'original' && $column !== 'csv_columns' && $column!== 'checked') {
               $lod = $persisted_lod_reconciliation[$column]['lod'] ?? NULL;
               if ($lod) {
                 $row[$index] = json_encode($lod,
                     JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?? '';
-
               }
+            }
+            elseif ($column === 'checked') {
+              $row[$index] = $checked;
             }
           }
         }
-        $file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
-        $success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod,NULL, TRUE);
+        $this->AmiUtilityService->csv_touch($file_lod->getFilename());
+        $success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod, NULL, TRUE);
         if (!$success) {
           $this->messenger()->addError(
             $this->t(

@@ -159,6 +159,11 @@ class AmiUtilityService {
   protected $keyValue;
 
   /**
+   * @var \Drupal\ami\AmiLoDService
+   */
+  protected $AmiLoDService;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -194,6 +199,7 @@ class AmiUtilityService {
     EntityFieldManagerInterface $entity_field_manager,
     EntityTypeBundleInfoInterface $entity_type_bundle_info,
     ClientInterface $http_client,
+    AmiLoDService $ami_lod,
     KeyValueFactoryInterface $key_value
   ) {
     $this->fileSystem = $file_system;
@@ -217,6 +223,7 @@ class AmiUtilityService {
     $this->entityTypeBundleInfo = $entity_type_bundle_info;
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
+    $this->AmiLoDService = $ami_lod;
     $this->keyValue = $key_value;
   }
 
@@ -236,17 +243,6 @@ class AmiUtilityService {
       || \Drupal\Component\Uuid\Uuid::isValid(
         $val
       ));
-  }
-
-  /**
-   * Array value callback. True if value is not an array.
-   *
-   * @param mixed $val
-   *
-   * @return bool
-   */
-  private function isNotArray($val) {
-    return !is_array($val);
   }
 
   /**
@@ -418,7 +414,6 @@ class AmiUtilityService {
     $localfile = FALSE;
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
-    $mime = 'application/octet-stream';
     if (!isset($destination)) {
       $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
     }
@@ -530,6 +525,7 @@ class AmiUtilityService {
    *   - If it fails, FALSE.
    */
   public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file) {
+    $zip_realpath = NULL;
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
@@ -572,7 +568,8 @@ class AmiUtilityService {
         // Opening the ZIP file failed.
         return FALSE;
       }
-    } catch (\Exception $exception) {
+    }
+    catch (\Exception $exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to extract file @uri from ZIP @zip to local @path. Verify ZIP exists, its readable and destination is writable.',
@@ -583,8 +580,8 @@ class AmiUtilityService {
           ]
         )
       );
-      return FALSE;
     }
+    return FALSE;
   }
 
   /**
@@ -720,7 +717,7 @@ class AmiUtilityService {
       return NULL;
     }
     $realpath = $this->fileSystem->realpath($file->getFileUri());
-    $fh = new \SplFileObject($realpath, 'w');
+    $fh = new SplFileObject($realpath, 'w');
     if (!$fh) {
       $this->messenger()->addError(
         $this->t('Error reading back the just written file!.')
@@ -797,7 +794,7 @@ class AmiUtilityService {
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header) {
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE) {
 
     $realpath = $this->fileSystem->realpath($file->getFileUri());
     $fh = new \SplFileObject($realpath, 'a');
@@ -926,6 +923,7 @@ class AmiUtilityService {
       // Returns Row Headers.
 
       $maxRow = 1; // at least until here.
+      $rowindex = 0;
       foreach ($data as $rowindex => $row) {
         if ($rowindex == 0) {
           // Skip header
@@ -940,7 +938,7 @@ class AmiUtilityService {
           break;
         }
         // This was done already by the Import Plugin but since users
-        // Could eventually reupload the spreadsheet better so
+        // Could eventually re upload the spreadsheet better so
         $row = $this->arrayEquallySeize(
           $headercount,
           $row
@@ -948,16 +946,15 @@ class AmiUtilityService {
         // Offsetting all rows by 1. That way we do not need to remap numeric parents
         $table[$rowindex + 1] = $row;
       }
-      $maxRow = $rowindex;
+      $maxRow = $maxRow ?? $rowindex;
     }
 
-    $tabdata = [
+    return  [
       'headers' => $rowHeaders_utf8,
       'data' => $table,
       'totalrows' => $maxRow,
     ];
 
-    return $tabdata;
   }
 
   /**
@@ -1136,6 +1133,31 @@ class AmiUtilityService {
   }
 
   /**
+   * From a given CSV files returns different values for a list of columns
+   *
+   * @param \Drupal\file\Entity\File $file
+   * @param array $columns
+   *
+   * @return array
+   *   An Associative Array keyed by Column name
+   */
+  public function provideDifferentColumnValuesFromCSV(File $file, array $columns):array {
+    $data = $this->csv_read($file);
+    $column_keys = $data['headers'] ?? [];
+    $alldifferent = [];
+    foreach ($columns as $column) {
+      $column_index = array_search($column, $column_keys);
+      if ($column_index !== FALSE) {
+        $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
+          $column_index);
+      }
+    }
+    return $alldifferent;
+  }
+
+
+
+  /**
    * Returns a list Metadata Displays.
    *
    * @return array
@@ -1168,8 +1190,6 @@ class AmiUtilityService {
    * Returns WebformOptions marked as Archipelago
    *
    * @return array
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function getWebformOptions():array {
     try {
@@ -1257,8 +1277,6 @@ class AmiUtilityService {
    * @param \Drupal\Core\Session\AccountInterface|null $account
    *
    * @return \Drupal\Core\Access\AccessResultInterface|bool
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function checkBundleAccess(string $bundle, AccountInterface $account = NULL) {
     try {
@@ -1467,7 +1485,7 @@ class AmiUtilityService {
             // SO WE ARE OFFSET by 1, substract 1
             $parent_numeric = intval(trim($parent_ado));
             $parent_hash[$parent_key][$parent_numeric][$index] = $index;
-            $parentchilds = [];
+
             // Lets check if the index actually exists before going crazy.
 
             // If parent is empty that is OK here. WE are Ok with no membership!
@@ -1481,7 +1499,6 @@ class AmiUtilityService {
               // Only traverse if we don't have this index or the parent one
               // in the invalid register.
               $parentchilds = [];
-              $i = 0;
               while (!$rootfound) {
                 $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
                 if ($this->isRootParent($parentup)) {
@@ -1752,6 +1769,14 @@ class AmiUtilityService {
           if ($json_error == JSON_ERROR_NONE) {
             $value = $expanded;
           }
+          elseif (substr( $colum, 0, 3 ) === "as:" ||
+            substr( $colum, 0, 3 ) === "ap:"
+          ) {
+            // We can not allow wrong JSON to permeate into controlled
+            // by us properties
+            // @TODO apply a JSON Schema validator at the end.
+            $value = NULL;
+          }
         }
       }
     }
@@ -1930,7 +1955,7 @@ class AmiUtilityService {
       $context_lod = [];
       // get the mappings for this set if any
       // @TODO Refactor into a Method?
-      $lod_mappings = $this->getKeyValueMappingsPerAmiSet($set_id);
+      $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
       if ($lod_mappings) {
         foreach($lod_mappings as $source_column => $destination) {
           if (isset($context['data'][$source_column])) {
@@ -1940,7 +1965,7 @@ class AmiUtilityService {
             $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
               0);
             foreach($labels as $label) {
-              $lod_for_label = $this->getKeyValuePerAmiSet($label, $set_id);
+              $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
               if (is_array($lod_for_label) && count($lod_for_label) > 0) {
                 foreach ($lod_for_label as $approach => $lod) {
                   if (isset($lod['lod'])) {
@@ -2015,49 +2040,14 @@ class AmiUtilityService {
     }
     return $jsonstring;
   }
-  public function setKeyValuePerAmiSet($label, $data, $set_id) {
-    // Too much trouble dealing with encodings/UTF-8 and MYSQL
-    // And drupal here. Simpler if the label is md5-ed
-    $label = md5($label);
-    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
-    $this->keyValue->get($keyvalue_collection)
-      ->set($label, $data);
-  }
-  public function setKeyValueMappingsPerAmiSet($data, $set_id) {
-    $keyvalue_collection = 'ami_lod_temp_mappings';
-    $this->keyValue->get($keyvalue_collection)
-      ->set($set_id, $data);
-  }
-
-  public function getKeyValuePerAmiSet($label, $set_id) {
-    $label = md5($label);
-    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
-    return $this->keyValue->get($keyvalue_collection)
-      ->get($label, NULL);
-  }
-
-  public function getAllKeyValuesPerAmiSet($set_id) {
-    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
-    return $this->keyValue->get($keyvalue_collection)
-      ->getAll();
-  }
-
-  public function getKeyValueMappingsPerAmiSet($set_id) {
-    $keyvalue_collection = 'ami_lod_temp_mappings';
-    return $this->keyValue->get($keyvalue_collection)
-      ->get($set_id, NULL);
-  }
-
-  public function cleanKeyValuesPerAmiSet($set_id) {
-    $keyvalue_collection = 'ami_lod_temp_'. $set_id;
-    $this->keyValue->get($keyvalue_collection)->deleteAll();
-  }
 
   /**
    * For a given Numeric Column index, get different/non json, split values
    *
    * @param array $data
    * @param int $key
+   *
+   * @param array $delimiters
    *
    * @return array
    */

@@ -286,8 +286,11 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       $file_lod = $this->entityTypeManager->getStorage('file')->load(
         $csv_file_processed[0]['target_id']);
       // Reset all values
-      $file_lod_id = $this->AmiUtilityService->csv_touch($file_lod->getFilename());
-    } else {
+      if ($file_lod) {
+        $this->AmiUtilityService->csv_touch($file_lod->getFilename());
+      }
+    }
+    else {
       $file_lod_id = $this->AmiUtilityService->csv_touch();
       $file_lod = $file_lod_id ? $this->entityTypeManager->getStorage('file')->load(
         $file_lod_id) : NULL;
@@ -343,7 +346,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         '#caption' => t('Unique processed values for this column'),
       ];
       $columns = array_keys($mappings) ?? [];
-      $values_per_column = $this->AmiLoDService->provideLoDColumnValues($file,
+      $values_per_column = $this->AmiUtilityService->provideDifferentColumnValuesFromCSV($file,
         $columns);
       $inverted = [];
       $column_map_inverted = [];
@@ -367,9 +370,11 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
 
       // This will be used to fetch the right values when passing to the twig template
       // Could be read from the config but this is faster during process.
-      $this->AmiUtilityService->setKeyValueMappingsPerAmiSet($normalized_mapping, $this->entity->id());
+
       // Clears old values before processing new ones.
-      $this->AmiUtilityService->cleanKeyValuesPerAmiSet($this->entity->id());
+      $this->AmiLoDService->cleanKeyValuesPerAmiSet($this->entity->id());
+      $this->AmiLoDService->setKeyValueMappingsPerAmiSet($normalized_mapping, $this->entity->id());
+
 
       ksort($inverted,SORT_NATURAL);
       foreach($headers as &$header) {
@@ -446,7 +451,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         $count = count(array_filter($added));
         if ($count) {
           $form_state->setRebuild();
-          $this->submitBatch($form_state, $queue_name, $count);
+          $this->submitBatch($form_state, $queue_name);
         }
       }
     }
@@ -514,14 +519,13 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         );
         if ($file) {
           $file_data_all = $this->AmiUtilityService->csv_read($file);
-          $column_keys = $file_data_all['headers'] ?? [];
           $output = [];
           $output['table'] = [
             '#type' => 'table',
             '#caption' => t('Unique processed values for this column'),
           ];
           $column_preview = (array) $form_state->getValue(['lod_options','select_preview']) ?? [];
-          $values_per_column = $this->AmiLoDService->provideLoDColumnValues($file,
+          $values_per_column = $this->AmiUtilityService->provideDifferentColumnValuesFromCSV($file,
             $column_preview);
           $rows = $values_per_column[$form_state->getValue(['lod_options','select_preview'])] ?? ['Emtpy Column'];
           sort($rows, SORT_STRING);
@@ -544,46 +548,5 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     }
     return $response;
   }
-
-  /**
-   * AJAX callback.
-   */
-  public function ajaxLoDPreview($form, FormStateInterface $form_state) {
-    return $form['lod_cleanup'];
-
-
-
-    $response = new AjaxResponse();
-    $form['#attached']['library'][] = 'core/drupal.dialog.off_canvas';
-    $response->setAttachments($form['#attached']);
-
-    if (!empty($form_state->getValue(['edit']))) {
-      $entity = $form_state->getFormObject()->getEntity();
-      $csv_file_reference = $entity->get('source_data')->getValue();
-      if (isset($csv_file_reference[0]['target_id'])) {
-        /** @var \Drupal\file\Entity\File $file */
-        $file = $this->entityTypeManager->getStorage('file')->load(
-          $csv_file_reference[0]['target_id']
-        );
-        if ($file) {
-          $form = \Drupal::service('entity.form_builder')->getForm($entity, 'editreconcile', []);;
-        }
-        $response->addCommand(new OpenOffCanvasDialogCommand(t('Lod for @label', [
-          '@label' => $this->entity->label(),
-        ]),
-          $form, ['width' => '70%']));
-        if ($form_state->getErrors()) {
-          // Clear errors so the user does not get confused when reloading.
-          \Drupal::messenger()->deleteByType(MessengerInterface::TYPE_ERROR);
-          $form_state->clearErrors();
-        }
-      }
-    }
-    return $response;
-  }
-
-
-
-
 }
 
