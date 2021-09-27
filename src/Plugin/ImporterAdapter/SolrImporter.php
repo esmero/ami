@@ -880,7 +880,7 @@ class SolrImporter extends SpreadsheetImporter {
     $query->addSort("RELS_EXT_isPageNumber_literal_intDerivedFromString_l", 'asc');
     $query->createFilterQuery('constituent')->setQuery('RELS_EXT_isConstituentOf_uri_ms:'.$escaped .' OR RELS_EXT_isPageOf_uri_ms:'.$escaped .' OR RELS_EXT_isMemberOf_uri_ms:'.$escaped );
     $query->setQuery('*:*');
-    $query->setStart(0)->setRows(3000);
+    $query->setStart(0)->setRows(5000);
     $query->setFields([
       'PID',
       'fgs_label_s',
@@ -1090,9 +1090,12 @@ class SolrImporter extends SpreadsheetImporter {
     }
     $context['finished'] = 0;
     try {
+      // Incremente constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
+      $next_increment = ($context['sandbox']['progress'] + $increment > $rows) ? ($rows - $context['sandbox']['progress']) : $increment;
+
       $title = t('Processing %progress of <b>%count</b>', [
         '%count' => $rows,
-        '%progress' => $context['sandbox']['progress'] + $increment
+        '%progress' => $context['sandbox']['progress'] + $next_increment
       ]);
       $context['message'] = $title;
       // WE keep track in the AMI set Config of the previous total rows
@@ -1105,7 +1108,7 @@ class SolrImporter extends SpreadsheetImporter {
       $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
       $data = $plugin_instance->getData($config, $context['sandbox']['progress'] + $offset,
-        $increment);
+        $next_increment);
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
       }
