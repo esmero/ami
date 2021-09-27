@@ -392,7 +392,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $fileid = $this->store->get('zip');
       $form['zip'] = [
         '#type' => 'managed_file',
-        '#title' => $this->t('Provide an ZIP file'),
+        '#title' => $this->t('Provide an ZIP file.'),
         '#required' => false,
         '#multiple' => false,
         '#default_value' => isset($fileid) ? [$fileid] : NULL,
@@ -401,6 +401,15 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#upload_validators' => [
           'file_validate_extensions' => ['zip'],
         ],
+      ];
+
+      $form['ami_set_label'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Please Name your AMI Set.'),
+        '#required' => true,
+        '#size' => 64,
+        '#maxlength' => 255,
+        '#default_value' => 'AMI Set of ' . $this->currentUser()->getDisplayName()
       ];
     }
     return $form;
@@ -428,9 +437,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
-        // We may want to run a batch here?
-        // @TODO investigate how to run a batch and end in the same form different step?
-        // Idea is batch is only needed if there is a certain max number, e.g 5000 rows?
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
         // Check if the Plugin is ready processing or needs more data
         $ready = $form_state->getValue('pluginconfig')['ready'] ?? TRUE;
@@ -498,7 +504,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       } else {
         $this->store->set('zip', NULL);
       }
-
+      $ami_set_label = $form_state->getValue('ami_set_label', NULL);
+      $ami_set_label = $ami_set_label ? trim($ami_set_label) : $ami_set_label;
       $amisetdata = new \stdClass();
 
       $amisetdata->plugin = $this->store->get('plugin');
@@ -506,7 +513,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $amisetdata->mapping = $this->store->get('mapping');
       $amisetdata->adomapping = $this->store->get('adomapping');
       $amisetdata->zip = $this->store->get('zip');
-
+      $amisetdata->name = $ami_set_label;
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
@@ -531,6 +538,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $amisetdata->csv = $fileid;
           if ($plugin_instance->getPluginDefinition()['batch']) {
             $data = $this->store->get('data');
+            // Set A name if any given via the form
             $config = $this->store->get('pluginconfig');
             $amisetdata->column_keys = [];
             $amisetdata->total_rows = NULL; // because we do not know yet
