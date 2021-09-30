@@ -23,7 +23,7 @@ use Swaggest\JsonDiff\JsonPatch;
  *   id = "entity:ami_jsontext_action",
  *   action_label = @Translation("Text based find and replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
- *   deriver = "Drupal\Core\Action\Plugin\Action\Derivative\EntityChangedActionDeriver",
+ *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
  *   confirm = "true"
  * )

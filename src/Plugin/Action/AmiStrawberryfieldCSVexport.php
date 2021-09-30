@@ -31,7 +31,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  *   id = "entity:ami_csvexport_action",
  *   action_label = @Translation("Export Archipelago Digital Objects to CSV"),
  *   category = @Translation("AMI Metadata"),
- *   deriver = "Drupal\Core\Action\Plugin\Action\Derivative\EntityChangedActionDeriver",
+ *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
  *   pass_context = TRUE,
  *   pass_view = TRUE,
