@@ -528,7 +528,7 @@ class SolrImporter extends SpreadsheetImporter {
       $headers['type'] = 'type';
       $headers['ismemberof'] = 'ismemberof';
       $headers['ispartof'] = 'ispartof';
-
+      $allheaders_array = array_map('strtolower', $allheaders_array);
       foreach ($allheaders_array as $headerkey) {
         $headers[$headerkey] = $headerkey;
       }
@@ -560,7 +560,7 @@ class SolrImporter extends SpreadsheetImporter {
           foreach (static::FILE_COLUMNS as $column) {
             $sp_data[$resultset_iterator->key()][$column] = '';
           }
-          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
         }
         catch (\Exception $exception) {
           continue;
@@ -760,7 +760,7 @@ class SolrImporter extends SpreadsheetImporter {
           if ($parent_ado) {
             $sp_data[$resultset_iterator->key()]['ismemberof'] = $parent_ado;
           }
-          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
 
           $datastream = $this->buildDatastreamURL($config, $document);
           if (count($datastream)) {
@@ -768,8 +768,8 @@ class SolrImporter extends SpreadsheetImporter {
             $sp_data[$resultset_iterator->key()][key($datastream)] = $first_datastream;
           }
           // Fetch Children
-          if (in_array($sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri'], static::MULTICHILDREN_CMODELS)) {
-            $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['PID'];
+          if (in_array($sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri'], static::MULTICHILDREN_CMODELS)) {
+            $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['pid'];
           }
         } catch (\Exception $exception) {
           continue;
@@ -917,27 +917,20 @@ class SolrImporter extends SpreadsheetImporter {
         foreach ($document as $field => $value) {
           $fieldname = $this->multipleToSingleFieldName($field);
           // Exclude this non-sense fields
-          if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+          if (strpos($fieldname, '_roleTerm_', 0) !== FALSE) {
             continue;
           }
           if ($this->endsWith($fieldname, 'authority_marcrelator')) {
             continue;
           }
-          // this converts multi valued fields to a comma-separated string
-          foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
-            $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
-            if ($suffix_offset!== false) {
-              $fieldname = substr($field, 0, $suffix_offset);
-              break 1;
-            }
-          }
+
           $headers[$fieldname] = $fieldname;
           if (is_array($value)) {
             if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
-              $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
+              $original_value = explode('|@|', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
               $value = array_unique(array_merge($original_value, $value));
             }
-            $value = implode(' |@| ', array_unique($value));
+            $value = implode('|@|', array_unique($value));
           }
           $sp_data[$resultset_iterator->key()][$fieldname] = $value;
         }
@@ -947,8 +940,8 @@ class SolrImporter extends SpreadsheetImporter {
           $sp_data[$resultset_iterator->key()][$column] = '';
         }
         // Try with both main mapping and children mapping
-        $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL;
-        $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL);
+        $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? NULL;
+        $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? NULL);
         $sp_data[$resultset_iterator->key()]['type'] = $type2 ?? 'Thing';
         // Get me the datastream
         $datastream = $this->buildDatastreamURL($config, $document);
@@ -996,6 +989,7 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * This function normalizes field names to join _ms, _s etc without prefixes.
    *
+   * Also lower cases every field name.
    * @param $field
    *
    * @return false|string
@@ -1009,7 +1003,7 @@ class SolrImporter extends SpreadsheetImporter {
         break 1;
       }
     }
-    return $field;
+    return strtolower($field);
   }
 
 
@@ -1030,6 +1024,8 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * Implodes array and concatenates to existing string using common delimiter.
    *
+   * Will also remove whitespaces from start/end of each value.
+   *
    * @param array $value
    * @param string|null $oldvalue
    *
@@ -1037,10 +1033,11 @@ class SolrImporter extends SpreadsheetImporter {
    */
   protected function concatValues(array $value, string $original_value = NULL): string {
     if (!empty($oldvalue)) {
-      $original_value = explode(' |@| ', $original_value) ?? [];
+      $original_value = explode('|@|', $original_value) ?? [];
       $value = array_unique(array_merge($original_value, $value));
     }
-    return implode(' |@| ', array_unique($value));
+    $value = array_map('trim', $value);
+    return implode('|@|', array_unique($value));
   }
 
 
@@ -1163,7 +1160,7 @@ class SolrImporter extends SpreadsheetImporter {
 
   public function provideKeys(array $config, array $data): array {
     if (count($data) > 0) {
-      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleInfo_title'], static::FILE_COLUMNS);
+      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleinfo_title'], static::FILE_COLUMNS);
       return $columns;
     }
     return [];

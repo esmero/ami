@@ -1637,6 +1637,8 @@ class AmiUtilityService {
         // But safer to check both in case someone manually edited the set.
         $required_headers = array_merge($required_headers, array_values((array)$data->column_keys));
       }
+      // We use internally Lower case Headers.
+      $required_headers = array_map('strtolower', $required_headers);
       $headers_missing = array_diff(array_unique($required_headers), $file_data_all['headers']);
       if (count($headers_missing)) {
         $message = $this->t(
