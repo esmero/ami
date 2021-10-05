@@ -224,8 +224,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             '#description' => t('Choose your transformation option'),
             '#open' => TRUE, // Controls the HTML5 'open' attribute. Defaults to FALSE.
           ];
+          // NEVER ADD A #NAME To dynamic/ajax select. It will get stuck in its default value.
           $form['ingestsetup']['custommapping'][$type]['metadata'] = [
-            '#name' => 'metadata_'.$machine_type,
             '#type' => 'select',
             '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
             '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : (key($metadata) ?? NULL),
