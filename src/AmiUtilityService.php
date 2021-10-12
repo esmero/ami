@@ -177,7 +177,7 @@ class AmiUtilityService {
    * @param \Drupal\Component\Transliteration\TransliterationInterface $transliteration
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
-   * @param StrawberryfieldUtilityService $strawberryfield_utility_service ,
+   * @param StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param \Drupal\Core\Entity\EntityFieldManagerInterface $entity_field_manager
    * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
    * @param \GuzzleHttp\ClientInterface $http_client
