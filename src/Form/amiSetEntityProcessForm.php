@@ -129,7 +129,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = 'ami_ingest_ado';
       if (!$notprocessnow) {
-        // This queues have no queue workers. That is intended since they
+        // These queues have no queue workers. That is intended since they
         // are always processed by the ami_ingest_ado one manually.
         $queue_name = 'ami_ingest_ado_set_' . $this->entity->id();
         \Drupal::queue($queue_name, TRUE)->createQueue();

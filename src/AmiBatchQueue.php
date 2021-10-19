@@ -136,11 +136,17 @@ class AmiBatchQueue {
         )
       );
     }
-    // Cleanup and remove the queue. This is a live batch operation.
-    /** @var \Drupal\Core\Queue\QueueFactory $queue_factory */
-    $queue_name = $results['queue_name'];
-    $queue_factory = \Drupal::service('queue');
-    $queue_factory->get($queue_name)->deleteQueue();
+    // If the queue fails for whatever reason the $context may be lost
+    if (isset($results['queue_name'])) {
+      // Cleanup and remove the queue. This is a live batch operation.
+      /** @var \Drupal\Core\Queue\QueueFactory $queue_factory */
+      $queue_name = $results['queue_name'];
+      $queue_factory = \Drupal::service('queue');
+      $queue_factory->get($queue_name)->deleteQueue();
+    }
+    else {
+      \Drupal::messenger()->addError(\Drupal::translation('The Batch Operation failed. Please check your logs, available Filesystem space and try again'));
+    }
   }
 
 }
