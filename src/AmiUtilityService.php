@@ -336,15 +336,28 @@ class AmiUtilityService {
       }
     }
     else {
-      // This is remote!
+      // This may be remote!
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
       $localfile = file_build_uri(
         $this->fileSystem->basename($parsed_url['path'])
       );
+      $md5uri = md5($uri);
+      $path = str_replace(
+          '///',
+          '//',
+          "{$destination}/"
+        ) . $md5uri . '_' . $this->fileSystem->basename(
+          $parsed_url['path']
+        );
+      if ($isthere = glob($this->fileSystem->realpath($path).'.*')) {
+// Ups its here
+        if (count($isthere) == 1) {
+          $localfile = $isthere[0];
+        }
+      }
+      // Actual remote heavy lifting only if not present.
       if (!file_exists($localfile)) {
-        // Actual remote heavy lifting only if not present.
-
         if (!$this->fileSystem->prepareDirectory(
           $destination,
           FileSystemInterface::CREATE_DIRECTORY
@@ -1342,6 +1355,7 @@ class AmiUtilityService {
       'column_keys' => $data->column_keys,
       'total_rows' => $data->total_rows,
     ];
+    $zipfail = FALSE;
     $name = $data->name ?? 'AMI Set of ' . $current_user_name;
     $jsonvalue = json_encode($set, JSON_PRETTY_PRINT);
     /* @var \Drupal\ami\Entity\amiSetEntity $entity */
@@ -1354,10 +1368,40 @@ class AmiUtilityService {
     $entity->set('status', 'ready');
     try {
       $result = $entity->save();
+      // Now ensure we move the Zip file if any to private
+      if ($this->streamWrapperManager->isValidScheme('private') && $data->zip) {
+        $target_directory = 'private://ami/zip';
+        // Ensure the directory
+        if (!$this->fileSystem->prepareDirectory(
+          $target_directory,
+          FileSystemInterface::CREATE_DIRECTORY
+          | FileSystemInterface::MODIFY_PERMISSIONS
+        )) {
+          $zipfail = TRUE;
+        }
+        else {
+          $zipfile = $this->entityTypeManager->getStorage('file')
+            ->load($data->zip);
+          if (!$zipfile) {
+            $zipfail = TRUE;
+          } else {
+            $zipfile = file_move($zipfile, $target_directory, FileSystemInterface::EXISTS_REPLACE);
+            if (!$zipfile) {
+              $zipfail = TRUE;
+            }
+          }
+        }
+      }
+      if ($zipfail) {
+        $this->messenger()->addError(
+          $this->t(
+            'ZIP file attached to Ami Set entity could not be moved to Private storage. Please check with your system admin if you have permissions.',
+          ));
+      }
     }
     catch (\Exception $exception) {
       $this->messenger()->addError(
-        t(
+        $this->t(
           'Ami Set entity Failed to be persisted because of @message',
           ['@message' => $exception->getMessage()]
         )
