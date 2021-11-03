@@ -149,6 +149,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'status' => $statuses,
           'set_url' => $SetURL,
           'attempt' => 1,
+          'queue_name' => $queue_name,
         ];
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);

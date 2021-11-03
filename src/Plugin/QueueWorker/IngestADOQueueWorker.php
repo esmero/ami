@@ -10,12 +10,14 @@ use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use Swaggest\JsonDiff\Exception as JsonDiffException;
 use Swaggest\JsonDiff\JsonPatch;
+use \Drupal\Core\TempStore\PrivateTempStoreFactory;
 
 /**
  * Processes and Ingests each AMI Set CSV row.
@@ -68,6 +70,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected $AmiLoDService;
 
   /**
+   * The Strawberryfield File Persister Service
+   *
+   * @var \Drupal\strawberryfield\StrawberryfieldFilePersisterService
+   */
+  protected $strawberryfilepersister;
+
+  /**
+   * @var \Drupal\user\PrivateTempStore
+   */
+  protected $store;
+
+  /**
    * Constructor.
    *
    * @param array $configuration
@@ -79,6 +93,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param \Drupal\ami\AmiUtilityService $ami_utility
    * @param \Drupal\ami\AmiLoDService $ami_lod
    * @param \Drupal\Core\Messenger\MessengerInterface $messenger
+   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberry_filepersister
+   * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
    */
   public function __construct(
     array $configuration,
@@ -89,7 +105,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     AmiUtilityService $ami_utility,
     AmiLoDService $ami_lod,
-    MessengerInterface $messenger
+    MessengerInterface $messenger,
+    StrawberryfieldFilePersisterService $strawberry_filepersister,
+    PrivateTempStoreFactory $temp_store_factory
+
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -98,6 +117,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->AmiUtilityService = $ami_utility;
     $this->messenger = $messenger;
     $this->AmiLoDService = $ami_lod;
+    $this->strawberryfilepersister = $strawberry_filepersister;
+    $this->store = $temp_store_factory->get('ami_queue_worker_file');
   }
 
   /**
@@ -125,7 +146,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('strawberryfield.utility'),
       $container->get('ami.utility'),
       $container->get('ami.lod'),
-      $container->get('messenger')
+      $container->get('messenger'),
+      $container->get('strawberryfield.file_persister'),
+      $container->get('tempstore.private'),
+
     );
   }
 
@@ -133,15 +157,37 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
-    /* Data info has this structure
+    /* Data info for an ADO has this structure
       $data->info = [
         'row' => The actual data
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.
         'attempt' => The number of attempts to process. We always start with a 1
+        'zip_file' => File ID of a zip file if a any
+        'waiting_for_files' => will only exist and TRUE if we re-enqueued this ADO after figuring out we had too many Files.
+        'queue_name' => because well ... we use Hydroponics too
       ];
     */
+    /* Data info for a File has this structure
+      $data->info = [
+        'set_id' => The Set id
+        'uid' => The User ID that processed the Set
+        'attempt' => The number of attempts to process. We always start with a 1
+        'filename' => The File name
+        'file_column' => The File column where the file needs to be saved.
+        'zip_file' => File ID of a zip file if a any,
+        'processed_row' => Full metadata of the ADO holding the file processed and ready as an array
+        'queue_name' => because well ... we use Hydroponics too
+      ];
+    */
+
+    // This will simply go to an alternate processing on this same Queue Worker
+    // Just for files.
+    if (!empty($data->info['filename']) && !empty($data->info['file_column']) && !empty($data->info['processed_row'])) {
+      $this->processFile($data);
+      return;
+    }
 
     // Before we do any processing. Check if Parent(s) exists?
     // If not, re-enqueue: we try twice only. Should we try more?
@@ -161,7 +207,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // Pushing to the end of the queue.
           $data->info['attempt']++;
           if ($data->info['attempt'] < 3) {
-            \Drupal::queue('ami_ingest_ado')
+            \Drupal::queue($data->info['queue_name'])
               ->createItem($data);
             return;
           }
@@ -271,6 +317,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     foreach ($parent_nodes as $parent_property => $node_ids) {
       $processed_metadata[$parent_property] = $node_ids;
     }
+    $processed_files = 0;
+    $process_files_via_queue = FALSE;
 
     // Now do heavy file lifting
     foreach($file_columns as $file_column) {
@@ -282,20 +330,69 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         // From the template neither.
         // @TODO ask users.
         $processed_metadata[$file_column] = [];
-        foreach($filenames as $filename) {
-          $file = $this->AmiUtilityService->file_get($filename, $data->info['zip_file']);
-          if ($file) {
-            $processed_metadata[$file_column][] = (int) $file->id();
-          }
-          else {
-            $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',[
-              '@uuid' => $data->info['row']['uuid'],
-              '@setid' => $data->info['set_id'],
-              '@filename' => $filename,
-              '@filecolumn' => $file_column,
-            ]));
-          }
+
+        // Now the hard part. Do we have too many files?
+        $file_limit = 10;
+        if ((count($filenames) + $processed_files > $file_limit) && empty($data->info['waiting_for_files'])) {
+          // We will add future files to the queue...
+          // accumulating all the ones we need
+          // and at the end
+          // re-enque this little one
+          $process_files_via_queue = TRUE;
         }
+          foreach ($filenames as $filename) {
+            if (!empty($data->info['waiting_for_files'])) {
+              $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
+              if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
+                $processed_metadata[$file_column][] = (int) $processed_file_data['file_id'];
+              }
+            }
+            else {
+              if ($process_files_via_queue) {
+                $data_file = new \stdClass();
+                $data_file->info = [
+                  'zip_file' => $data->info['zip_file'],
+                  'set_id' => $data->info['set_id'],
+                  'uid' => $data->info['uid'],
+                  'processed_row' => $processed_metadata,
+                  'file_column' => $file_column,
+                  'filename' => $filename,
+                  'attempt' => 1,
+                  'queue_name' => $data->info['queue_name'],
+                ];
+                \Drupal::queue($data->info['queue_name'])
+                  ->createItem($data_file);
+              }
+              else {
+                $file = $this->AmiUtilityService->file_get($filename,
+                  $data->info['zip_file']);
+
+                if ($file) {
+                  $processed_files++;
+                  $processed_metadata[$file_column][] = (int) $file->id();
+                }
+                else {
+                  $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',
+                    [
+                      '@uuid' => $data->info['row']['uuid'],
+                      '@setid' => $data->info['set_id'],
+                      '@filename' => $filename,
+                      '@filecolumn' => $file_column,
+                    ]));
+                }
+              }
+            }
+          }
+
+      }
+      if ($process_files_via_queue) {
+        // If so we need to push this one to the end..
+        // Reset the attempts
+        $data->info['waiting_for_files'] = TRUE;
+        $data->info['attempt'] = 0;
+          \Drupal::queue($data->info['queue_name'])
+            ->createItem($data);
+          return;
       }
     }
 
@@ -554,6 +651,33 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     if ($r->getDiffCnt() > 0) {
       //error_log(print_r($r->getPatch(),true));
       //error_log(print_r($r->getMergePatch(),true));
+    }
+  }
+
+ /**
+  * Processes a File and technical metadata to avoid congestion.
+  *
+  * @param mixed $data
+  */
+  protected function processFile($data) {
+    $file = $this->AmiUtilityService->file_get($data->info['filename'],
+      $data->info['zip_file']);
+    if ($file) {
+      $processedAsValuesForKey = $this->strawberryfilepersister
+        ->generateAsFileStructure(
+          [$file->id()],
+          $data->info['file_column'],
+          $data->info['processed_row']
+        );
+      $data_to_store['as_data'] = $processedAsValuesForKey;
+      $data_to_store['file_id'] = $file->id();
+      $this->store->set('set_'.$data->info['set_id'].'-'.md5($data->info['filename']), $data_to_store);
+    }
+    else {
+        $this->messenger->addWarning($this->t('Sorry, we really tried to process File @filename from Set @setid yet. Giving up',[
+          '@setid' => $data->info['set_id'],
+          '@filename' => $data->info['filename']
+        ]));
     }
   }
 }
