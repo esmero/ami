@@ -390,6 +390,8 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setLabel(t('Attached ZIP file'))
       ->setDescription(t('A Zip file containing accompanying Files for the Source Data'))
       ->setSetting('file_extensions', 'zip')
+      ->setSetting('uri_scheme', 'private')
+      ->setSetting('file_directory', '/ami/zip')
       ->setSetting('upload_validators', $validatorszip)
       ->setRequired(FALSE)
       ->setDisplayOptions('view', [

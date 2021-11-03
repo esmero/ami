@@ -53,7 +53,9 @@ function ami_update_8902() {
     ->setDescription(new TranslatableMarkup('A Zip file containing accompanying Files for the Source Data'))
     ->setSetting('file_extensions', 'zip')
     ->setSetting('upload_validators', $validators)
-    ->setRequired(TRUE)
+    ->setSetting('uri_scheme', 'private')
+    ->setSetting('file_directory', '/ami/zip')
+    ->setRequired(FALSE)
     ->setDisplayOptions('view', [
       'label' => 'above',
       'type' => 'file',
@@ -101,3 +103,16 @@ function ami_update_8903() {
      ],
    ]));
 }
+
+/**
+ * Update 8903 - Make Private default upload location for ami Set ZIP files.
+ */
+function ami_update_8904() {
+  $field_storage_definition = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('zip_file', 'ami_set_entity');
+  $field_storage_definition->setSetting('uri_scheme', 'private');
+  $field_storage_definition->setSetting('file_directory', '/ami/zip');
+  \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition);
+}
+
+
+
