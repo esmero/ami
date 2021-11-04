@@ -167,6 +167,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'zip_file' => File ID of a zip file if a any
         'waiting_for_files' => will only exist and TRUE if we re-enqueued this ADO after figuring out we had too many Files.
         'queue_name' => because well ... we use Hydroponics too
+        'force_file_queue' => defaults to false, will always treat files as separate queue items.
+        'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
+        'manyfiles' => Number of files (passed by \Drupal\ami\Form\amiSetEntityProcessForm::submitForm) that will trigger queue processing for files
       ];
     */
     /* Data info for a File has this structure
@@ -180,6 +183,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'zip_file' => File ID of a zip file if a any,
         'processed_row' => Full metadata of the ADO holding the file processed and ready as an array
         'queue_name' => because well ... we use Hydroponics too
+        'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
+        'reduced' => If reduced EXIF or not should be generated
       ];
     */
 
@@ -333,8 +338,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $processed_metadata[$file_column] = [];
 
         // Now the hard part. Do we have too many files?
-        $file_limit = 10;
-        if ((count($filenames) + $processed_files > $file_limit) && empty($data->info['waiting_for_files'])) {
+        $file_limit = $data->info['manyfiles'] ?? 0;
+        if (($data->info['force_file_queue'] ?? FALSE) || (($file_limit != 0) && (count($filenames) + $processed_files > $file_limit) && empty($data->info['waiting_for_files']))) {
           // We will add future files to the queue...
           // accumulating all the ones we need
           // and at the end
@@ -351,6 +356,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             }
             else {
               if ($process_files_via_queue) {
+                $reduced = (count($filenames) + $processed_files >= $file_limit) && ($file_limit != 0);
                 $data_file = new \stdClass();
                 $data_file->info = [
                   'zip_file' => $data->info['zip_file'],
@@ -361,7 +367,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   'filename' => $filename,
                   'attempt' => 1,
                   'queue_name' => $data->info['queue_name'],
-                  'uuid' => $data->info['row']['uuid']
+                  'uuid' => $data->info['row']['uuid'],
+                  'force_file_process' => $data->info['force_file_process'],
+                  'reduced' => $reduced,
                 ];
                 \Drupal::queue($data->info['queue_name'])
                   ->createItem($data_file);
@@ -665,15 +673,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected function processFile($data) {
 
     // First check if we already have the info here, if so do nothing.
-    if (!$this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename']))) {
+    if ($data->info['force_file_process'] ?? FALSE || (!$this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename'])))) {
       $file = $this->AmiUtilityService->file_get($data->info['filename'],
         $data->info['zip_file']);
       if ($file) {
+        $reduced = $data->info['reduced'] ?? FALSE;
         $processedAsValuesForKey = $this->strawberryfilepersister
           ->generateAsFileStructure(
             [$file->id()],
             $data->info['file_column'],
-            $data->info['processed_row']
+            $data->info['processed_row'],
+            FALSE,
+            $reduced
           );
         $data_to_store['as_data'] = $processedAsValuesForKey;
         $data_to_store['file_id'] = $file->id();
