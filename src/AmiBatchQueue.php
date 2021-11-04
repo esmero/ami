@@ -53,7 +53,15 @@ class AmiBatchQueue {
     try {
       // Only process Items of this Set if $context['set_id'] is set.
       if ($item = $queue->claimItem()) {
-        $ado_title = isset($item->data->info['row']['uuid']) ? 'ADO with UUID '.$item->data->info['row']['uuid'] : 'Unidentifed ADO without UUID';
+        // Let's figure out the type of queue running here, ADO or Attached file
+        if (!empty($item->data->info['filename']) && !empty($item->data->info['file_column']) && !empty($item->data->info['processed_row'])) {
+          $ado_title = 'File ' . $item->data->info['filename'];
+          $ado_title .= isset($item->data->info['uuid']) ? ' for ADO with UUID ' . $item->data->info['uuid'] : 'for Unidentifed ADO without UUID ';
+        }
+        else {
+         $ado_title = isset($item->data->info['row']['uuid']) ? 'ADO with UUID ' . $item->data->info['row']['uuid'] : 'Unidentifed ADO without UUID';
+        }
+
         $title = t('For %name processing %adotitle, <b>%count</b> items remaining', [
           '%name' => $context['results']['queue_label'],
           '%adotitle' => $ado_title,

@@ -173,6 +173,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $data->info = [
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
+        'uuid' => The uuid of the ADO that needs this file
         'attempt' => The number of attempts to process. We always start with a 1
         'filename' => The File name
         'file_column' => The File column where the file needs to be saved.
@@ -345,6 +346,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
               if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
                 $processed_metadata[$file_column][] = (int) $processed_file_data['file_id'];
+                $processed_metadata = array_merge_recursive($processed_metadata, (array) $processed_file_data['as_data']);
               }
             }
             else {
@@ -359,6 +361,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   'filename' => $filename,
                   'attempt' => 1,
                   'queue_name' => $data->info['queue_name'],
+                  'uuid' => $data->info['row']['uuid']
                 ];
                 \Drupal::queue($data->info['queue_name'])
                   ->createItem($data_file);
@@ -660,24 +663,30 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   * @param mixed $data
   */
   protected function processFile($data) {
-    $file = $this->AmiUtilityService->file_get($data->info['filename'],
-      $data->info['zip_file']);
-    if ($file) {
-      $processedAsValuesForKey = $this->strawberryfilepersister
-        ->generateAsFileStructure(
-          [$file->id()],
-          $data->info['file_column'],
-          $data->info['processed_row']
-        );
-      $data_to_store['as_data'] = $processedAsValuesForKey;
-      $data_to_store['file_id'] = $file->id();
-      $this->store->set('set_'.$data->info['set_id'].'-'.md5($data->info['filename']), $data_to_store);
-    }
-    else {
-        $this->messenger->addWarning($this->t('Sorry, we really tried to process File @filename from Set @setid yet. Giving up',[
-          '@setid' => $data->info['set_id'],
-          '@filename' => $data->info['filename']
-        ]));
+
+    // First check if we already have the info here, if so do nothing.
+    if (!$this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename']))) {
+      $file = $this->AmiUtilityService->file_get($data->info['filename'],
+        $data->info['zip_file']);
+      if ($file) {
+        $processedAsValuesForKey = $this->strawberryfilepersister
+          ->generateAsFileStructure(
+            [$file->id()],
+            $data->info['file_column'],
+            $data->info['processed_row']
+          );
+        $data_to_store['as_data'] = $processedAsValuesForKey;
+        $data_to_store['file_id'] = $file->id();
+        $this->store->set('set_' . $data->info['set_id'] . '-' . md5($data->info['filename']),
+          $data_to_store);
+      }
+      else {
+        $this->messenger->addWarning($this->t('Sorry, we really tried to process File @filename from Set @setid yet. Giving up',
+          [
+            '@setid' => $data->info['set_id'],
+            '@filename' => $data->info['filename']
+          ]));
+      }
     }
   }
 }
