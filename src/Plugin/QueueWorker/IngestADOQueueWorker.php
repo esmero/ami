@@ -604,6 +604,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             // Applies to Patch/Update.
             $field->setValue($jsonstring);
           }
+          if ($node->getEntityType()->isRevisionable()) {
+            // Forces a New Revision for Not-create Operations.
+            $node->setNewRevision(TRUE);
+            // Set data for the revision
+            $node->setRevisionLogMessage('ADO modified via AMI Set ' . $data->info['set_id']);
+            $node->setRevisionUserId($data->info['uid']);
+          }
         }
         // In case $status was not moderated.
         if ($status) {
