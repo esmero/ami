@@ -101,3 +101,17 @@ entity.ami_set_entity.reconcileedit_form:
     _title: 'Clean Reconciled LoD'
   requirements:
     _entity_access: 'ami_set_entity.process'
+
+ami.rowsbylabel.autocomplete:
+  path: '/admin/amiset/autocomplete/{ami_set_entity}/rowsbylabel'
+  options:
+    parameters:
+      ami_set_entity:
+        type: 'entity:ami_set_entity'
+  defaults:
+    _controller: '\Drupal\ami\Controller\AmiRowAutocompleteHandler::handleAutocomplete'
+    _format: json
+  requirements:
+    _entity_access: 'ami_set_entity.view'
+    _permission: 'access content'
+    _csrf_token: 'TRUE'

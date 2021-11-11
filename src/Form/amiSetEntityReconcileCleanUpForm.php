@@ -175,6 +175,12 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           $pager = \Drupal::service('pager.manager')->createPager($total_rows, $num_per_page);
           $page = $pager->getCurrentPage();
           $offset = $num_per_page * $page;
+          if (PHP_VERSION_ID > 80000) {
+            // @TODO fgetcsv has a bug when called after a seek, offsets on 1 always.
+            // We are trying to skip the header too (but get it)
+            $offset  = $offset + 2;
+            // @TODO CHECK IF THIS WILL WORK ON PHP 8.x when we get there.
+          }
           $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page);
 
           $column_keys = $file_data_all['headers'] ?? [];
