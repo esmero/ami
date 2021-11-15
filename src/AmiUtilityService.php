@@ -1457,7 +1457,7 @@ class AmiUtilityService {
       // Each row will be an object.
       $ado = [];
       $ado['type'] = trim(
-        $row[$data->mapping->type_key]
+        $row[$data->mapping->type_key] ?? 'Thing'
       );
       // Lets start by grouping by parents, namespaces and generate uuids
       // namespaces are inherited, so we just need to find collection
