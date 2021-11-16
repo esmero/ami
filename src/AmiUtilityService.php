@@ -729,8 +729,12 @@ class AmiUtilityService {
       );
       return NULL;
     }
-    $realpath = $this->fileSystem->realpath($file->getFileUri());
-    $fh = new SplFileObject($realpath, 'w');
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
+    $url = $wrapper->getUri();
+    $fh = new SplFileObject($url, 'w');
     if (!$fh) {
       $this->messenger()->addError(
         $this->t('Error reading back the just written file!.')
@@ -767,7 +771,7 @@ class AmiUtilityService {
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
-    clearstatcache(TRUE, $realpath);
+    clearstatcache(TRUE, $url);
     $size = $fh->getSize();
     // This is how you close a \SplFileObject
     $fh = NULL;
