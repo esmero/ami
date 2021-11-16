@@ -809,8 +809,12 @@ class AmiUtilityService {
    */
   public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE) {
 
-    $realpath = $this->fileSystem->realpath($file->getFileUri());
-    $fh = new \SplFileObject($realpath, 'a');
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
+    $url = $wrapper->getUri();
+    $fh = new \SplFileObject($url, 'a');
     if (!$fh) {
       $this->messenger()->addError(
         $this->t('Error reading the CSV file!.')
@@ -852,7 +856,7 @@ class AmiUtilityService {
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
-    clearstatcache(TRUE, $realpath);
+    clearstatcache(TRUE, $url);
     $size = $fh->getSize();
     // This is how you close a \SplFileObject
     $fh = NULL;
@@ -885,7 +889,7 @@ class AmiUtilityService {
       return NULL;
     }
 
-    $url = $wrapper->realpath();
+    $url = $wrapper->getUri();
     $spl = new \SplFileObject($url, 'r');
     if ($offset > 0) {
       // We only set this flags when an offset is present.
@@ -984,7 +988,7 @@ class AmiUtilityService {
     if (!$wrapper) {
       return NULL;
     }
-    $url = $wrapper->realpath();
+    $url = $wrapper->getUri();
     // New temp file for the output
     $path = 'public://ami/csv';
     $filenametemp = $this->currentUser->id() . '-' . uniqid() . '_clean.csv';
@@ -1051,7 +1055,7 @@ class AmiUtilityService {
       return NULL;
     }
 
-    $url = $wrapper->realpath();
+    $url = $wrapper->getUri();
     $spl = new \SplFileObject($url, 'r');
     $spl->setFlags(
       SplFileObject::READ_CSV |
