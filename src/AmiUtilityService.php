@@ -27,6 +27,7 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
+use Drupal\strawberryfield\StrawberryfieldFileMetadataService;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
@@ -164,6 +165,13 @@ class AmiUtilityService {
   protected $AmiLoDService;
 
   /**
+   * The Strawberry Field File Metadata Service.
+   *
+   * @var \Drupal\strawberryfield\StrawberryfieldFileMetadataService
+   */
+  protected $strawberryfieldFileMetadataService;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -182,6 +190,7 @@ class AmiUtilityService {
    * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
    * @param \GuzzleHttp\ClientInterface $http_client
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
+   * @param \Drupal\strawberryfield\StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -200,7 +209,8 @@ class AmiUtilityService {
     EntityTypeBundleInfoInterface $entity_type_bundle_info,
     ClientInterface $http_client,
     AmiLoDService $ami_lod,
-    KeyValueFactoryInterface $key_value
+    KeyValueFactoryInterface $key_value,
+    StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -225,6 +235,7 @@ class AmiUtilityService {
     $this->httpClient = $http_client;
     $this->AmiLoDService = $ami_lod;
     $this->keyValue = $key_value;
+    $this->strawberryfieldFileMetadataService = $strawberryfield_file_metadata_service;
   }
 
 
@@ -562,6 +573,13 @@ class AmiUtilityService {
     try {
       $realpath = $this->fileSystem->realpath($path);
       $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+      // Means Mr. Zip is in S3 or who knows where
+      // And ZipArchive (Why!!) can not stream from remote
+      // @TODO write once for all a remote ZIP file streamer DIEGO
+      if (!$zip_realpath) {
+        // This will add a delay once...
+        $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+      }
       $z = new \ZipArchive();
       $contents = NULL;
       if ($z->open($zip_realpath)) {
