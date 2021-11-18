@@ -607,6 +607,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           if ($node->getEntityType()->isRevisionable()) {
             // Forces a New Revision for Not-create Operations.
             $node->setNewRevision(TRUE);
+            $node->setRevisionCreationTime(\Drupal::time()->getRequestTime());
             // Set data for the revision
             $node->setRevisionLogMessage('ADO modified via AMI Set ' . $data->info['set_id']);
             $node->setRevisionUserId($data->info['uid']);

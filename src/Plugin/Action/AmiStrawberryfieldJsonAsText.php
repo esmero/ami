@@ -209,6 +209,14 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
 
           ]);
           if (!$this->configuration['simulate']) {
+            if ($entity->getEntityType()->isRevisionable()) {
+              // Forces a New Revision for Not-create Operations.
+              $entity->setNewRevision(TRUE);
+              $entity->setRevisionCreationTime(\Drupal::time()->getRequestTime());
+              // Set data for the revision
+              $entity->setRevisionLogMessage('ADO modified via Json as Text Search And Replace with search token:' . $this->configuration['jsonfind'] .' and replace token:' .$this->configuration['jsonreplace']);
+              $entity->setRevisionUserId($this->currentUser->id());
+            }
             $entity->save();
           }
         }

@@ -23,7 +23,7 @@ use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
  *
  * @Action(
  *   id = "entity:ami_jsonwebform_action",
- *   action_label = @Translation("Webform based find and replace Metadata for Archipelago Digital Objects"),
+ *   action_label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
  *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
@@ -57,6 +57,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
   }
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
+    $form_state->setAlwaysProcess(TRUE);
     $webform = $this->AmiUtilityService->getWebforms();
     $form_state->disableCache();
     $form['#tree'] = TRUE;
@@ -91,14 +92,25 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     foreach($form_state->getStorage() as $prop => $value) {
       $form_state->set($prop, $value);
     }
-    if (!empty($form_state->getValues()) && !empty($form_state->getValue('webform'))) {
+    $webform_id = $form_state->getValue('webform');
+       if (!$webform_id) {
+         $input = $form_state->getUserInput();
+         $webform_id = $input['webform'] ?? NULL;
+       }
+
+    if ($webform_id) {
 
       /* @var \Drupal\webform\Entity\Webform $webform_entity */
-      $webform_entity = $this->entityTypeManager->getStorage('webform')->load($form_state->getValue('webform'));
-      $anyelement = $webform_entity->getElementsInitializedAndFlattened();
+      $webform_entity = $this->entityTypeManager->getStorage('webform')->load($webform_id);
+      $anyelement = $webform_entity->getElementsInitializedAndFlattened('update');
       foreach ($anyelement as $elementkey => $element) {
         $element_plugin = $this->webformElementManager->getElementInstance($element);
-        if (($element_plugin->getTypeName() != 'webform_wizard_page') && !($element_plugin instanceof WebformManagedFileBase) && $element_plugin->isInput($element)) {
+        if (($element_plugin->getTypeName() != 'webform_wizard_page') &&
+          !($element_plugin instanceof WebformManagedFileBase) &&
+          ($element_plugin->getTypeName() != 'webform_metadata_nominatim') &&
+          ($element_plugin->getTypeName() != 'webform_metadata_multiagent') &&
+          ($element_plugin->getTypeName() != 'webform_metadata_panoramatour') &&
+          $element_plugin->isInput($element)) {
           $webform_element_options[$elementkey] = ($element['#title'] ?? ' Unamed ') . $this->t('(@elementkey JSON key )',[
               '@elementkey' => $elementkey
             ]);
@@ -120,9 +132,14 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       ),
     ];
     $chosen_element = $form_state->getValue(['webform_elements','elements_for_this_form'], NULL);
+    if (!$chosen_element) {
+      $input = $form_state->getUserInput();
+      $chosen_element = $input['webform_elements']['elements_for_this_form'] ?? NULL;
+    }
+
     if ($webform_entity && $chosen_element) {
-      //$myelement1 = $webform_entity->getElementsDecodedAndFlattened();
-      $myelement = $webform_entity->getElementDecoded($form_state->getValue(['webform_elements','elements_for_this_form']));
+      $myelement = $webform_entity->getElementDecoded($chosen_element);
+
       //$myelement2 = \Drupal::service('plugin.manager.webform.element')->processElements($myelement);
       $libraries = $webform_entity->getSubmissionForm()['#attached']['library'] ?? [];
       $form['#attached']['library'] = ($form['#attached']['library'] ?? []) + $libraries;
@@ -132,34 +149,26 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
           $cleanelement[$key] = $value;
         }
       }
-      //$cleanelement['#element_validate'][] = [$this,'elementDynamicValidate'];
       $cleanelement['#required'] = FALSE;
       $cleanelement['#validated'] = FALSE;
-      //$cleanelement['#default_value'] = NULL;
-      $form['elements_rendered']['jsonfind_element']= $cleanelement;
 
-      $form['elements_rendered']['jsonfind_element']['#title'] = $this->t('Value to Search for in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
-      $form['elements_rendered']['jsonreplace_element']= $cleanelement;
-      $form['elements_rendered']['jsonreplace_element']['#title'] = $this->t('Value to replace with in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
+      $cleanelement['#default_value'] = $form_state->getValue('jsonfind_element', NULL);
+      $form['jsonfind_element']= $cleanelement;
+
+      $form['jsonfind_element']['#title'] = $this->t('Value to Search for in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
+      $form['jsonreplace_element']['#title'] = $this->t('Value to replace with in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
+      $form['jsonreplace_element']= $cleanelement;
+      $form['jsonreplace_element']['#name'] = 'jsonreplace_element';
+      $form['jsonfind_element']['#name'] = 'jsonfind_element';
+      $form['jsonfind_element']['#default_value'] =  $form_state->getValue('jsonreplace_element', NULL);
     }
+
 
     $form['simulate'] = [
       '#title' => $this->t('only simulate and debug affected JSON'),
       '#type' => 'checkbox',
       '#default_value' => ($this->configuration['simulate'] === FALSE) ? FALSE : TRUE,
     ];
-    $form['actions']['submit']['#ajax'] = [
-      'callback' => 'configureActionAjaxCallback',
-    ];
-    return $form;
-  }
-
-  public function elementDynamicValidate(&$element, FormStateInterface $form_state) {
-    $form_state->set('holi','chao');
-  }
-
-  public function configureActionAjaxCallback(array $form, FormStateInterface $form_state) {
-    //$form_state->setRebuild(TRUE);
     return $form;
   }
 
@@ -167,23 +176,32 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     return $form['webform_elements'];
   }
 
-
   public function webformElementAjaxCallback(array $form, FormStateInterface $form_state) {
-    return $form['elements_rendered'];
+    $element['elements_rendered'] = [
+      '#tree' => TRUE,
+      '#type' => 'fieldset',
+      '#prefix' => '<div id="webform-elements-render-wrapper">',
+      '#suffix' => '</div>',
+    ];
+    $element['elements_rendered']['jsonfind_element'] = $form['jsonfind_element'];
+    $element['elements_rendered']['jsonreplace_element'] = $form['jsonreplace_element'];
+    return $element;
   }
 
   public function submitConfigurationForm(array &$form, FormStateInterface $form_state) {
     // Hacky but its the way we can do this dynamically
-    $jsonfind = $form_state->getUserInput()['elements_rendered']['jsonfind_element'] ?? [];
-    $jsonreplace = $form_state->getUserInput()['elements_rendered']['jsonreplace_element'] ?? [];
+    $jsonfind = $form_state->getValue('jsonfind_element', NULL) ?? ($form_state->getUserInput()['jsonfind_element'] ?? []);
+    $jsonreplace = $form_state->getValue('jsonreplace_element', NULL) ?? ($form_state->getUserInput()['jsonreplace_element'] ?? []);
     $chosen_element = $form_state->getValue(['webform_elements','elements_for_this_form'], NULL);
-    // $form_state->setRebuild(TRUE);
     if ($chosen_element) {
       $jsonfind_ready[$chosen_element] = $jsonfind;
       $jsonreplace_ready[$chosen_element] = $jsonreplace;
       $this->configuration['jsonfind'] = json_encode($jsonfind_ready) ?? '{}';
       $this->configuration['jsonreplace'] = json_encode($jsonreplace_ready) ?? '{}';
       $this->configuration['simulate'] = $form_state->getValue('simulate');
+    }
+    else {
+      $form_state->setRebuild(TRUE);
     }
   }
 
@@ -209,6 +227,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
             /** @var $itemfield \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem */
             $main_prop = $itemfield->mainPropertyName();
             $fullvaluesoriginal = $itemfield->provideDecoded(TRUE);
+            $fullvaluesmodified = $fullvaluesoriginal;
             $count = 0;
             $fullvaluesjson = [];
             // This is how it goes.
@@ -221,41 +240,43 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
             // - If jsonreplace is empty, we delete the original
             // - If not we replace the found one
             $decoded_jsonfind = json_decode($this->configuration['jsonfind'], TRUE);
+            $decoded_jsonreplace = json_decode($this->configuration['jsonreplace'], TRUE);
             $key = reset(array_keys($decoded_jsonfind));
             if ($key) {
-              if (!empty($fullvaluesoriginal[$key])) {
-                $isAssociativeOriginal = StrawberryfieldJsonHelper::arrayIsMultiSimple($fullvaluesoriginal[$key]);
-                if (!$isAssociative) {
-                  foreach($fullvaluesoriginal[$key] as &$item) {
-                    if ($item == $decoded_jsonfind[$key]) {
-                      // Exact Array to Array 1:1 match
-                      $item = $decoded_jsonfind[$key];
-                      $patched = TRUE;
-                    }
-                  }
+              $isAssociativeOriginal = FALSE;
+              if (!empty($fullvaluesmodified[$key])) {
+                if (is_array($fullvaluesmodified[$key])) {
+                  $isAssociativeOriginal = StrawberryfieldJsonHelper::arrayIsMultiSimple($fullvaluesmodified[$key]);
                 }
-                else {
-                  // Means we have a single Object not a list in the source.
-                  if ($fullvaluesoriginal[$key] == $decoded_jsonfind[$key]) {
-                    $fullvaluesoriginal[$key] = $decoded_jsonfind[$key];
+                // If none are arrays we treat them like objects 1:1 comparisson.
+                if (!is_array($fullvaluesmodified[$key]) && !is_array($decoded_jsonfind[$key])) {
+                  $isAssociativeOriginal = TRUE;
+                }
+              }
+              if (!$isAssociativeOriginal) {
+                foreach($fullvaluesmodified[$key] as &$item) {
+                  if ($item == $decoded_jsonfind[$key]) {
+                    // Exact Array to Array 1:1 match
+                    $item = $decoded_jsonreplace[$key];
                     $patched = TRUE;
                   }
                 }
               }
+              else {
+                // Means we have a single Object not a list in the source.
+                if ($fullvaluesmodified[$key] == $decoded_jsonfind[$key]) {
+                  $fullvaluesmodified[$key] = $decoded_jsonreplace[$key];
+                  $patched = TRUE;
+                }
+              }
             }
-
-
-
-
-
             // Now try to decode fullvalues
-            $fullvaluesjson = json_decode($fullvalues, TRUE, 50);
-            $json_error = json_last_error();
+            $fullvaluesmodified_string = json_encode($fullvaluesmodified);
+            $fullvaluesoriginal_string = json_encode($fullvaluesoriginal);
             if ($json_error != JSON_ERROR_NONE) {
-              $visualjsondiff = new Diff(explode(PHP_EOL,$stringvalues), explode(PHP_EOL,$fullvalues));
+              $visualjsondiff = new Diff(explode(PHP_EOL, $fullvaluesmodified_string), explode(PHP_EOL,$fullvaluesoriginal_string));
               $formatter = new DiffFormatter();
               $output = $formatter->format($visualjsondiff);
-              //$this->messenger()->addMessage($output);
               $this->messenger()->addError(
                 $this->t(
                   'We could not safely find and replace metadata for @entity. Your result after the replacement may not be a valid JSON.',
@@ -263,25 +284,28 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                     '@entity' => $entity->label()
                   ]
                 ));
-              $this->messenger()->addMessage($output);
+              $this->messenger()->addError($output);
               return $patched;
             }
             try {
               if ($this->configuration['simulate']) {
                 $this->messenger()->addMessage('In simulation Mode');
-                if ($fullvalues == $stringvalues) {
+                if ($fullvaluesoriginal_string == $fullvaluesmodified_string) {
                   $patched = FALSE;
                   $this->messenger()->addStatus($this->t(
-                    'No Match for @entity, so skipping',
+                    'No Match for search:@jsonsearch and replace:@jsonreplace on @entity, so skipping',
                     [
-                      '@entity' => $entity->label()
+                      '@entity' => $entity->label(),
+                      '@jsonsearch' => '<pre><code>'.$this->configuration['jsonfind'].'</code></pre>',
+                      '@jsonreplace' => '<pre><code>'.$this->configuration['jsonreplace'].'</code></pre>',
+
                     ]
                   ));
                   return $patched;
                 }
                 $r = new JsonDiff(
                   $fullvaluesoriginal,
-                  $fullvaluesjson,
+                  $fullvaluesmodified,
                   JsonDiff::REARRANGE_ARRAYS + JsonDiff::SKIP_JSON_MERGE_PATCH + JsonDiff::COLLECT_MODIFIED_DIFF
                 );
                 // We just keep track of the changes. If none! Then we do not set
@@ -292,38 +316,41 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                   ['@label' => $entity->label()]);
 
                 $this->messenger()->addMessage($message);
-                /*$modified_diff = $r->getModifiedDiff();
+                $modified_diff = $r->getModifiedDiff();
                 foreach ($modified_diff as $modifiedPathDiff) {
                   $this->messenger()->addMessage($modifiedPathDiff->path);
                   $this->messenger()->addMessage($modifiedPathDiff->original);
                   $this->messenger()->addMessage($modifiedPathDiff->new);
-                }*/
-
-              } else {
-                if ($fullvalues == $stringvalues) {
+                }
+              }
+              else {
+                if ($fullvaluesoriginal_string == $fullvaluesmodified_string) {
                   $patched = FALSE;
                   $this->messenger()->addStatus($this->t(
-                    'No change for @entity, so skipping',
+                    'No change for @entity, skipping.',
                     [
                       '@entity' => $entity->label()
                     ]
                   ));
                   return $patched;
                 }
-                $patched = TRUE;
-                if (!$itemfield->setMainValueFromArray((array) $fullvaluesjson)) {
-                  $this->messenger()->addError(
-                    $this->t(
-                      'We could not persist the metadata for @entity. Your result after the replacement may not be a valid JSON. Please contact your Site Admin.',
-                      [
-                        '@entity' => $entity->label()
-                      ]
-                    )
-                  );
-                  $patched = FALSE;
-                };
+
+                if ($patched) {
+                  if (!$itemfield->setMainValueFromArray((array) $fullvaluesmodified)) {
+                    $this->messenger()->addError(
+                      $this->t(
+                        'We could not persist the metadata for @entity. Your result after the replacement may not be a valid JSON. Please contact your Site Admin.',
+                        [
+                          '@entity' => $entity->label()
+                        ]
+                      )
+                    );
+                    $patched = FALSE;
+                  };
+                }
               }
-            } catch (JsonDiffException $exception) {
+            }
+            catch (JsonDiffException $exception) {
               $patched = FALSE;
               $this->messenger()->addWarning(
                 $this->t(
@@ -333,23 +360,39 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                   ]
                 )
               );
+            return $patched;
             }
           }
         }
         if ($patched) {
-          $this->logger->notice('%label had the following find: @jsonsearch and replace:@jsonreplace applied', [
-            '%label' => $entity->label(),
-            '@jsonsearch' => '<pre><code>'.$this->configuration['jsonfind'].'</code></pre>',
-            '@jsonreplace' => '<pre><code>'.$this->configuration['jsonreplace'].'</code></pre>',
-
-          ]);
           if (!$this->configuration['simulate']) {
+            // In case after saving the Label changes we keep the original one here
+            // For reporting/messaging
+            $label = $entity->label();
+            $this->logger->notice('%label had the following find: @jsonsearch and replace:@jsonreplace applied', [
+              '%label' => $label,
+              '@jsonsearch' => '<pre><code>'.$this->configuration['jsonfind'].'</code></pre>',
+              '@jsonreplace' => '<pre><code>'.$this->configuration['jsonreplace'].'</code></pre>',
+            ]);
+            if ($entity->getEntityType()->isRevisionable()) {
+              // Forces a New Revision for Not-create Operations.
+              $entity->setNewRevision(TRUE);
+              $entity->setRevisionCreationTime(\Drupal::time()->getRequestTime());
+              // Set data for the revision
+              $entity->setRevisionLogMessage('ADO modified via Webform Search And Replace with search token:' . $this->configuration['jsonfind'] .' and replace token:' .$this->configuration['jsonreplace']);
+              $entity->setRevisionUserId($this->currentUser->id());
+            }
             $entity->save();
+            $link = $entity->toUrl()->toString();
+            $this->messenger()->addStatus($this->t('ADO <a href=":link" target="_blank">%title</a> was successfully patched.',[
+              ':link' => $link,
+              '%title' => $label,
+            ]));
           }
         }
-        return $patched;
       }
     }
+    return $patched;
   }
 
 

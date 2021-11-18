@@ -319,7 +319,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       'title' => $this->t('Batch processing your Set'),
       'operations' => [],
       'finished' => ['\Drupal\ami\AmiBatchQueue', 'finish'],
-      'progress_message' => t('Processing Set @current of @total.'),
+      'progress_message' => t('Processing Set @current of @total. Estimated time left: @estimate, elapsed: @elapsed.'),
     ];
     $batch['operations'][] = [
       '\Drupal\ami\AmiBatchQueue::takeOne',
