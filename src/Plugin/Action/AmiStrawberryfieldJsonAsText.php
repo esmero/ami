@@ -23,7 +23,7 @@ use Swaggest\JsonDiff\JsonPatch;
  *   id = "entity:ami_jsontext_action",
  *   action_label = @Translation("Text based find and replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
- *   deriver = "Drupal\Core\Action\Plugin\Action\Derivative\EntityChangedActionDeriver",
+ *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
  *   confirm = "true"
  * )
@@ -88,7 +88,7 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
    * {@inheritdoc}
    */
   public function execute($entity = NULL) {
- ;
+
     /** @var \Drupal\Core\Entity\EntityInterface $entity */
     $patched = FALSE;
     if ($entity) {
@@ -209,6 +209,14 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
 
           ]);
           if (!$this->configuration['simulate']) {
+            if ($entity->getEntityType()->isRevisionable()) {
+              // Forces a New Revision for Not-create Operations.
+              $entity->setNewRevision(TRUE);
+              $entity->setRevisionCreationTime(\Drupal::time()->getRequestTime());
+              // Set data for the revision
+              $entity->setRevisionLogMessage('ADO modified via Json as Text Search And Replace with search token:' . $this->configuration['jsonfind'] .' and replace token:' .$this->configuration['jsonreplace']);
+              $entity->setRevisionUserId($this->currentUser->id());
+            }
             $entity->save();
           }
         }

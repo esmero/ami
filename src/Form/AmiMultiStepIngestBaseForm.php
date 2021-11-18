@@ -155,6 +155,14 @@ class AmiMultiStepIngestBaseForm extends FormBase {
         ),
       );
     }
+    if ($this->step +1 == $this->lastStep) {
+      $form['actions']['next'] = [
+        '#type' => 'submit',
+        '#name' => 'next',
+        '#value' => t('Press to Create Set'),
+      ];
+    }
+
 
     if ($this->step == $this->lastStep) {
       return $form;
@@ -176,7 +184,6 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     $form_state->setRebuild();
   }
 
-
   /**
    * {@inheritdoc}
    */
@@ -185,7 +192,6 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     if ($form_state->getTriggeringElement()['#name'] == 'prev') {
       // No validation my friends.
     } else {
-      //@TODO each step has its own validation.
       return parent::validateForm($form, $form_state);
     }
   }

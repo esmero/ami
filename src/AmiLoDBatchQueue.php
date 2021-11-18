@@ -14,7 +14,7 @@ use Drupal\Core\Render\Markup;
  *
  * @package Drupal\ami
  */
-class AmiBatchQueue {
+class AmiLoDBatchQueue {
 
   /**
    *  Batch processes on Queue item at the time for an AMI Set.
@@ -25,7 +25,7 @@ class AmiBatchQueue {
    * @throws \Drupal\Component\Plugin\Exception\PluginException
    */
   public static function takeOne(string $queue_name, string $set_id, array &$context) {
-    /** @var $queue_manager \Drupal\Core\Queue\QueueWorkerManagerInterface */
+     /** @var $queue_manager \Drupal\Core\Queue\QueueWorkerManagerInterface */
     $queue_manager = \Drupal::service('plugin.manager.queue_worker');
     /** @var \Drupal\Core\Queue\QueueFactory $queue_factory */
     $queue_factory = \Drupal::service('queue');
@@ -34,7 +34,7 @@ class AmiBatchQueue {
     // The actual queue worker is the one from the general AMI ingest Queue
     // That way this "per set" queue does not appear in any queue_ui listings
     // not can be processed out of the context of a UI facing batch.
-    $queue_worker = $queue_manager->createInstance('ami_ingest_ado');
+    $queue_worker = $queue_manager->createInstance('ami_lod_ado');
     $queue = $queue_factory->get($queue_name);
 
     $num_of_items = $queue->numberOfItems();
@@ -46,30 +46,20 @@ class AmiBatchQueue {
 
     $context['finished'] = 0;
     $context['results']['queue_name']  = $queue_name;
-    $context['results']['queue_label'] = 'AMI Set '. ($set_id ?? '');
-
-
+    $context['results']['queue_label'] = 'AMI Set '. ($set_id ?? '') .' LoD reconciling';
 
     try {
       // Only process Items of this Set if $context['set_id'] is set.
       if ($item = $queue->claimItem()) {
-        // Let's figure out the type of queue running here, ADO or Attached file
-        if (!empty($item->data->info['filename']) && !empty($item->data->info['file_column']) && !empty($item->data->info['processed_row'])) {
-          $ado_title = 'File ' . $item->data->info['filename'];
-          $ado_title .= isset($item->data->info['uuid']) ? ' for ADO with UUID ' . $item->data->info['uuid'] : 'for Unidentifed ADO without UUID ';
-        }
-        else {
-         $ado_title = isset($item->data->info['row']['uuid']) ? 'ADO with UUID ' . $item->data->info['row']['uuid'] : 'Unidentifed ADO without UUID';
-        }
-
-        $title = t('For %name processing %adotitle, <b>%count</b> items remaining', [
+        $label = 'Reconciling '.$item->data->info['label'];
+        $title = t('For %name processing %label, <b>%count</b> items remaining', [
           '%name' => $context['results']['queue_label'],
-          '%adotitle' => $ado_title,
+          '%label' => $label,
           '%count' => $num_of_items,
         ]);
         $context['message'] = $title;
 
-        // Process and delete item
+        // Process and delete queue item
         $queue_worker->processItem($item->data);
         $queue->deleteItem($item);
 
@@ -144,17 +134,11 @@ class AmiBatchQueue {
         )
       );
     }
-    // If the queue fails for whatever reason the $context may be lost
-    if (isset($results['queue_name'])) {
-      // Cleanup and remove the queue. This is a live batch operation.
-      /** @var \Drupal\Core\Queue\QueueFactory $queue_factory */
-      $queue_name = $results['queue_name'];
-      $queue_factory = \Drupal::service('queue');
-      $queue_factory->get($queue_name)->deleteQueue();
-    }
-    else {
-      \Drupal::messenger()->addError(\Drupal::translation('The Batch Operation failed. Please check your logs, available Filesystem space and try again'));
-    }
+    // Cleanup and remove the queue. This is a live batch operation.
+    /** @var \Drupal\Core\Queue\QueueFactory $queue_factory */
+    $queue_name = $results['queue_name'];
+    $queue_factory = \Drupal::service('queue');
+    $queue_factory->get($queue_name)->deleteQueue();
   }
 
 }

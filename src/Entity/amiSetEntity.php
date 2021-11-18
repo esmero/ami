@@ -83,6 +83,8 @@ use Drupal\Component\Utility\Environment;
  *       "delete" = "Drupal\ami\Form\amiSetEntityDeleteForm",
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteprocessed" = "Drupal\ami\Form\amiSetEntityDeleteProcessedForm",
+ *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm",
+ *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm"
  *     },
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
@@ -100,6 +102,8 @@ use Drupal\Component\Utility\Environment;
  *     "edit-form" = "/amiset/{ami_set_entity}/edit",
  *     "process-form" = "/amiset/{ami_set_entity}/process",
  *     "delete-process-form" = "/amiset/{ami_set_entity}/deleteprocessed",
+ *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
+ *     "edit-reconcile-form" = "/amiset/{ami_set_entity}/editreconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
  *     "collection" = "/amiset/list"
  *   },
@@ -344,7 +348,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDescription(t('A CSV containing the Source Data to be processed'))
       ->setSetting('file_extensions', 'csv')
       ->setSetting('upload_validators', $validators)
-      ->setRequired(TRUE)
+      ->setRequired(FALSE)
       ->setDisplayOptions('view', [
         'label' => 'above',
         'type' => 'file',
@@ -377,7 +381,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
         'weight' => -3,
       ])
       ->setDisplayConfigurable('view', TRUE)
-      ->setDisplayConfigurable('form', FALSE);
+      ->setDisplayConfigurable('form', TRUE);
     $validatorszip = [
       'file_validate_extensions' => ['zip'],
       'file_validate_size' => [Environment::getUploadMaxSize()],
@@ -386,6 +390,8 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setLabel(t('Attached ZIP file'))
       ->setDescription(t('A Zip file containing accompanying Files for the Source Data'))
       ->setSetting('file_extensions', 'zip')
+      ->setSetting('uri_scheme', 'private')
+      ->setSetting('file_directory', '/ami/zip')
       ->setSetting('upload_validators', $validatorszip)
       ->setRequired(FALSE)
       ->setDisplayOptions('view', [

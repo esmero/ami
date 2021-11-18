@@ -5,6 +5,7 @@ use Drupal\ami\AmiUtilityService;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
+use Drupal\Core\Entity\EntityStorageException;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
@@ -82,7 +83,15 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
       $data = $item->provideDecoded(FALSE);
     }
     if ($file && $data!== new \stdClass()) {
-      $uuids = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data);
+      // Only UUIDs you can delete will be added.
+      $uuids = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data, 'delete');
+      if (empty($uuids)) {
+        $form_state->setRebuild();
+        $this->messenger()->addWarning(
+          $this->t('So Sorry. There either no ADOs in the current CSV that can be deleted or that you have permission to. Please correct or try to manually delete your ADOs. You may already have delete them too!')
+        );
+        return;
+      }
       $operations = [];
       foreach (array_chunk($uuids, 10) as $batch_data_uuid) {
         $operations[] = ['\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchDelete'
@@ -97,7 +106,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
       batch_set($batch);
     } else {
       $this->messenger()->addError(
-        $this->t('So Sorry. This Ami Set has incorrect Metadata and/or has its CSV file missing. We need it to know which ADOs where generated via this Set. Please correct or manually delete your ADOs.',
+        $this->t('So Sorry. Ami Set @label has incorrect Metadata and/or has its CSV file missing. We need it to know which ADOs where generated via this Set. Please correct or manually delete your ADOs.',
           [
             '@label' => $this->entity->label(),
           ]
@@ -111,16 +120,39 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
-    $form['delete_enqueued'] = [
-      '#type' => 'checkbox',
-        '#title' => $this->t('Only delete enqueued but do not process Ingested ADOs'),
-        '#description' => $this->t(
-      'Check this to only deleted enqueue ADOs but not trigger an delete for already ingested ADOs.'
-    ),
-        '#required' => FALSE,
-        '#default_value' => $form_state->getValue('delete_enqueued')
+    $data = new \stdClass();
+    foreach ($this->entity->get('set') as $item) {
+      /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
+      $data = $item->provideDecoded(FALSE);
+    }
+    if ($data !== new \stdClass()) {
+      $op = $data->pluginconfig->op ?? NULL;
+      $ops = [
+        'update',
+        'patch',
       ];
+      if (in_array($op, $ops)) {
+        $form['status'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' => $this->t(
+            'Info'
+          ),
+          '#markup' => $this->t(
+            'This AMI set is setup to perform a <em><b>@op</b></em> operation so it can not be used to delete ADOs.',
+            ['@op' => $op]
+          ),
+        ];
+        return $form;
+      }
 
+
+      $form['delete_enqueued'] = [
+        '#type' => 'fieldset',
+        '#title' => $this->t('Delete Ingested ADOs via this Set'),
+        '#description' => $this->t('Confirming will trigger a Batch Delete for already ingested ADOs you have permission to delete.'),
+      ];
+    }
     return $form + parent::buildForm($form, $form_state);
   }
 
@@ -129,14 +161,22 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
     // Deleting nodes.
     $storage_handler = \Drupal::entityTypeManager()->getStorage('node');
     $entities = $storage_handler->loadByProperties(['uuid' => $batch_data_uuid]);
-    $storage_handler->delete($entities);
-
-    // Display data while running batch.
     $batch_size=sizeof($batch_data_uuid);
     $batch_number=sizeof($context['results'])+1;
-    $context['message'] = sprintf("Deleting %s ADOs per batch. Batch #%s"
-      , $batch_size, $batch_number);
-    $context['results'][] = sizeof($batch_data_uuid);
+    try {
+      $storage_handler->delete($entities);
+      // Display data while running batch.
+
+      $context['message'] = sprintf("Deleting %s ADOs per batch. Batch #%s"
+        , $batch_size, $batch_number);
+      $context['results'][] = sizeof($batch_data_uuid);
+    }
+    catch (EntityStorageException $e) {
+      $context['message'] = sprintf("Exception while deleting %s ADOs per batch. Batch #%s"
+        , $batch_size, $batch_number);
+      $context['results'][] = 0;
+    }
+
   }
 
   // What to do after batch ran. Display success or error message.
