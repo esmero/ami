@@ -528,7 +528,7 @@ class SolrImporter extends SpreadsheetImporter {
       $headers['type'] = 'type';
       $headers['ismemberof'] = 'ismemberof';
       $headers['ispartof'] = 'ispartof';
-
+      $allheaders_array = array_map('strtolower', $allheaders_array);
       foreach ($allheaders_array as $headerkey) {
         $headers[$headerkey] = $headerkey;
       }
@@ -560,7 +560,7 @@ class SolrImporter extends SpreadsheetImporter {
           foreach (static::FILE_COLUMNS as $column) {
             $sp_data[$resultset_iterator->key()][$column] = '';
           }
-          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
         }
         catch (\Exception $exception) {
           continue;
@@ -688,7 +688,7 @@ class SolrImporter extends SpreadsheetImporter {
         $query->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $helper->escapePhrase($input));
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
-
+        $query->addSort('PID', 'asc');
         $query->setStart($offset)->setRows($per_page);
         $query->setFields([
           'PID',
@@ -760,7 +760,7 @@ class SolrImporter extends SpreadsheetImporter {
           if ($parent_ado) {
             $sp_data[$resultset_iterator->key()]['ismemberof'] = $parent_ado;
           }
-          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? 'Thing';
+          $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
 
           $datastream = $this->buildDatastreamURL($config, $document);
           if (count($datastream)) {
@@ -768,8 +768,8 @@ class SolrImporter extends SpreadsheetImporter {
             $sp_data[$resultset_iterator->key()][key($datastream)] = $first_datastream;
           }
           // Fetch Children
-          if (in_array($sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri'], static::MULTICHILDREN_CMODELS)) {
-            $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['PID'];
+          if (in_array($sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri'], static::MULTICHILDREN_CMODELS)) {
+            $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['pid'];
           }
         } catch (\Exception $exception) {
           continue;
@@ -877,9 +877,10 @@ class SolrImporter extends SpreadsheetImporter {
     $escaped = $helper->escapePhrase('info:fedora/' . $input);
     $escaped_pid = str_replace(':', '_', $input);
     $query->addSort("RELS_EXT_isSequenceNumberOf{$escaped_pid}_literal_intDerivedFromString_l", 'asc');
+    $query->addSort("RELS_EXT_isPageNumber_literal_intDerivedFromString_l", 'asc');
     $query->createFilterQuery('constituent')->setQuery('RELS_EXT_isConstituentOf_uri_ms:'.$escaped .' OR RELS_EXT_isPageOf_uri_ms:'.$escaped .' OR RELS_EXT_isMemberOf_uri_ms:'.$escaped );
     $query->setQuery('*:*');
-    $query->setStart(0)->setRows(3000);
+    $query->setStart(0)->setRows(5000);
     $query->setFields([
       'PID',
       'fgs_label_s',
@@ -916,27 +917,20 @@ class SolrImporter extends SpreadsheetImporter {
         foreach ($document as $field => $value) {
           $fieldname = $this->multipleToSingleFieldName($field);
           // Exclude this non-sense fields
-          if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+          if (strpos($fieldname, '_roleTerm_', 0) !== FALSE) {
             continue;
           }
           if ($this->endsWith($fieldname, 'authority_marcrelator')) {
             continue;
           }
-          // this converts multi valued fields to a comma-separated string
-          foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
-            $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
-            if ($suffix_offset!== false) {
-              $fieldname = substr($field, 0, $suffix_offset);
-              break 1;
-            }
-          }
+
           $headers[$fieldname] = $fieldname;
           if (is_array($value)) {
             if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
-              $original_value = explode(' |@| ', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
+              $original_value = explode('|@|', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
               $value = array_unique(array_merge($original_value, $value));
             }
-            $value = implode(' |@| ', array_unique($value));
+            $value = implode('|@|', array_unique($value));
           }
           $sp_data[$resultset_iterator->key()][$fieldname] = $value;
         }
@@ -946,8 +940,8 @@ class SolrImporter extends SpreadsheetImporter {
           $sp_data[$resultset_iterator->key()][$column] = '';
         }
         // Try with both main mapping and children mapping
-        $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL;
-        $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['RELS_EXT_hasModel_uri']] ?? NULL);
+        $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? NULL;
+        $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? NULL);
         $sp_data[$resultset_iterator->key()]['type'] = $type2 ?? 'Thing';
         // Get me the datastream
         $datastream = $this->buildDatastreamURL($config, $document);
@@ -974,7 +968,6 @@ class SolrImporter extends SpreadsheetImporter {
         // Calculate the destination json key
       $dsid = 'OBJ';
       $mime = $document->fedora_datastream_latest_OBJ_MIMETYPE_ms[0];
-
     }
     elseif (!empty($document->fedora_datastream_latest_PDF_MIMETYPE_ms)) {
       $dsid = 'PDF';
@@ -996,6 +989,7 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * This function normalizes field names to join _ms, _s etc without prefixes.
    *
+   * Also lower cases every field name.
    * @param $field
    *
    * @return false|string
@@ -1009,7 +1003,7 @@ class SolrImporter extends SpreadsheetImporter {
         break 1;
       }
     }
-    return $field;
+    return strtolower($field);
   }
 
 
@@ -1030,6 +1024,8 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * Implodes array and concatenates to existing string using common delimiter.
    *
+   * Will also remove whitespaces from start/end of each value.
+   *
    * @param array $value
    * @param string|null $oldvalue
    *
@@ -1037,10 +1033,11 @@ class SolrImporter extends SpreadsheetImporter {
    */
   protected function concatValues(array $value, string $original_value = NULL): string {
     if (!empty($oldvalue)) {
-      $original_value = explode(' |@| ', $original_value) ?? [];
+      $original_value = explode('|@|', $original_value) ?? [];
       $value = array_unique(array_merge($original_value, $value));
     }
-    return implode(' |@| ', array_unique($value));
+    $value = array_map('trim', $value);
+    return implode('|@|', array_unique($value));
   }
 
 
@@ -1090,9 +1087,12 @@ class SolrImporter extends SpreadsheetImporter {
     }
     $context['finished'] = 0;
     try {
+      // Incremente constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
+      $next_increment = ($context['sandbox']['progress'] + $increment > $rows) ? ($rows - $context['sandbox']['progress']) : $increment;
+
       $title = t('Processing %progress of <b>%count</b>', [
         '%count' => $rows,
-        '%progress' => $context['sandbox']['progress'] + $increment
+        '%progress' => $context['sandbox']['progress'] + $next_increment
       ]);
       $context['message'] = $title;
       // WE keep track in the AMI set Config of the previous total rows
@@ -1102,10 +1102,10 @@ class SolrImporter extends SpreadsheetImporter {
       $config['prev_index'] = $context['sandbox']['prev_index'];
       // Pass the headers into the config so we have a unified/normalized version
       // And not the mess each doc returns
-      $config['headers'] = $amisetdata->column_keys ?? [];
+      $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
       $data = $plugin_instance->getData($config, $context['sandbox']['progress'] + $offset,
-        $increment);
+        $next_increment);
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
       }
@@ -1131,7 +1131,7 @@ class SolrImporter extends SpreadsheetImporter {
   }
 
   public static function finishfetchFromSolr($success, $results, $operations) {
-    error_log('finished');
+
     $allheaders = $results['processed']['headers'] ?? [];
 
     $data['headers'] = array_values($allheaders);
@@ -1146,7 +1146,13 @@ class SolrImporter extends SpreadsheetImporter {
 
   public function provideTypes(array $config, array $data): array {
     $keys = $config['solarium_mapping']['cmodel_mapping'] ?? [];
-    $keys_children = $config['solarium_mapping']['cmodel_children'] ?? [];
+    // Remove children types if collapse is enabled
+    if ($config['solarium_mapping']['collapse'] == 0) {
+      $keys_children = $config['solarium_mapping']['cmodel_children'] ?? [];
+    }
+    else {
+      $keys_children = [];
+    }
     $keys = array_unique(array_merge(array_values($keys), array_values($keys_children)));
     unset($keys_children);
     return $keys;
@@ -1154,7 +1160,7 @@ class SolrImporter extends SpreadsheetImporter {
 
   public function provideKeys(array $config, array $data): array {
     if (count($data) > 0) {
-      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleInfo_title'], static::FILE_COLUMNS);
+      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleinfo_title'], static::FILE_COLUMNS);
       return $columns;
     }
     return [];

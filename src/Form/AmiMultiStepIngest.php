@@ -81,7 +81,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ]) . '</div>',
     ];
     if ($this->step == 1) {
-      $pluginValue = $this->store->get('plugin', NULL);
+      $pluginValue = $this->store->get('plugin');
       $definitions = $this->importerManager->getDefinitions();
       $options = [];
       foreach ($definitions as $id => $definition) {
@@ -100,8 +100,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     if ($this->step == 2) {
       $parents = ['pluginconfig'];
-      $form_state->setValue('pluginconfig', $this->store->get('pluginconfig',[]));
-      $pluginValue = $this->store->get('plugin', NULL);
+      $form_state->setValue('pluginconfig', $this->store->get('pluginconfig'));
+      $pluginValue = $this->store->get('plugin');
       // Only create a new instance if we do not have the PluginInstace around
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface | NULL */
       $plugin_instance = $this->store->get('plugininstance');
@@ -125,14 +125,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $column_keys = $plugin_instance->provideKeys($pluginconfig, $data);
       $mapping = $this->store->get('mapping');
       $metadata = [
-        'direct' => 'Direct ',
+        'direct' => 'Direct',
         'template' => 'Template',
-        //'webform' => 'Webform',
       ];
       $template = $this->getMetadatadisplays();
-      $webform = $this->getWebforms();
+      // $webform = $this->getWebforms();
       $bundle = $this->getBundlesAndFields();
-
 
       $global_metadata_options = $metadata + ['custom' => 'Custom (Expert Mode)'];
       //Each row (based on its type column) can have its own approach setup(expert mode)
@@ -152,24 +150,24 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#description' => $this->t('Columns will be casted to ADO metadata (JSON) using a Twig template setup for JSON output'),
       ];
 
-      $element_conditional['webform'] =[
+     /* $element_conditional['webform'] =[
         '#type' => 'select',
         '#title' => $this->t('Webform'),
         '#options' => $webform,
         '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
-      ];
+      ];*/
 
       $form['ingestsetup']['globalmapping'] = [
         '#type' => 'select',
         '#title' => $this->t('Select the data transformation approach'),
-        '#default_value' => isset($mapping['globalmapping']) && !empty($mapping['globalmapping']) ? $mapping['globalmapping'] : reset($global_metadata_options),
+        '#default_value' => isset($mapping['globalmapping']) && !empty($mapping['globalmapping']) ? $mapping['globalmapping'] : key($global_metadata_options),
         '#options' => $global_metadata_options,
         '#description' => $this->t('How your source data will be transformed into ADOs Metadata.'),
         '#required' => TRUE,
       ];
       $newelements_global = $element_conditional;
       foreach ($newelements_global as $key => &$subelement) {
-        $subelement['#default_value'] = isset($mapping['globalmapping_settings']['metadata_config'][$key]) ? $mapping['globalmapping_settings']['metadata_config'][$key]: reset(${$key});
+        $subelement['#default_value'] = isset($mapping['globalmapping_settings']['metadata_config'][$key]) ? $mapping['globalmapping_settings']['metadata_config'][$key]: key(${$key});
         $subelement['#states'] = [
           'visible' => [
             ':input[name*="globalmapping"]' => ['value' => $key],
@@ -195,7 +193,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
 
       $form['ingestsetup']['bundle'] = $element['bundle'];
-      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['globalmapping_settings']['bundle']) ? $mapping['globalmapping_settings']['bundle'] : reset($bundle);
+      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['globalmapping_settings']['bundle']) ? $mapping['globalmapping_settings']['bundle'] : key($bundle);
       $form['ingestsetup']['bundle']['#states'] = [
         'visible' => [
           ':input[name*="globalmapping"]' => ['!value' => 'custom'],
@@ -226,11 +224,11 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             '#description' => t('Choose your transformation option'),
             '#open' => TRUE, // Controls the HTML5 'open' attribute. Defaults to FALSE.
           ];
+          // NEVER ADD A #NAME To dynamic/ajax select. It will get stuck in its default value.
           $form['ingestsetup']['custommapping'][$type]['metadata'] = [
-            //'#name' => 'metadata_'.$machine_type,
             '#type' => 'select',
             '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
-            '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : reset($metadata),
+            '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : (key($metadata) ?? NULL),
             '#options' => $metadata,
             '#description' => $this->t('How your source data will be transformed into ADOs (JSON) Metadata.'),
             '#required' => TRUE,
@@ -241,7 +239,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           // We need to reassign or if not circular references mess with the render array
           $newelements = $element_conditional;
           foreach ($newelements as $key => &$subelement) {
-            $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : reset(${$key});
+            $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : key(${$key});
             $subelement['#states'] = [
               'visible' => [
                 ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
@@ -255,7 +253,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $form['ingestsetup']['custommapping'][$type]['metadata_config'] = $newelements;
           $form['ingestsetup']['custommapping'][$type]['bundle'] = $element['bundle'];
 
-          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : reset($bundle);
+          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : key($bundle);
 
           if ($op == 'update' || $op == 'patch') {
             $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type replacing/clearing existing ones if there is already data in the same key in your ADO.', ['@type' => $type]);
@@ -295,7 +293,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $mapping = $this->store->get('mapping');
       $adomapping = $this->store->get('adomapping');
       $required_maps = [
-        'sequence' => 'Sequence Order',
         'label' => 'Ado Label',
       ];
       $form['ingestsetup']['adomapping'] = [
@@ -395,7 +392,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $fileid = $this->store->get('zip');
       $form['zip'] = [
         '#type' => 'managed_file',
-        '#title' => $this->t('Provide an ZIP file'),
+        '#title' => $this->t('Provide an ZIP file.'),
         '#required' => false,
         '#multiple' => false,
         '#default_value' => isset($fileid) ? [$fileid] : NULL,
@@ -404,6 +401,15 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#upload_validators' => [
           'file_validate_extensions' => ['zip'],
         ],
+      ];
+
+      $form['ami_set_label'] = [
+        '#type' => 'textfield',
+        '#title' => $this->t('Please Name your AMI Set.'),
+        '#required' => true,
+        '#size' => 64,
+        '#maxlength' => 255,
+        '#default_value' => 'AMI Set of ' . $this->currentUser()->getDisplayName()
       ];
     }
     return $form;
@@ -431,9 +437,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
-        // We may want to run a batch here?
-        // @TODO investigate how to run a batch and end in the same form different step?
-        // Idea is batch is only needed if there is a certain max number, e.g 5000 rows?
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
         // Check if the Plugin is ready processing or needs more data
         $ready = $form_state->getValue('pluginconfig')['ready'] ?? TRUE;
@@ -501,7 +504,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       } else {
         $this->store->set('zip', NULL);
       }
-
+      $ami_set_label = $form_state->getValue('ami_set_label', NULL);
+      $ami_set_label = $ami_set_label ? trim($ami_set_label) : $ami_set_label;
       $amisetdata = new \stdClass();
 
       $amisetdata->plugin = $this->store->get('plugin');
@@ -509,7 +513,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $amisetdata->mapping = $this->store->get('mapping');
       $amisetdata->adomapping = $this->store->get('adomapping');
       $amisetdata->zip = $this->store->get('zip');
-
+      $amisetdata->name = $ami_set_label;
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
       $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
@@ -534,12 +538,18 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $amisetdata->csv = $fileid;
           if ($plugin_instance->getPluginDefinition()['batch']) {
             $data = $this->store->get('data');
-            $amisetdata->column_keys = $data['headers'];
-            $batch = $plugin_instance->getBatch($form_state,
-              $this->store->get('pluginconfig'), $amisetdata);
-            $batch_data = $this->store->get('batch_finished');
-            $amisetdata->total_rows = $batch_data['totalrows'] ?? 0;
+            // Set A name if any given via the form
+            $config = $this->store->get('pluginconfig');
+            $amisetdata->column_keys = [];
+            $amisetdata->total_rows = NULL; // because we do not know yet
             $id = $this->AmiUtilityService->createAmiSet($amisetdata);
+            // Batch Plugins may provide their Headers in the ::getInfo method by returning
+            // A 'headers' key. That may not be in the actual config!
+            if (empty($config['headers']) || is_array($config['headers']) && count($config['headers']) == 0 ) {
+              $config['headers'] = $data['headers'] ?? [];
+            }
+
+            $batch = $plugin_instance->getBatch($form_state, $config, $amisetdata);
             if ($id) {
               $url = Url::fromRoute('entity.ami_set_entity.canonical',
                 ['ami_set_entity' => $id]);

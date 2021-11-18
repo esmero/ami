@@ -93,7 +93,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
     /* @var File $file */
     $file = $this->entityTypeManager->getStorage('file')
       ->load($config['file'][0]);
-    $file_path = $this->streamWrapperManager->getViaUri($file->getFileUri())->realpath();
+    $file_path = $this->streamWrapperManager->getViaUri($file->getFileUri())->getUri();
     $offset = $page * $per_page;
 
       $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0];
@@ -103,7 +103,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
         $objReader = IOFactory::createReader($inputFileType);
         $objReader->setReadDataOnly(TRUE);
         $objPHPExcel = $objReader->load($file_path);
-      } catch (Exception $e) {
+      } catch (\Exception $e) {
         $this->messenger()->addMessage(
           t(
             'Could not parse file with error: @error',

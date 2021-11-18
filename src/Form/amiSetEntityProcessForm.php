@@ -51,7 +51,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
       $container->get('ami.utility'),
-      $container->get('strawberryfield.utility'),
+      $container->get('strawberryfield.utility')
     );
   }
 
@@ -75,6 +75,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function submitForm(array &$form, FormStateInterface $form_state) {
+    $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
@@ -129,9 +130,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = 'ami_ingest_ado';
       if (!$notprocessnow) {
-        // This queues have no queue workers. That is intended since they
+        // These queues have no queue workers. That is intended since they
         // are always processed by the ami_ingest_ado one manually.
         $queue_name = 'ami_ingest_ado_set_' . $this->entity->id();
+        // Clear the queue in case there is already data there from a failed one.
+        \Drupal::queue($queue_name)->deleteQueue();
         \Drupal::queue($queue_name, TRUE)->createQueue();
         // @TODO acquire a Lock that is renewed for each queue item processing
         // To avoid same batch to be send to processing by different users at
@@ -149,6 +152,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'status' => $statuses,
           'set_url' => $SetURL,
           'attempt' => 1,
+          'queue_name' => $queue_name,
+          'force_file_queue' => (bool) $form_state->getValue('force_file_queue', FALSE),
+          'force_file_process' => (bool) $form_state->getValue('force_file_process', FALSE),
+          'manyfiles' => $manyfiles,
         ];
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
@@ -256,7 +263,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.',
+            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.'
           ),
         ];
         return $form;
@@ -274,6 +281,29 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         '#required' => FALSE,
         '#default_value' => !empty($notprocessnow) ? $notprocessnow : FALSE,
       ];
+      $form['force_file_queue'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t(
+          'Force every File attached to an ADO to be processed in its own Queue item.'
+        ),
+        '#description' => $this->t(
+          'Warning: This may make your ingest slower. Check this to force every file attached to an ADO to be downloaded and characterized as an independent process. This bypasses the <a href="@url">Number of files Global setting</a> that would otherwise trigger this behavior.',
+          ['@url' => Url::fromRoute('strawberryfield.file_persister_settings_form')->toString()]
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
+      $form['force_file_process'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t(
+          'Re download and reprocess every file'
+        ),
+        '#description' => $this->t(
+          'Check this to force every file attached to an ADO to be downloaded and characterized again, even if on a previous Batch run that data was already generated for reuse. Needed if e.g the URL of a file is the same but the remote source changed.'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
     }
     return $form + parent::buildForm($form, $form_state);
   }
@@ -289,7 +319,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       'title' => $this->t('Batch processing your Set'),
       'operations' => [],
       'finished' => ['\Drupal\ami\AmiBatchQueue', 'finish'],
-      'progress_message' => t('Processing Set @current of @total.'),
+      'progress_message' => t('Processing Set @current of @total. Estimated time left: @estimate, elapsed: @elapsed.'),
     ];
     $batch['operations'][] = [
       '\Drupal\ami\AmiBatchQueue::takeOne',

@@ -17,6 +17,7 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\FileSystemInterface;
+use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerTrait;
@@ -26,10 +27,13 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\file\Entity\File;
 use Drupal\file\FileUsage\FileUsageInterface;
+use Drupal\strawberryfield\StrawberryfieldFileMetadataService;
+use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
+use SplFileObject;
 
 class AmiUtilityService {
 
@@ -149,6 +153,25 @@ class AmiUtilityService {
   protected $httpClient;
 
   /**
+   * Key value service.
+   *
+   * @var \Drupal\Core\KeyValueStore\KeyValueFactoryInterface
+   */
+  protected $keyValue;
+
+  /**
+   * @var \Drupal\ami\AmiLoDService
+   */
+  protected $AmiLoDService;
+
+  /**
+   * The Strawberry Field File Metadata Service.
+   *
+   * @var \Drupal\strawberryfield\StrawberryfieldFileMetadataService
+   */
+  protected $strawberryfieldFileMetadataService;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -162,9 +185,12 @@ class AmiUtilityService {
    * @param \Drupal\Component\Transliteration\TransliterationInterface $transliteration
    * @param \Drupal\Core\Extension\ModuleHandlerInterface $module_handler
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
-   * @param StrawberryfieldUtilityService $strawberryfield_utility_service ,
+   * @param StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param \Drupal\Core\Entity\EntityFieldManagerInterface $entity_field_manager
    * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
+   * @param \GuzzleHttp\ClientInterface $http_client
+   * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
+   * @param \Drupal\strawberryfield\StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -181,7 +207,10 @@ class AmiUtilityService {
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     EntityFieldManagerInterface $entity_field_manager,
     EntityTypeBundleInfoInterface $entity_type_bundle_info,
-    ClientInterface $http_client
+    ClientInterface $http_client,
+    AmiLoDService $ami_lod,
+    KeyValueFactoryInterface $key_value,
+    StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -204,6 +233,9 @@ class AmiUtilityService {
     $this->entityTypeBundleInfo = $entity_type_bundle_info;
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
+    $this->AmiLoDService = $ami_lod;
+    $this->keyValue = $key_value;
+    $this->strawberryfieldFileMetadataService = $strawberryfield_file_metadata_service;
   }
 
 
@@ -222,17 +254,6 @@ class AmiUtilityService {
       || \Drupal\Component\Uuid\Uuid::isValid(
         $val
       ));
-  }
-
-  /**
-   * Array value callback. True if value is not an array.
-   *
-   * @param mixed $val
-   *
-   * @return bool
-   */
-  private function isNotArray($val) {
-    return !is_array($val);
   }
 
   /**
@@ -278,6 +299,7 @@ class AmiUtilityService {
     ) {
       // Now that we know its not remote, try with our registered schemas
       // means its either private/public/s3, etc
+
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
         if (!file_exists($uri)) {
@@ -325,15 +347,28 @@ class AmiUtilityService {
       }
     }
     else {
-      // This is remote!
+      // This may be remote!
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
       $localfile = file_build_uri(
         $this->fileSystem->basename($parsed_url['path'])
       );
+      $md5uri = md5($uri);
+      $path = str_replace(
+          '///',
+          '//',
+          "{$destination}/"
+        ) . $md5uri . '_' . $this->fileSystem->basename(
+          $parsed_url['path']
+        );
+      if ($isthere = glob($this->fileSystem->realpath($path).'.*')) {
+// Ups its here
+        if (count($isthere) == 1) {
+          $localfile = $isthere[0];
+        }
+      }
+      // Actual remote heavy lifting only if not present.
       if (!file_exists($localfile)) {
-        // Actual remote heavy lifting only if not present.
-
         if (!$this->fileSystem->prepareDirectory(
           $destination,
           FileSystemInterface::CREATE_DIRECTORY
@@ -403,7 +438,6 @@ class AmiUtilityService {
     $localfile = FALSE;
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
-    $mime = 'application/octet-stream';
     if (!isset($destination)) {
       $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
     }
@@ -430,10 +464,11 @@ class AmiUtilityService {
     catch (\Exception $exception) {
       $this->messenger()->addError(
         $this->t(
-          'Unable to download remote file from @uri to local @path. Verify URL exists, its openly accessible and destination is writable.',
+          'Unable to download remote file from @uri to local @path with error: @error. Verify URL exists, its openly accessible and destination is writable.',
           [
             '@uri' => $uri,
             '@path' => $path,
+            '@error' => $exception->getMessage()
           ]
         )
       );
@@ -514,6 +549,7 @@ class AmiUtilityService {
    *   - If it fails, FALSE.
    */
   public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file) {
+    $zip_realpath = NULL;
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
@@ -537,6 +573,13 @@ class AmiUtilityService {
     try {
       $realpath = $this->fileSystem->realpath($path);
       $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+      // Means Mr. Zip is in S3 or who knows where
+      // And ZipArchive (Why!!) can not stream from remote
+      // @TODO write once for all a remote ZIP file streamer DIEGO
+      if (!$zip_realpath) {
+        // This will add a delay once...
+        $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+      }
       $z = new \ZipArchive();
       $contents = NULL;
       if ($z->open($zip_realpath)) {
@@ -556,7 +599,8 @@ class AmiUtilityService {
         // Opening the ZIP file failed.
         return FALSE;
       }
-    } catch (\Exception $exception) {
+    }
+    catch (\Exception $exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to extract file @uri from ZIP @zip to local @path. Verify ZIP exists, its readable and destination is writable.',
@@ -567,8 +611,8 @@ class AmiUtilityService {
           ]
         )
       );
-      return FALSE;
     }
+    return FALSE;
   }
 
   /**
@@ -615,12 +659,15 @@ class AmiUtilityService {
   /**
    * Creates an empty CSV returns file.
    *
+   * @param string|null $filename
+   *    If given it will use that, if null will create a new one
+   *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_touch() {
+  public function csv_touch(string $filename = NULL) {
     $path = 'public://ami/csv';
-    $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
+    $filename = $filename ?? $this->currentUser->id() . '-' . uniqid() . '.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
       $path,
@@ -656,6 +703,8 @@ class AmiUtilityService {
    *
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
+   *   $data should contain two keys, 'headers' and 'data'
+   *   'data' will be rows and may/not be associative.
    *
    * @param string $uuid_key
    *
@@ -698,15 +747,18 @@ class AmiUtilityService {
       );
       return NULL;
     }
-    $realpath = $this->fileSystem->realpath($file->getFileUri());
-    $fh = new \SplFileObject($realpath, 'w');
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
+    $url = $wrapper->getUri();
+    $fh = new SplFileObject($url, 'w');
     if (!$fh) {
       $this->messenger()->addError(
         $this->t('Error reading back the just written file!.')
       );
       return NULL;
     }
-    array_walk($data['headers'], 'htmlspecialchars');
     // How we want to get the key number that contains the $uuid_key
     $haskey = array_search($uuid_key, $data['headers']);
     if ($haskey === FALSE) {
@@ -721,16 +773,23 @@ class AmiUtilityService {
         $row[0] = Uuid::uuid4();
       }
       else {
-        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
-          $row[$haskey] = Uuid::uuid4();
+        // In case Data is passed as an associative Array
+        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($row)) {
+          if (!isset($row[$uuid_key]) || empty(trim($row[$uuid_key])) || !Uuid::isValid(trim($row[$uuid_key]))) {
+            $row[$uuid_key] = Uuid::uuid4();
+          }
+        }
+        else {
+          if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+            $row[$haskey] = Uuid::uuid4();
+          }
         }
       }
 
-      array_walk($row, 'htmlspecialchars');
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
-    clearstatcache(TRUE, $realpath);
+    clearstatcache(TRUE, $url);
     $size = $fh->getSize();
     // This is how you close a \SplFileObject
     $fh = NULL;
@@ -755,57 +814,71 @@ class AmiUtilityService {
 
 
   /**
-   * Creates an CSV from array and returns file.
+   * Appends CSV from array and returns file.
    *
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
    *
    * @param \Drupal\file\Entity\File $file
    *
-   * @param string $uuid_key
+   * @param string|null $uuid_key
+   *    IF NULL then no attempt of using UUIDS will be made.
+   *    Needed for LoD Reconciling CSVs
    * @param bool $append_header
    *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header) {
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE) {
 
-    $realpath = $this->fileSystem->realpath($file->getFileUri());
-    $fh = new \SplFileObject($realpath, 'a');
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
+    $url = $wrapper->getUri();
+    $fh = new \SplFileObject($url, 'a');
     if (!$fh) {
       $this->messenger()->addError(
         $this->t('Error reading the CSV file!.')
       );
       return NULL;
     }
-    array_walk($data['headers'], 'htmlspecialchars');
     // How we want to get the key number that contains the $uuid_key
-    $haskey = array_search($uuid_key, $data['headers']);
-    if ($haskey === FALSE) {
-      array_unshift($data['headers'], $uuid_key);
+    if ($uuid_key) {
+      $haskey = array_search($uuid_key, $data['headers']);
+      if ($haskey === FALSE) {
+        array_unshift($data['headers'], $uuid_key);
+      }
     }
-
     if ($append_header) {
       $fh->fputcsv($data['headers']);
     }
 
     foreach ($data['data'] as $row) {
-      if ($haskey === FALSE) {
-        array_unshift($row, $uuid_key);
-        $row[0] = Uuid::uuid4();
-      }
-      else {
-        if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
-          $row[$haskey] = Uuid::uuid4();
+      if ($uuid_key) {
+        if ($haskey === FALSE) {
+          array_unshift($row, $uuid_key);
+          $row[0] = Uuid::uuid4();
+        }
+        else {
+          // In case Data is passed as an associative Array
+          if (StrawberryfieldJsonHelper::arrayIsMultiSimple($row)) {
+            if (!isset($row[$uuid_key]) || empty(trim($row[$uuid_key])) || !Uuid::isValid(trim($row[$uuid_key]))) {
+              $row[$uuid_key] = Uuid::uuid4();
+            }
+          }
+          else {
+            if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+              $row[$haskey] = Uuid::uuid4();
+            }
+          }
         }
       }
 
-      //array_walk($row, 'htmlspecialchars');
-      array_walk($row,'htmlentities');
       $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
-    clearstatcache(TRUE, $realpath);
+    clearstatcache(TRUE, $url);
     $size = $fh->getSize();
     // This is how you close a \SplFileObject
     $fh = NULL;
@@ -818,45 +891,85 @@ class AmiUtilityService {
 
   /**
    * @param \Drupal\file\Entity\File $file
+   * @param int $offset
+   *    Where to start to read the file, starting from 0.
+   * @param int $count
+   *    Number of results, 0 will fetch all
+   * @param bool $always_include_header
+   *    Always return header even with an offset.
    *
    * @return array|null
+   *   Returning array will be in this form:
+   *    'headers' => $rowHeaders_utf8 or [] if $always_include_header == FALSE
+   *    'data' => $table,
+   *    'totalrows' => $maxRow,
    */
-  public function csv_read(File $file) {
+  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
       return NULL;
     }
 
-    $url = $wrapper->realpath();
+    $url = $wrapper->getUri();
     $spl = new \SplFileObject($url, 'r');
+    if ($offset > 0) {
+      // We only set this flags when an offset is present.
+      // Because if not fgetcsv is already dealing with multi line CSV rows.
+      $spl->setFlags(
+        SplFileObject::READ_CSV |
+        SplFileObject::READ_AHEAD |
+        SplFileObject::SKIP_EMPTY |
+        SplFileObject::DROP_NEW_LINE
+      );
+    }
+
+    if ($offset > 0 && !$always_include_header) {
+      // If header needs to be included then we offset later on
+      $spl->seek($offset);
+    }
     $data = [];
-    while (!$spl->eof()) {
+    $seek_to_offset = ($offset > 0 && $always_include_header);
+    while (!$spl->eof() && ($count == 0 || ($spl->key() < ($offset + $count)))) {
       $data[] = $spl->fgetcsv();
+      if ($seek_to_offset) {
+        $spl->seek($offset);
+        // So we do not process this again.
+        $seek_to_offset = FALSE;
+      }
     }
 
     $table = [];
     $maxRow = 0;
 
     $highestRow = count($data);
+    if ($always_include_header) {
+      $rowHeaders = $data[0];
+      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
+      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $headercount = count($rowHeaders);
+    }
+    else {
+      $rowHeaders = $rowHeaders_utf8 = [];
+      $not_a_header = $data[0] ?? [];
+      $headercount = count($not_a_header);
+    }
 
-    $rowHeaders = $data[0];
-    $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
-    $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-    $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-    $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
-
-    $headercount = count($rowHeaders);
 
     if (($highestRow) >= 1) {
       // Returns Row Headers.
 
       $maxRow = 1; // at least until here.
+      $rowindex = 0;
       foreach ($data as $rowindex => $row) {
         if ($rowindex == 0) {
           // Skip header
           continue;
         }
+        // Ensure row is always an array.
+        $row = $row ?? [];
         $flat = trim(implode('', $row));
         //check for empty row...if found stop there.
         if (strlen($flat) == 0) {
@@ -864,7 +977,7 @@ class AmiUtilityService {
           break;
         }
         // This was done already by the Import Plugin but since users
-        // Could eventually reupload the spreadsheet better so
+        // Could eventually re upload the spreadsheet better so
         $row = $this->arrayEquallySeize(
           $headercount,
           $row
@@ -872,16 +985,14 @@ class AmiUtilityService {
         // Offsetting all rows by 1. That way we do not need to remap numeric parents
         $table[$rowindex + 1] = $row;
       }
-      $maxRow = $rowindex;
+      $maxRow = $maxRow ?? $rowindex;
     }
 
-    $tabdata = [
+    return  [
       'headers' => $rowHeaders_utf8,
       'data' => $table,
       'totalrows' => $maxRow,
     ];
-
-    return $tabdata;
 
   }
 
@@ -899,7 +1010,7 @@ class AmiUtilityService {
     if (!$wrapper) {
       return NULL;
     }
-    $url = $wrapper->realpath();
+    $url = $wrapper->getUri();
     // New temp file for the output
     $path = 'public://ami/csv';
     $filenametemp = $this->currentUser->id() . '-' . uniqid() . '_clean.csv';
@@ -955,7 +1066,30 @@ class AmiUtilityService {
     return $file->id();
   }
 
+  /**
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @return int
+   */
+  public function csv_count(File $file) {
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return NULL;
+    }
 
+    $url = $wrapper->getUri();
+    $spl = new \SplFileObject($url, 'r');
+    $spl->setFlags(
+      SplFileObject::READ_CSV |
+      SplFileObject::READ_AHEAD |
+      SplFileObject::SKIP_EMPTY |
+      SplFileObject::DROP_NEW_LINE
+    );
+    $spl->seek(PHP_INT_MAX);
+    $key = $spl->key();
+    $spl = NULL;
+    return $key;
+  }
 
   /**
    * Deal with different sized arrays for combining
@@ -1038,6 +1172,31 @@ class AmiUtilityService {
   }
 
   /**
+   * From a given CSV files returns different values for a list of columns
+   *
+   * @param \Drupal\file\Entity\File $file
+   * @param array $columns
+   *
+   * @return array
+   *   An Associative Array keyed by Column name
+   */
+  public function provideDifferentColumnValuesFromCSV(File $file, array $columns):array {
+    $data = $this->csv_read($file);
+    $column_keys = $data['headers'] ?? [];
+    $alldifferent = [];
+    foreach ($columns as $column) {
+      $column_index = array_search($column, $column_keys);
+      if ($column_index !== FALSE) {
+        $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
+          $column_index);
+      }
+    }
+    return $alldifferent;
+  }
+
+
+
+  /**
    * Returns a list Metadata Displays.
    *
    * @return array
@@ -1070,8 +1229,6 @@ class AmiUtilityService {
    * Returns WebformOptions marked as Archipelago
    *
    * @return array
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function getWebformOptions():array {
     try {
@@ -1159,8 +1316,6 @@ class AmiUtilityService {
    * @param \Drupal\Core\Session\AccountInterface|null $account
    *
    * @return \Drupal\Core\Access\AccessResultInterface|bool
-   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
-   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
   public function checkBundleAccess(string $bundle, AccountInterface $account = NULL) {
     try {
@@ -1204,6 +1359,15 @@ class AmiUtilityService {
     return $fields;
   }
 
+  /**
+   * Creates an AMI Set using a stdClass Object
+   *
+   * @param \stdClass $data
+   *
+   * @return int|mixed|string|null
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
   public function createAmiSet(\stdClass $data) {
     // See \Drupal\ami\Entity\amiSetEntity
     $current_user_name = $this->currentUser->getDisplayName();
@@ -1217,10 +1381,12 @@ class AmiUtilityService {
       'column_keys' => $data->column_keys,
       'total_rows' => $data->total_rows,
     ];
+    $zipfail = FALSE;
+    $name = $data->name ?? 'AMI Set of ' . $current_user_name;
     $jsonvalue = json_encode($set, JSON_PRETTY_PRINT);
     /* @var \Drupal\ami\Entity\amiSetEntity $entity */
     $entity = $this->entityTypeManager->getStorage('ami_set_entity')->create(
-      ['name' => 'AMI Set of ' . $current_user_name]
+      ['name' => $name]
     );
     $entity->set('set', $jsonvalue);
     $entity->set('source_data', [$data->csv]);
@@ -1228,10 +1394,40 @@ class AmiUtilityService {
     $entity->set('status', 'ready');
     try {
       $result = $entity->save();
+      // Now ensure we move the Zip file if any to private
+      if ($this->streamWrapperManager->isValidScheme('private') && $data->zip) {
+        $target_directory = 'private://ami/zip';
+        // Ensure the directory
+        if (!$this->fileSystem->prepareDirectory(
+          $target_directory,
+          FileSystemInterface::CREATE_DIRECTORY
+          | FileSystemInterface::MODIFY_PERMISSIONS
+        )) {
+          $zipfail = TRUE;
+        }
+        else {
+          $zipfile = $this->entityTypeManager->getStorage('file')
+            ->load($data->zip);
+          if (!$zipfile) {
+            $zipfail = TRUE;
+          } else {
+            $zipfile = file_move($zipfile, $target_directory, FileSystemInterface::EXISTS_REPLACE);
+            if (!$zipfile) {
+              $zipfail = TRUE;
+            }
+          }
+        }
+      }
+      if ($zipfail) {
+        $this->messenger()->addError(
+          $this->t(
+            'ZIP file attached to Ami Set entity could not be moved to Private storage. Please check with your system admin if you have permissions.',
+          ));
+      }
     }
     catch (\Exception $exception) {
       $this->messenger()->addError(
-        t(
+        $this->t(
           'Ami Set entity Failed to be persisted because of @message',
           ['@message' => $exception->getMessage()]
         )
@@ -1287,7 +1483,7 @@ class AmiUtilityService {
       // Each row will be an object.
       $ado = [];
       $ado['type'] = trim(
-        $row[$data->mapping->type_key]
+        $row[$data->mapping->type_key] ?? 'Thing'
       );
       // Lets start by grouping by parents, namespaces and generate uuids
       // namespaces are inherited, so we just need to find collection
@@ -1359,7 +1555,7 @@ class AmiUtilityService {
             // SO WE ARE OFFSET by 1, substract 1
             $parent_numeric = intval(trim($parent_ado));
             $parent_hash[$parent_key][$parent_numeric][$index] = $index;
-            $parentchilds = [];
+
             // Lets check if the index actually exists before going crazy.
 
             // If parent is empty that is OK here. WE are Ok with no membership!
@@ -1373,7 +1569,6 @@ class AmiUtilityService {
               // Only traverse if we don't have this index or the parent one
               // in the invalid register.
               $parentchilds = [];
-              $i = 0;
               while (!$rootfound) {
                 $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
                 if ($this->isRootParent($parentup)) {
@@ -1512,6 +1707,8 @@ class AmiUtilityService {
         // But safer to check both in case someone manually edited the set.
         $required_headers = array_merge($required_headers, array_values((array)$data->column_keys));
       }
+      // We use internally Lower case Headers.
+      $required_headers = array_map('strtolower', $required_headers);
       $headers_missing = array_diff(array_unique($required_headers), $file_data_all['headers']);
       if (count($headers_missing)) {
         $message = $this->t(
@@ -1611,6 +1808,49 @@ class AmiUtilityService {
       if ($json_error == JSON_ERROR_NONE) {
         $value = $expanded;
       }
+      else {
+        // Check if this may even be a JSON someone messed up
+
+        if (is_string($value) &&
+          (
+            (strpos(ltrim($value), '{') === 0) ||
+            (strpos(ltrim($value), '[') === 0)
+          )
+        ) {
+          // Ok, it actually starts with a {}
+          // try to clean up.
+          $quotes = array(
+            "\xC2\xAB"     => '"', // « (U+00AB) in UTF-8
+            "\xC2\xBB"     => '"', // » (U+00BB) in UTF-8
+            "\xE2\x80\x98" => "'", // ‘ (U+2018) in UTF-8
+            "\xE2\x80\x99" => "'", // ’ (U+2019) in UTF-8
+            "\xE2\x80\x9A" => "'", // ‚ (U+201A) in UTF-8
+            "\xE2\x80\x9B" => "'", // ‛ (U+201B) in UTF-8
+            "\xE2\x80\x9C" => '"', // “ (U+201C) in UTF-8
+            "\xE2\x80\x9D" => '"', // ” (U+201D) in UTF-8
+            "\xE2\x80\x9E" => '"', // „ (U+201E) in UTF-8
+            "\xE2\x80\x9F" => '"', // ‟ (U+201F) in UTF-8
+            "\xE2\x80\xB9" => "'", // ‹ (U+2039) in UTF-8
+            "\xE2\x80\xBA" => "'", // › (U+203A) in UTF-8
+          );
+          $possiblejson  = strtr($value, $quotes);
+          $expanded = json_decode($possiblejson, TRUE);
+          $json_error = json_last_error();
+          // Last chance to be JSON. Allison says e.g EDTF may start with []
+          // So do not nullify. Simply keep the mess.
+          if ($json_error == JSON_ERROR_NONE) {
+            $value = $expanded;
+          }
+          elseif (substr( $colum, 0, 3 ) === "as:" ||
+            substr( $colum, 0, 3 ) === "ap:"
+          ) {
+            // We can not allow wrong JSON to permeate into controlled
+            // by us properties
+            // @TODO apply a JSON Schema validator at the end.
+            $value = NULL;
+          }
+        }
+      }
     }
     return $row;
   }
@@ -1641,13 +1881,18 @@ class AmiUtilityService {
    *      "uuid" => "5d4f8ed7-7471-4115-beed-39dc1e625180"
    *      ]
    *
+   * @param array $additional_context
+   *    Any additional $context that may be passed. This is appended to the
+   *    Twig context but will never replace/override the one provided
+   *    by this method.
+   *
    * @return string|NULL
    *    Either a valid JSON String or NULL if casting via Twig template failed
    *
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  public function processMetadataDisplay(\stdClass $data) {
+  public function processMetadataDisplay(\stdClass $data, array $additional_context = []) {
     $op = $data->pluginconfig->op;
     $ophuman = [
       'create' => 'created',
@@ -1673,11 +1918,28 @@ class AmiUtilityService {
     }
     $jsonstring = NULL;
     if ($data->mapping->globalmapping == "custom") {
-      $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template;
+      $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template ?? NULL;
     }
     else {
-      $metadatadisplay_id = $data->mapping->globalmapping_settings->metadata_config->template;
+      $metadatadisplay_id = $data->mapping->globalmapping_settings->metadata_config->template ?? NULL;
     }
+    if (!$metadatadisplay_id) {
+      if (!$data->info['row']['data']) {
+        $message = $this->t(
+          'Ups. No template mapping for type @type. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
+          [
+            '@uuid' => $data->info['row']['uuid'],
+            '@row' => $row_id,
+            '@setid' => $set_id,
+            '@type' => $data->info['row']['type'],
+          ]
+        );
+        $this->loggerFactory->get('ami')->error($message);
+        return NULL;
+      }
+    }
+
+
     $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
@@ -1762,6 +2024,33 @@ class AmiUtilityService {
       }
 
       $context['data'] = $this->expandJson($data->info['row']['data']);
+      $context_lod = [];
+      // get the mappings for this set if any
+      // @TODO Refactor into a Method?
+      $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
+      if ($lod_mappings) {
+        foreach($lod_mappings as $source_column => $destination) {
+          if (isset($context['data'][$source_column])) {
+            // sad here. Ok, this is a work around for our normally
+            // Strange CSV data structure
+            $data_to_clean['data'][0] = [$context['data'][$source_column]];
+            $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
+              0);
+            foreach($labels as $label) {
+              $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
+              if (is_array($lod_for_label) && count($lod_for_label) > 0) {
+                foreach ($lod_for_label as $approach => $lod) {
+                  if (isset($lod['lod'])) {
+                    $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      $context['data_lod'] = $context_lod;
       $context['dataOriginal'] = $original_value;
       $context['setURL'] = $setURL;
       $context['setId'] = $set_id;
@@ -1769,7 +2058,8 @@ class AmiUtilityService {
       $context['setOp'] = ucfirst($op);
 
       $context['node'] = $node;
-
+      // Add any extras passed to the caller.
+      $context = $context + $additional_context;
       $original_context = $context;
       // Allow other modules to provide extra Context!
       // Call modules that implement the hook, and let them add items.
@@ -1823,26 +2113,65 @@ class AmiUtilityService {
     return $jsonstring;
   }
 
-  public function processWebform($data, array $row) {
-
+  /**
+   * For a given Numeric Column index, get different/non json, split values
+   *
+   * @param array $data
+   * @param int $key
+   *
+   * @param array $delimiters
+   *
+   * @return array
+   */
+  public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
+    $unique = [];
+    $all = array_column($data['data'], $key);
+    $all_notJson = array_filter($all,  array($this, 'isNotJson'));
+    $all_entries = [];
+    // The difficulty. In case of multiple delimiters we need to see which one
+    // works/works better. But if none, assume it may be also right since a single
+    // Value is valid. So we need to accumulate, count and discern
+    foreach ($all_notJson as $entries) {
+      $current_entries = [];
+      foreach ($delimiters as $delimiter) {
+        $split_entries = explode($delimiter, $entries) ?? [];
+        $current_entries[$delimiter] = (array) $split_entries;
+      }
+      $chosen_entries = [];
+      foreach ($current_entries as $delimiter => $current_entry) {
+        $chosen_entries = $current_entry;
+        if (count($chosen_entries) > 1) {
+          break;
+        }
+      }
+      foreach ($chosen_entries as $chosen_entry) {
+        $all_entries[] = $chosen_entry;
+      }
+    }
+    $unique = array_map('trim', $all_entries);
+    $unique = array_unique(array_values($unique), SORT_STRING);
+    return $unique;
+  }
+  /**
+   * Checks if a string is valid JSON
+   *
+   * @param $string
+   *
+   * @return bool
+   */
+  public function isJson($string) {
+    json_decode($string);
+    return json_last_error() === JSON_ERROR_NONE;
   }
 
-  public function ingestAdo($data, array $row) {
-
+  /**
+   * Helper function that negates ::isJson.
+   * @param $string
+   *
+   * @return bool
+   */
+  public function isNotJson($string) {
+    return !$this->isJson($string);
   }
-
-
-  public function updateAdo($data) {
-
-  }
-
-  public function patchAdo($data) {
-
-  }
-
-  public function deleteAdo($data) {
-
-  }
-
 
 }

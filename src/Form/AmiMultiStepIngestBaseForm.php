@@ -192,7 +192,6 @@ class AmiMultiStepIngestBaseForm extends FormBase {
     if ($form_state->getTriggeringElement()['#name'] == 'prev') {
       // No validation my friends.
     } else {
-      //@TODO each step has its own validation.
       return parent::validateForm($form, $form_state);
     }
   }

@@ -38,3 +38,15 @@ ami_set_entity.delete_process_form:
   base_route: entity.ami_set_entity.canonical
   title: Delete Processed ADOs
   weight: 12
+
+ami_set_entity.reconcile_form:
+  route_name: entity.ami_set_entity.reconcile_form
+  base_route: entity.ami_set_entity.canonical
+  title: Reconcile LoD
+  weight: 13
+
+entity.ami_set_entity.reconcileedit_form:
+  route_name: entity.ami_set_entity.reconcileedit_form
+  base_route: entity.ami_set_entity.canonical
+  title: Edit Reconciled LoD
+  weight: 14
