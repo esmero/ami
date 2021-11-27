@@ -148,8 +148,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('ami.lod'),
       $container->get('messenger'),
       $container->get('strawberryfield.file_persister'),
-      $container->get('tempstore.private'),
-
+      $container->get('tempstore.private')
     );
   }
 

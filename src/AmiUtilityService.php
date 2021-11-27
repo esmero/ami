@@ -319,7 +319,7 @@ class AmiUtilityService {
           // Try with the ZIP file in case there is a ZIP and local failed
           // Use the Zip file uuid to prefix the destination.
           $localfile = file_build_uri(
-            $this->fileSystem->basename($ami_temp_folder . $zip_file->uuid() . '/' . $parsed_url['path'])
+            $this->fileSystem->basename($ami_temp_folder . $zip_file->uuid() . '/' . urldecode($parsed_url['path']))
           );
           if (!file_exists($localfile)) {
             $destination_zip = $destination . $zip_file->uuid() . '/';
@@ -340,7 +340,8 @@ class AmiUtilityService {
               );
               return FALSE;
             }
-            $localfile = $this->retrieve_fromzip_file($uri, $destination_zip, FileSystemInterface::EXISTS_REPLACE, $zip_file);
+            $localfile = $this->retrieve_fromzip_file($uri, $destination_zip,
+              FileSystemInterface::EXISTS_REPLACE, $zip_file);
           }
         }
         $finaluri = $localfile;
@@ -351,18 +352,17 @@ class AmiUtilityService {
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
       $localfile = file_build_uri(
-        $this->fileSystem->basename($parsed_url['path'])
+        $this->fileSystem->basename(urldecode($parsed_url['path']))
       );
       $md5uri = md5($uri);
+      $destination = $destination . $md5uri . '/' ;
       $path = str_replace(
           '///',
           '//',
           "{$destination}/"
-        ) . $md5uri . '_' . $this->fileSystem->basename(
-          $parsed_url['path']
-        );
-      if ($isthere = glob($this->fileSystem->realpath($path).'.*')) {
-// Ups its here
+        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+      if ($isthere = glob($this->fileSystem->realpath($path) . '.*')) {
+        // Ups its here
         if (count($isthere) == 1) {
           $localfile = $isthere[0];
         }
@@ -439,7 +439,7 @@ class AmiUtilityService {
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
+      $path = file_build_uri($this->fileSystem->basename(urldecode($parsed_url['path'])));
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
@@ -448,9 +448,7 @@ class AmiUtilityService {
             '///',
             '//',
             "{$destination}/"
-          ) . $md5uri . '_' . $this->fileSystem->basename(
-            $parsed_url['path']
-          );
+          ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
       }
       else {
         $path = $destination;
@@ -460,15 +458,14 @@ class AmiUtilityService {
     try {
       $realpath = $this->fileSystem->realpath($path);
       $response = $this->httpClient->get($uri, ['sink' => $realpath]);
-    }
-    catch (\Exception $exception) {
+    } catch (\Exception $exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to download remote file from @uri to local @path with error: @error. Verify URL exists, its openly accessible and destination is writable.',
           [
             '@uri' => $uri,
             '@path' => $path,
-            '@error' => $exception->getMessage()
+            '@error' => $exception->getMessage(),
           ]
         )
       );
@@ -1421,7 +1418,7 @@ class AmiUtilityService {
       if ($zipfail) {
         $this->messenger()->addError(
           $this->t(
-            'ZIP file attached to Ami Set entity could not be moved to Private storage. Please check with your system admin if you have permissions.',
+            'ZIP file attached to Ami Set entity could not be moved to temporary storage. Please check with your system admin if you have permissions.'
           ));
       }
     }
