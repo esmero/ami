@@ -360,8 +360,7 @@ class AmiUtilityService {
           '///',
           '//',
           "{$destination}/"
-        ) . $this->fileSystem->basename(urldecode($parsed_url['path']))
-        );
+        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
       if ($isthere = glob($this->fileSystem->realpath($path) . '.*')) {
         // Ups its here
         if (count($isthere) == 1) {
