@@ -33,7 +33,7 @@ class SolrImporter extends SpreadsheetImporter {
   use StringTranslationTrait;
   use MessengerTrait;
 
-  const SOLR_FIELD_SUFFIX = ['_ms', '_mdt', '_s', '_dt'];
+  const SOLR_FIELD_SUFFIX = ['_ms', '_mdt', '_s', '_dt', '_t', '_mt', '_mlt'];
 
   const MULTICHILDREN_CMODELS = [
     'info:fedora/islandora:compoundCModel',
