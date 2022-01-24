@@ -216,64 +216,71 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           ]
         ];
         foreach ($alltypes as $column_index => $type) {
-          // Transliterate $types we can use them as machine names
-          $machine_type = $this->getMachineNameSuggestion($type);
-          $form['ingestsetup']['custommapping'][$type] = [
-            '#type' => 'details',
-            '#title' => t('For @type', ['@type' => $type]),
-            '#description' => t('Choose your transformation option'),
-            '#open' => TRUE, // Controls the HTML5 'open' attribute. Defaults to FALSE.
-          ];
-          // NEVER ADD A #NAME To dynamic/ajax select. It will get stuck in its default value.
-          $form['ingestsetup']['custommapping'][$type]['metadata'] = [
-            '#type' => 'select',
-            '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
-            '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : (key($metadata) ?? NULL),
-            '#options' => $metadata,
-            '#description' => $this->t('How your source data will be transformed into ADOs (JSON) Metadata.'),
-            '#required' => TRUE,
-            '#attributes' =>  [
-              'data-adotype' => 'metadata_'.$machine_type
-            ],
-          ];
-          // We need to reassign or if not circular references mess with the render array
-          $newelements = $element_conditional;
-          foreach ($newelements as $key => &$subelement) {
-            $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : key(${$key});
-            $subelement['#states'] = [
-              'visible' => [
-                ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
-              ],
-              'required' => [
-                ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
-              ]
+          if(empty($type)) {
+            $form['message-error'] = [
+              '#markup' => '<div class="error">' . $this->t('Your data needs to provide values in the "type" column for all ADO records. At least one record is missing a type. Double-check and correct your data, and begin again. ') . '</div>',
             ];
           }
-
-          $form['ingestsetup']['custommapping'][$type]['metadata_config'] = $newelements;
-          $form['ingestsetup']['custommapping'][$type]['bundle'] = $element['bundle'];
-
-          $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : key($bundle);
-
-          if ($op == 'update' || $op == 'patch') {
-            $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type replacing/clearing existing ones if there is already data in the same key in your ADO.', ['@type' => $type]);
-            $files_description = $this->t('<b>WARNING:</b> If you want to keep existing files for an existing column, Do <em>not</em> select it. <br/> If you do so those will be replaced by the new ones provided in your data set or deleted if the value under that column is EMPTY.<br/> AMI uses semicolons ";" to separate multiple files or URLs inside a single cell.');
-          }
           else {
-            $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type', ['@type' => $type]);
-            $files_description = $this->t('From where your files will be fetched to be uploaded and attached to an ADOs and described in the Metadata. <br/> AMI uses semicolons ";" to separate multiple files or URLs inside a single cell.');
-          }
+            // Transliterate $types we can use them as machine names
+            $machine_type = $this->getMachineNameSuggestion($type);
+            $form['ingestsetup']['custommapping'][$type] = [
+              '#type' => 'details',
+              '#title' => t('For @type', ['@type' => $type]),
+              '#description' => t('Choose your transformation option'),
+              '#open' => TRUE, // Controls the HTML5 'open' attribute. Defaults to FALSE.
+            ];
+            // NEVER ADD A #NAME To dynamic/ajax select. It will get stuck in its default value.
+            $form['ingestsetup']['custommapping'][$type]['metadata'] = [
+              '#type' => 'select',
+              '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
+              '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : (key($metadata) ?? NULL),
+              '#options' => $metadata,
+              '#description' => $this->t('How your source data will be transformed into ADOs (JSON) Metadata.'),
+              '#required' => TRUE,
+              '#attributes' =>  [
+                'data-adotype' => 'metadata_'.$machine_type
+              ],
+            ];
+            // We need to reassign or if not circular references mess with the render array
+            $newelements = $element_conditional;
+            foreach ($newelements as $key => &$subelement) {
+              $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : key(${$key});
+              $subelement['#states'] = [
+                'visible' => [
+                  ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
+                ],
+                'required' => [
+                  ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
+                ]
+              ];
+            }
 
-          $form['ingestsetup']['custommapping'][$type]['files'] = [
-            '#type' => 'select',
-            '#title' => $files_title,
-            '#default_value' => isset($mapping['custommapping_settings'][$type]['files']) ? $mapping['custommapping_settings'][$type]['files'] : [],
-            '#options' => array_combine($column_keys, $column_keys),
-            '#size' => count($column_keys),
-            '#multiple' => TRUE,
-            '#description' => $files_description,
-            '#empty_option' => $this->t('- Please select columns for @type -', ['@type' => $type]),
-          ];
+            $form['ingestsetup']['custommapping'][$type]['metadata_config'] = $newelements;
+            $form['ingestsetup']['custommapping'][$type]['bundle'] = $element['bundle'];
+
+            $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : key($bundle);
+
+            if ($op == 'update' || $op == 'patch') {
+              $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type replacing/clearing existing ones if there is already data in the same key in your ADO.', ['@type' => $type]);
+              $files_description = $this->t('<b>WARNING:</b> If you want to keep existing files for an existing column, Do <em>not</em> select it. <br/> If you do so those will be replaced by the new ones provided in your data set or deleted if the value under that column is EMPTY.<br/> AMI uses semicolons ";" to separate multiple files or URLs inside a single cell.');
+            }
+            else {
+              $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type', ['@type' => $type]);
+              $files_description = $this->t('From where your files will be fetched to be uploaded and attached to an ADOs and described in the Metadata. <br/> AMI uses semicolons ";" to separate multiple files or URLs inside a single cell.');
+            }
+
+            $form['ingestsetup']['custommapping'][$type]['files'] = [
+              '#type' => 'select',
+              '#title' => $files_title,
+              '#default_value' => isset($mapping['custommapping_settings'][$type]['files']) ? $mapping['custommapping_settings'][$type]['files'] : [],
+              '#options' => array_combine($column_keys, $column_keys),
+              '#size' => count($column_keys),
+              '#multiple' => TRUE,
+              '#description' => $files_description,
+              '#empty_option' => $this->t('- Please select columns for @type -', ['@type' => $type]),
+            ];
+          }
         }
       }
       else {
