@@ -100,10 +100,18 @@ class SpreadsheetImporter extends ImporterAdapterBase {
 
       try {
         $inputFileType = IOFactory::identify($file_path);
+        // Because of \PhpOffice\PhpSpreadsheet\Cell\DataType::checkString we can
+        // Not use this library for CSVs that contain large JSONs
+        // Since we do not know if they contain that, we will
+        // assume so (maybe a user choice in the future)
+        if ($inputFileType == 'Csv') {
+          return $this->AmiUtilityService->csv_read($file, 0, 0, TRUE) ?? $tabdata;
+        }
         $objReader = IOFactory::createReader($inputFileType);
         $objReader->setReadDataOnly(TRUE);
         $objPHPExcel = $objReader->load($file_path);
-      } catch (\Exception $e) {
+      }
+      catch (\Exception $e) {
         $this->messenger()->addMessage(
           t(
             'Could not parse file with error: @error',
