@@ -921,13 +921,8 @@ class SolrImporter extends SpreadsheetImporter {
           }
 
           $headers[$fieldname] = $fieldname;
-          if (is_array($value)) {
-            if (!empty($sp_data[$resultset_iterator->key()][$fieldname])) {
-              $original_value = explode('|@|', $sp_data[$resultset_iterator->key()][$fieldname]) ?? [];
-              $value = array_unique(array_merge($original_value, $value));
-            }
-            $value = implode('|@|', array_unique($value));
-          }
+          $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
+          $value = $this->concatValues((array) $value, $original_value);
           $sp_data[$resultset_iterator->key()][$fieldname] = $value;
         }
         // Let's add generic all columns needed for files.
@@ -1028,7 +1023,7 @@ class SolrImporter extends SpreadsheetImporter {
    * @return string
    */
   protected function concatValues(array $value, string $original_value = NULL): string {
-    if (!empty($oldvalue)) {
+    if (!empty($original_value)) {
       $original_value = explode('|@|', $original_value) ?? [];
       $value = array_unique(array_merge($original_value, $value));
     }
