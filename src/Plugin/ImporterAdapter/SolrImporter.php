@@ -550,10 +550,8 @@ class SolrImporter extends SpreadsheetImporter {
             }
             $headers[$fieldname] = $fieldname;
             // this converts multi valued fields to a |@|  string
-            if (is_array($value)) {
-              $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
-              $value = $this->concatValues($value, $original_value);
-            }
+            $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
+            $value = $this->concatValues((array) $value, $original_value);
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
@@ -566,7 +564,7 @@ class SolrImporter extends SpreadsheetImporter {
           continue;
         }
       }
-      //$headers = $allheaders_array;
+      // $headers = $allheaders_array;
       // Also add these base ones to the headers
       foreach (static::FILE_COLUMNS as $column) {
         $headers[$column] = $column;
@@ -747,10 +745,8 @@ class SolrImporter extends SpreadsheetImporter {
             }
             $fieldname = $this->multipleToSingleFieldName($field);
             $headers[$fieldname] = $fieldname;
-            if (is_array($value)) {
-              $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
-              $value = $this->concatValues($value, $original_value);
-            }
+            $original_value = $sp_data[$resultset_iterator->key()][$fieldname] ?? NULL;
+            $value = $this->concatValues((array) $value, $original_value);
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
