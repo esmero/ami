@@ -543,9 +543,12 @@ class AmiUtilityService {
    * @return mixed
    *   One of these possibilities:
    *   - If it succeeds an managed file object
-   *   - If it fails, FALSE.
+   *   - If it fails or NULL, FALSE.
    */
-  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file) {
+  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file = NULL) {
+    if (!$zip_file) {
+      return FALSE;
+    }
     $zip_realpath = NULL;
     $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
@@ -1073,6 +1076,7 @@ class AmiUtilityService {
     if (!$wrapper) {
       return NULL;
     }
+    $key = 0;
 
     $url = $wrapper->getUri();
     $spl = new \SplFileObject($url, 'r');
@@ -1082,10 +1086,21 @@ class AmiUtilityService {
       SplFileObject::SKIP_EMPTY |
       SplFileObject::DROP_NEW_LINE
     );
+    while (!$spl->eof()) {
+       $spl->fgetcsv();
+       $key = $spl->key();
+    }
+
+    /*
+    PHP 8 fails on seeking on lines with JSON content and either returns
+    0 lines (with the flags) or way more without the flags
     $spl->seek(PHP_INT_MAX);
     $key = $spl->key();
+    */
+
     $spl = NULL;
-    return $key;
+    // $key is always offset by 1.
+    return $key + 1;
   }
 
   /**
