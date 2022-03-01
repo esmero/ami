@@ -89,6 +89,13 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
   /**
    * {@inheritdoc}
    */
+  public function getDescription() {
+    return $this->t('This action will overwrite any manually corrected LoD on your Processed CSV. Please make sure you have a backup if unsure.');
+  }
+
+  /**
+   * {@inheritdoc}
+   */
   public function buildForm(array $form, FormStateInterface $form_state) {
     // Read Config first to get the Selected Bundles based on the Config
     // type selected. Based on that we can set Moderation Options here
@@ -485,6 +492,19 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       '\Drupal\ami\AmiLoDBatchQueue::takeOne',
       [$queue_name, $this->entity->id()],
     ];
+    /* Because batch set will run on Ajax
+    and we want that afterwards the form is fresh
+    we remove $userInput to force a rebuild */
+    $userInput = $form_state->getUserInput();
+    $keys = $form_state->getCleanValueKeys();
+
+    $newInputArray = [];
+    foreach ($keys as $key) {
+      if ($key == "op")  continue;
+      $newInputArray[$key] = $userInput[$key];
+    }
+    $form_state->setUserInput($newInputArray);
+
     batch_set($batch);
   }
 
