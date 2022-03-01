@@ -485,6 +485,19 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       '\Drupal\ami\AmiLoDBatchQueue::takeOne',
       [$queue_name, $this->entity->id()],
     ];
+    /* Because batch set will run on Ajax
+    and we want that afterwards the form is fresh
+    we remove $userInput to force a rebuild */
+    $userInput = $form_state->getUserInput();
+    $keys = $form_state->getCleanValueKeys();
+
+    $newInputArray = [];
+    foreach ($keys as $key) {
+      if ($key == "op")  continue;
+      $newInputArray[$key] = $userInput[$key];
+    }
+    $form_state->setUserInput($newInputArray);
+
     batch_set($batch);
   }
 
