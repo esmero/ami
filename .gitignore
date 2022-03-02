@@ -47,6 +47,7 @@
 /robots.txt
 /update.php
 /web.config
+.idea
 .idea/$CACHE_FILE$
 .idea/ami.iml
 .idea/inspectionProfiles/profiles_settings.xml
