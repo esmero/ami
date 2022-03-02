@@ -260,8 +260,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
                 $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
                   '#type' => 'checkbox',
 		  '#default_value' => $checked,
-                  '#title' => $this
-                    ->t('revisioned'),
+                  '#title' => $this->t('revisioned'),
                   ];
               }
               else {
