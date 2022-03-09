@@ -138,9 +138,9 @@ class SolrImporter extends SpreadsheetImporter {
       '#title' => 'Solr Server Configuration',
       '#element_validate' => [[get_class($this), 'validateSolrConfig']],
       'islandora_collection' => [
-        '#type' => 'textfield',
+        '#type' => 'textarea',
         '#required' => TRUE,
-        '#title' => $this->t('PID(s) of the Islandora Collection(s) you want to fetch members for'),
+        '#title' => $this->t('PID(s) of the Islandora Collection(s) you want to fetch members for or Individual PIDs (non collections)'),
         '#description' => $this->t('Example: islandora:root. If multiple use one PID per line.'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'islandora_collection'])),
@@ -151,13 +151,6 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('If checked AMI will try to fetch Collections of Collections. Even if disabled, by default it will always get other parent/children hierarchies.'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'deep'])),
-      ],
-      'split' => [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Split into multiple AMI Sets'),
-        '#description' => $this->t('If "Deep traverse" is checked AMI will try to split the harvest into Multiple AMI Sets using the parent Collection Label as AMI Set label'),
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_config', 'split'])),
       ],
       'host' => [
         '#type' => 'textfield',
