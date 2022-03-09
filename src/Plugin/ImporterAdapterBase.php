@@ -96,7 +96,7 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
   /**
    * {@inheritdoc}
    */
-  public function interactiveForm(array $parents = [], FormStateInterface $form_state): array {
+  public function interactiveForm(array $parents, FormStateInterface $form_state): array {
     $form['op'] = [
       '#type' => 'select',
       '#title' => $this->t('Operation'),
