@@ -57,7 +57,7 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
    */
-  protected $streamWrapperManager;
+  protected StreamWrapperManagerInterface $streamWrapperManager;
 
   /**
    * @var \GuzzleHttp\ClientInterface
@@ -100,7 +100,7 @@ class SolrImporter extends SpreadsheetImporter {
   /**
    * {@inheritdoc}
    */
-  public function interactiveForm(array $parents = [], FormStateInterface $form_state): array {
+  public function interactiveForm(array $parents, FormStateInterface $form_state): array {
     // None of the interactive Form elements should be persisted as Config elements
     // Here.
     // Maybe we should have some annotation that says which ones for other plugins?
@@ -130,7 +130,6 @@ class SolrImporter extends SpreadsheetImporter {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
 
-
     $form['solarium_config'] = [
       '#prefix' => '<div id="ami-solrapi">',
       '#suffix' => '</div>',
@@ -139,12 +138,19 @@ class SolrImporter extends SpreadsheetImporter {
       '#title' => 'Solr Server Configuration',
       '#element_validate' => [[get_class($this), 'validateSolrConfig']],
       'islandora_collection' => [
-        '#type' => 'textfield',
+        '#type' => 'textarea',
         '#required' => TRUE,
-        '#title' => $this->t('PID of the Islandora Collection Members you want to fetch'),
-        '#description' => $this->t('Example: islandora:root'),
+        '#title' => $this->t('PID(s) of the Islandora Collection(s) you want to fetch members for or Individual PIDs (non collections)'),
+        '#description' => $this->t('Example: islandora:root. If multiple use one PID per line.'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'islandora_collection'])),
+      ],
+      'deep' => [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Deep Collection traverse'),
+        '#description' => $this->t('If checked AMI will try to fetch Collections of Collections. Even if disabled, by default it will always get other parent/children hierarchies.'),
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_config', 'deep'])),
       ],
       'host' => [
         '#type' => 'textfield',

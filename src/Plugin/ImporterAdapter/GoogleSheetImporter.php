@@ -36,7 +36,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   /**
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
    */
-  protected $streamWrapperManager;
+  protected StreamWrapperManagerInterface $streamWrapperManager;
 
   /**
    * @var \GuzzleHttp\ClientInterface
@@ -86,7 +86,7 @@ class GoogleSheetImporter extends SpreadsheetImporter {
   /**
    * {@inheritdoc}
    */
-  public function interactiveForm(array $parents = [], FormStateInterface $form_state):array {
+  public function interactiveForm(array $parents, FormStateInterface $form_state):array {
     // None of the interactive Form elements should be persisted as Config elements
     // Here.
     // Maybe we should have some annotation that says which ones for other plugins?

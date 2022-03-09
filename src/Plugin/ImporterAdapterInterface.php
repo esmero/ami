@@ -48,7 +48,7 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    *
    * @return array
    */
-  public function interactiveForm(array $parents = [], FormStateInterface $form_state): array;
+  public function interactiveForm(array $parents, FormStateInterface $form_state): array;
 
 
   /**
