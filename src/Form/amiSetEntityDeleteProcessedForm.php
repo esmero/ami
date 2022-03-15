@@ -132,17 +132,12 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         'patch',
       ];
       if (in_array($op, $ops)) {
-        $form['status'] = [
-          '#tree' => TRUE,
-          '#type' => 'fieldset',
-          '#title' => $this->t(
-            'Info'
-          ),
-          '#markup' => $this->t(
-            'This AMI set is setup to perform a <em><b>@op</b></em> operation so it can not be used to delete ADOs.',
-            ['@op' => $op]
-          ),
-        ];
+        $form = $form + parent::buildForm($form, $form_state);
+        $form['actions']['submit']['#access'] = FALSE;
+        $form['description']['#markup'] = $this->t(
+          'This AMI set is configured to perform a <em><b>@op</b></em> operation so it can not be used to delete ADOs.',
+          ['@op' => $op]
+        );
         return $form;
       }
 

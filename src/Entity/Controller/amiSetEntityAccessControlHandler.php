@@ -5,6 +5,7 @@ use Drupal\Core\Entity\EntityAccessControlHandler;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Access\AccessResult;
+use Drupal\ami\AmiUtilityService;
 
 class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
 
@@ -15,6 +16,14 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
    * $operation as defined in the routing.yml file.
    */
   protected function checkAccess(EntityInterface $entity, $operation, AccountInterface $account) {
+
+    // Deny access to delete processed ADOs when the AMI set is configured for update rather than create.
+    if($operation == 'deleteados') {
+      if(!AmiUtilityService::checkAmiSetDeleteAdosAccess($entity)) {
+        return AccessResult::forbidden("Deleting processed ADOs from an update AMI set is not supported.");
+      }
+    }
+
     if ($account->hasPermission('administer amiset entity')) {
       return AccessResult::allowed()->cachePerPermissions();
     }

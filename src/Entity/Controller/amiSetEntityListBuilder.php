@@ -4,6 +4,7 @@ namespace Drupal\ami\Entity\Controller;
 use Drupal\ami\amiSetEntityInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityListBuilder;
+use Drupal\ami\AmiUtilityService;
 
 
   /**
@@ -70,11 +71,16 @@ class amiSetEntityListBuilder extends EntityListBuilder {
         'weight' => 11,
         'url' => $this->ensureDestination($entity->toUrl('process-form')),
       ];
-      $operations['delete_processed'] = [
-        'title' => $this->t('Delete Processed ADOs'),
-        'weight' => 12,
-        'url' => $this->ensureDestination($entity->toUrl('delete-process-form')),
-      ];
+
+      // If applicable to the AMI Set, add the delete processed ADOs operation.
+      if(AmiUtilityService::checkAmiSetDeleteAdosAccess($entity)) {
+        $operations['delete_processed'] = [
+          'title' => $this->t('Delete Processed ADOs'),
+          'weight' => 12,
+          'url' => $this->ensureDestination($entity->toUrl('delete-process-form')),
+        ];
+      }
+
     }
     return $operations;
   }
