@@ -141,3 +141,13 @@ function ami_entity_update(Drupal\Core\Entity\EntityInterface $entity) {
     AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
   }
 }
+
+/**
+ * Implements hook_entity_delete().
+ */
+function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
+  if ($entity->getEntityTypeId() == 'ami_set_entity') {
+    // Invalidate AMI Set delete processed ADOs access check cache.
+    AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
+  }
+}
