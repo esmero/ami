@@ -289,7 +289,6 @@ class AmiUtilityService {
   public function file_get($uri, File $zip_file = NULL) {
     $parsed_url = parse_url($uri);
     $remote_schemes = ['http', 'https', 'feed'];
-    $finaluri = FALSE;
     $ami_temp_folder = 'ami/setfiles/';
     $destination = "temporary://" . $ami_temp_folder;
     if (!isset($parsed_url['scheme'])
@@ -361,12 +360,14 @@ class AmiUtilityService {
       $path = str_replace(
           '///',
           '//',
-          "{$destination}/"
+          "{$destination}"
         ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
       if ($isthere = glob($this->fileSystem->realpath($path) . '.*')) {
         // Ups its here
         if (count($isthere) == 1) {
-          $localfile = $isthere[0];
+          // Use path here instead of the first entry to keep the streamwrapper
+          // around for future use
+          $localfile = $path;
         }
       }
       // Actual remote heavy lifting only if not present.
@@ -390,8 +391,7 @@ class AmiUtilityService {
 
         $localfile = $this->retrieve_remote_file(
           $uri,
-          $destination,
-          FileSystemInterface::EXISTS_RENAME
+          $destination
         );
         $finaluri = $localfile;
       }
@@ -419,12 +419,6 @@ class AmiUtilityService {
    *     its original name. If the path contains a filename as well, that one
    *     will be used instead. If this value is omitted, the site's default
    *     files scheme will be used, usually "public://".
-   * @param int $replace
-   *     Replace behavior when the destination file already exists:
-   *     - FILE_EXISTS_REPLACE: Replace the existing file.
-   *     - FILE_EXISTS_RENAME: Append _{incrementing number} until the filename
-   *     is unique.
-   *     - FILE_EXISTS_ERROR: Do nothing and return FALSE.
    *
    * @return mixed
    *   One of these possibilities:
@@ -433,12 +427,9 @@ class AmiUtilityService {
    */
   public function retrieve_remote_file(
     $uri,
-    $destination = NULL,
-    $replace = FileSystemInterface::EXISTS_RENAME
+    $destination = NULL
   ) {
     // pre set a failure
-    $localfile = FALSE;
-    $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
       $path = file_build_uri($this->fileSystem->basename(urldecode($parsed_url['path'])));
@@ -457,68 +448,90 @@ class AmiUtilityService {
       }
     }
     /* @var \Psr\Http\Message\ResponseInterface $response */
+    $max_time = (int) ini_get('max_execution_time') * 0.75;
     try {
-      $realpath = $this->fileSystem->realpath($path);
-      $response = $this->httpClient->get($uri, ['sink' => $realpath]);
-    } catch (\Exception $exception) {
-      $this->messenger()->addError(
-        $this->t(
-          'Unable to download remote file from @uri to local @path with error: @error. Verify URL exists, its openly accessible and destination is writable.',
-          [
-            '@uri' => $uri,
-            '@path' => $path,
-            '@error' => $exception->getMessage(),
-          ]
-        )
-      );
+      // @TODO make 75% or any percentage a global config
+      // @TODO edge case someone set max execution time to 0, but timeout on client
+      // Might need to be a number .. not 0.
+      // @TODO add to global config
+      if ($max_time == 0) {
+        $max_time = 720.00;
+      }
+      $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
+      $content_disposition = $response->getHeader('Content-Disposition');
+      $filename_from_remote = NULL;
+      $filename_from_remote_without_extension = NULL;
+      $extensions_from_remote = NULL;
+      $extension_from_mime = NULL;
+      $extension = NULL;
+
+      if (!empty($content_disposition)) {
+        $filename_from_remote = $this->getFilenameFromDisposition($content_disposition[0]);
+        if ($filename_from_remote) {
+          // we want the name without extension, we do not trust the extension
+          // See remote sources with double extension!
+          [$filename_from_remote_without_extension, $extensions_from_remote] = explode(".", $filename_from_remote, 2);
+        }
+      }
+    }
+    catch (\Exception $exception) {
+      $message_vars = [
+        '@uri' => $uri,
+        '@path' => $path,
+        '@error' => $exception->getMessage(),
+        '@time' => $max_time,
+      ];
+      $message = 'Unable to download remote file from @uri to local @path with error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible and destination is writable.';
+      $this->loggerFactory->get('ami')->error($message, $message_vars);
       return FALSE;
     }
 
-    // It would be more optimal to run this after saving
-    // but i really need the mime in case no extension is present
-    $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
-      ->guess($path);
-    if (($mimefromextension == "application/octet-stream")
-      && !empty($response->getHeader('Content-Type'))
-    ) {
+    // First try with Remote Headers to get a valid extension
+    if (!empty($response->getHeader('Content-Type'))) {
       $mimetype = $response->getHeader('Content-Type');
       if (count($mimetype) > 0) {
         $extension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
           ->inverseguess($mimetype[0]);
       }
-      else {
-        $extension = '';
+    }
+    // If none try with the filename either from remote (if set) of from the download path
+    if (!$extension){
+      $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
+        ->guess($filename_from_remote ?? $path);
+      if (($mimefromextension == "application/octet-stream")) {
+        $extension = $extensions_from_remote ?? '';
       }
-      $info = pathinfo($realpath);
-      if (!isset($info['extension']) || $info['extension'] != $extension) {
-        $newpath = $realpath . "." . $extension;
-        $status = @rename($realpath, $newpath);
+    }
+    if ($filename_from_remote_without_extension) {
+      $newpath = $this->fileSystem->dirname($path) . '/' . $filename_from_remote_without_extension . '.' . $extension;
+      if ($newpath != $path) {
+        $status = @rename($path, $newpath);
         if ($status === FALSE && !file_exists($newpath)) {
-          $this->messenger()->addError(
-            $this->t(
-              'Unable to rename downloaded file from @realpath to local @newpath. Verify if destination is writable.',
-              [
-                '@realpath' => $realpath,
-                '@newpath' => $newpath,
-              ]
-            )
-          );
+          $message_vars =  [
+            '@path' => $path,
+            '@newpath' => $newpath,
+          ];
+          $message = 'Unable to rename downloaded file from @path to local @newpath. Verify if destination is writable.';
+          $this->messenger()->addError($this->t($message, $message_vars));
+          $this->loggerFactory->get('ami')->error($message, $message_vars);
           return FALSE;
         }
         $localfile = $newpath;
       }
       else {
-        $localfile = $realpath;
+        $localfile = $path;
       }
     }
     else {
-      // Means we got an mimetype that is not and octet,derived from the
-      // extension and we will roll with the original download path.
-      if (file_exists($realpath)) {
-        $localfile = $realpath;
-      }
+      $localfile = $path;
     }
-    return $localfile;
+
+    if (file_exists($localfile)) {
+      return $localfile;
+    }
+    else {
+      return FALSE;
+    }
   }
 
   /**
@@ -573,7 +586,6 @@ class AmiUtilityService {
       }
     }
     try {
-      $realpath = $this->fileSystem->realpath($path);
       $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
       // Means Mr. Zip is in S3 or who knows where
       // And ZipArchive (Why!!) can not stream from remote
@@ -593,8 +605,8 @@ class AmiUtilityService {
           $contents .= fread($fp, 2);
         }
         fclose($fp);
-        if ($contents && file_put_contents($realpath, $contents)) {
-          return $realpath;
+        if ($contents && file_put_contents($path, $contents)) {
+          return $path;
         }
       }
       else {
@@ -658,6 +670,60 @@ class AmiUtilityService {
     }
   }
 
+
+  /**
+   * Returns the filename from a Content-Disposition header string.
+   *
+   * @param string $value
+   *
+   * @return string|null
+   *    Returns NULL if could not be parsed
+   */
+  protected function getFilenameFromDisposition(string $value) {
+    $value = trim($value);
+
+    if (strpos($value, ';') === false) {
+      return NULL;
+    }
+
+    [$type, $attr_parts] = explode(';', $value, 2);
+
+    $attr_parts = explode(';', $attr_parts);
+    $attributes = [];
+
+    foreach ($attr_parts as $part) {
+      if (strpos($part, '=') === false) {
+        continue;
+      }
+
+      [$key, $value] = explode('=', $part, 2);
+
+      $attributes[trim($key)] = trim($value);
+    }
+
+    $attrNames = ['filename*' => true, 'filename' => false];
+    $filename = NULL;
+    $isUtf8 = false;
+    foreach ($attrNames as $attrName => $utf8) {
+      if (!empty($attributes[$attrName])) {
+        $filename = trim($attributes[$attrName]);
+        $isUtf8 = $utf8;
+        break;
+      }
+    }
+    if (empty($filename)) {
+      return NULL;
+    }
+
+    if ($isUtf8 && strpos($filename, "utf-8''") === 0 && $filename = substr($filename, strlen("utf-8''"))) {
+      return rawurldecode($filename);
+    }
+    if (substr($filename, 0, 1) === '"' && substr($filename, -1, 1) === '"') {
+      $filename = substr($filename, 1, -1) ?? NULL;
+    }
+
+    return $filename;
+  }
   /**
    * Creates an empty CSV returns file.
    *
@@ -1420,11 +1486,13 @@ class AmiUtilityService {
           $zipfail = TRUE;
         }
         else {
+          /* @var FileInterface|null $zipfile */
           $zipfile = $this->entityTypeManager->getStorage('file')
             ->load($data->zip);
           if (!$zipfile) {
             $zipfail = TRUE;
-          } else {
+          }
+          else {
             $zipfile = file_move($zipfile, $target_directory, FileSystemInterface::EXISTS_REPLACE);
             if (!$zipfile) {
               $zipfail = TRUE;
