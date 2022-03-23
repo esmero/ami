@@ -178,7 +178,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           if (PHP_VERSION_ID > 80000) {
             // @TODO fgetcsv has a bug when called after a seek, offsets on 1 always.
             // We are trying to skip the header too (but get it)
-            $offset  = $offset + 2;
+            //$offset  = $offset + 2;
             // @TODO CHECK IF THIS WILL WORK ON PHP 8.x when we get there.
           }
           $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page);
@@ -405,10 +405,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           foreach ($file_data_all['headers'] as $index => $column) {
             if ($column !== 'original' && $column !== 'csv_columns' && $column!== 'checked') {
               $lod = $persisted_lod_reconciliation[$column]['lod'] ?? NULL;
-              if ($lod) {
-                $row[$index] = json_encode($lod,
-                    JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?? '';
-              }
+              $row[$index] = json_encode($lod, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?? '';
             }
             elseif ($column === 'checked') {
               $row[$index] = $checked;
