@@ -716,7 +716,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected function processFile($data) {
 
     // First check if we already have the info here, if so do nothing.
-    if ($data->info['force_file_process'] ?? FALSE || (!$this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename'])))) {
+    if (($data->info['force_file_process'] ?? FALSE) || empty($this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename'])))) {
       $file = $this->AmiUtilityService->file_get($data->info['filename'],
         $data->info['zip_file']);
       if ($file) {
