@@ -251,6 +251,21 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       }
     }
     if ($method == "direct") {
+      if (isset($data->info['row']['data']) && !is_array($data->info['row']['data'])) {
+        $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',[
+          '@uuid' => $data->info['row']['uuid'] ?? "MISSING UUID",
+          '@setid' => $data->info['set_id']
+        ]));
+        return;
+      }
+      elseif (!isset($data->info['row']['data'])) {
+        $this->messenger->addWarning($this->t('Sorry, we can not cast an ADO directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',
+          [
+            '@setid' => $data->info['set_id'],
+          ]));
+        return;
+      }
+
       $processed_metadata = $this->AmiUtilityService->expandJson($data->info['row']['data']);
       $processed_metadata = !empty($processed_metadata) ? json_encode($processed_metadata) : NULL;
       $json_error = json_last_error();
@@ -342,68 +357,89 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // We will add future files to the queue...
           // accumulating all the ones we need
           // and at the end
-          // re-enque this little one
+          // re-enqueue this little one
           $process_files_via_queue = TRUE;
         }
-          foreach ($filenames as $filename) {
-            if (!empty($data->info['waiting_for_files'])) {
-              $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
-              if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
+        foreach ($filenames as $filename) {
+          if (!empty($data->info['waiting_for_files'])) {
+            $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
+            if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
+              // Last sanity check and make file temporary
+              // TODO: remove on SBF 1.0.0 since we are going to also persist files where the source is
+              // of streamwrapper temporary://
+              /* @var \Drupal\file\FileInterface $file */
+              $file = $this->entityTypeManager->getStorage('file')->load($processed_file_data['file_id']);
+              if ($file) {
+                $file->setTemporary();
+                $file->save();
                 $processed_metadata[$file_column][] = (int) $processed_file_data['file_id'];
-                $processed_metadata = array_merge_recursive($processed_metadata, (array) $processed_file_data['as_data']);
-              }
-            }
-            else {
-              if ($process_files_via_queue) {
-                $reduced = (count($filenames) + $processed_files >= $file_limit) && ($file_limit != 0);
-                $data_file = new \stdClass();
-                $data_file->info = [
-                  'zip_file' => $data->info['zip_file'],
-                  'set_id' => $data->info['set_id'],
-                  'uid' => $data->info['uid'],
-                  'processed_row' => $processed_metadata,
-                  'file_column' => $file_column,
-                  'filename' => $filename,
-                  'attempt' => 1,
-                  'queue_name' => $data->info['queue_name'],
-                  'uuid' => $data->info['row']['uuid'],
-                  'force_file_process' => $data->info['force_file_process'],
-                  'reduced' => $reduced,
-                ];
-                \Drupal::queue($data->info['queue_name'])
-                  ->createItem($data_file);
+                $processed_metadata = array_merge_recursive($processed_metadata,
+                  (array) $processed_file_data['as_data']);
               }
               else {
-                $file = $this->AmiUtilityService->file_get($filename,
-                  $data->info['zip_file']);
-
-                if ($file) {
-                  $processed_files++;
-                  $processed_metadata[$file_column][] = (int) $file->id();
-                }
-                else {
-                  $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',
-                    [
-                      '@uuid' => $data->info['row']['uuid'],
-                      '@setid' => $data->info['set_id'],
-                      '@filename' => $filename,
-                      '@filecolumn' => $file_column,
-                    ]));
-                }
+                $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn could not be processed. Skipping. Please check your CSV for set @setid.',
+                  [
+                    '@uuid' => $data->info['row']['uuid'],
+                    '@setid' => $data->info['set_id'],
+                    '@filename' => $filename,
+                    '@filecolumn' => $file_column,
+                  ]));
               }
             }
           }
+          else {
+            if ($process_files_via_queue) {
+              $reduced = (count($filenames) + $processed_files >= $file_limit) && ($file_limit != 0);
+              $data_file = new \stdClass();
+              $data_file->info = [
+                'zip_file' => $data->info['zip_file'],
+                'set_id' => $data->info['set_id'],
+                'uid' => $data->info['uid'],
+                'processed_row' => $processed_metadata,
+                'file_column' => $file_column,
+                'filename' => $filename,
+                'attempt' => 1,
+                'queue_name' => $data->info['queue_name'],
+                'uuid' => $data->info['row']['uuid'],
+                'force_file_process' => $data->info['force_file_process'],
+                'reduced' => $reduced,
+              ];
+              \Drupal::queue($data->info['queue_name'])
+                ->createItem($data_file);
+            }
+            else {
+              $file = $this->AmiUtilityService->file_get($filename,
+                $data->info['zip_file']);
 
+              if ($file) {
+                $file->setTemporary();
+                $file->save();
+                $processed_files++;
+                $processed_metadata[$file_column][] = (int) $file->id();
+              }
+              else {
+                $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',
+                  [
+                    '@uuid' => $data->info['row']['uuid'],
+                    '@setid' => $data->info['set_id'],
+                    '@filename' => $filename,
+                    '@filecolumn' => $file_column,
+                  ]));
+              }
+            }
+          }
+        }
       }
-      if ($process_files_via_queue) {
-        // If so we need to push this one to the end..
-        // Reset the attempts
-        $data->info['waiting_for_files'] = TRUE;
-        $data->info['attempt'] = 0;
-          \Drupal::queue($data->info['queue_name'])
-            ->createItem($data);
-          return;
-      }
+    }
+
+    if ($process_files_via_queue && empty($data->info['waiting_for_files'])) {
+      // If so we need to push this one to the end..
+      // Reset the attempts
+      $data->info['waiting_for_files'] = TRUE;
+      $data->info['attempt'] = $data->info['attempt'] ? $data->info['attempt'] +1 : 0;
+      \Drupal::queue($data->info['queue_name'])
+        ->createItem($data);
+      return;
     }
 
     // Decode the JSON that was captured.
