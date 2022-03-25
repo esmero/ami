@@ -13,3 +13,7 @@ services:
     arguments: [ '@file_system', '@file.usage', '@entity_type.manager', '@stream_wrapper_manager', '@plugin.manager.archiver', '@config.factory', '@current_user', '@language_manager', '@transliteration', '@module_handler', '@logger.factory', '@strawberryfield.utility', '@http_client', '@keyvalue']
     tags:
       - { name: backend_overridable }
+  ami.twig.TwigExtension:
+    class: Drupal\ami\TwigExtension
+    tags:
+      - { name: twig.extension }
