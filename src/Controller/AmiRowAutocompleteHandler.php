@@ -138,10 +138,15 @@ class AmiRowAutocompleteHandler extends ControllerBase {
     /** @var \Drupal\format_strawberryfield\MetadataDisplayInterface $entity */
     $entity = $form_state->getFormObject()->getEntity();
 
+
     // Attach the library necessary for using the OpenOffCanvasDialogCommand and
     // set the attachments for this Ajax response.
     $form['#attached']['library'][] = 'core/drupal.dialog.off_canvas';
     $form['#attached']['library'][] = 'codemirror_editor/editor';
+    $form['#attached']['library'][] = 'core/jquery';
+    $form['#attached']['library'][] = 'core/jquery.form';
+    $form['#attached']['library'][] = 'core/drupal.dialog.ajax';
+    $form['#attached']['library'][] = 'core/drupal.ajax';
     $response->setAttachments($form['#attached']);
     $row = $form_state->getValues()['ado_amiset_row_context_preview'] ?? 1;
     $row = (int) $row;
@@ -159,159 +164,227 @@ class AmiRowAutocompleteHandler extends ControllerBase {
       }
       // Now get the row, if not passed we will get the first because we are
       // weird.
-      error_log(PHP_VERSION_ID);
       $csv_file_reference = $preview_ami_set->get('source_data')->getValue();
       if (isset($csv_file_reference[0]['target_id'])) {
         /** @var \Drupal\file\Entity\File $file */
         $file = \Drupal::entityTypeManager()->getStorage('file')->load(
           $csv_file_reference[0]['target_id']
         );
-        if (PHP_VERSION_ID < 80000) {
+        if (PHP_VERSION_ID < 81000) {
           //@TODO fgetcsv has a bug when called after a seek, offsets on 1 always.
           // We are trying to skip the header too (but get it)
-          $row  = $row - 2;
+          // Tested on 80016 and error is still in place.
+          $row = $row - 2;
         }
-        $file_data_all = \Drupal::service('ami.utility')
-          ->csv_read($file, $row, 1, TRUE);
-        $jsondata = array_combine($file_data_all['headers'], reset($file_data_all['data']));
-        $jsondata =  \Drupal::service('ami.utility')->expandJson($jsondata);
-        // Check if render native is requested and get mimetype
-        $mimetype = $form_state->getValue('mimetype');
-        $mimetype = !empty($mimetype) ? $mimetype[0]['value'] : 'text/html';
-        $show_render_native = $form_state->getValue('render_native');
+        $file_data_all = NULL;
+        if ($file) {
+          $file_data_all = \Drupal::service('ami.utility')
+            ->csv_read($file, $row, 1, TRUE);
+        }
+        if ($file_data_all !== NULL && !empty($file_data_all['data']) && is_array($file_data_all['data'])) {
 
-        // Set initial context.
-        $context = [
-          'node' => NULL,
-          'iiif_server' => \Drupal::service('config.factory')
-            ->get('format_strawberryfield.iiif_settings')
-            ->get('pub_server_url'),
-        ];
+          $jsondata = array_combine($file_data_all['headers'],
+            reset($file_data_all['data']));
+          $jsondata = \Drupal::service('ami.utility')->expandJson($jsondata);
+          // Check if render native is requested and get mimetype
+          $mimetype = $form_state->getValue('mimetype');
+          $mimetype = !empty($mimetype) ? $mimetype[0]['value'] : 'text/html';
+          $show_render_native = $form_state->getValue('render_native');
 
-        $context['data'] = $jsondata;
-
-        $output = [];
-        $output['json'] = [
-          '#type' => 'details',
-          '#title' => t('JSON Data'),
-          '#open' => FALSE,
-        ];
-        $output['json']['data'] = [
-          '#type' => 'codemirror',
-          '#rows' => 60,
-          '#value' => json_encode($context['data'], JSON_PRETTY_PRINT),
-          '#codemirror' => [
-            'lineNumbers' => FALSE,
-            'toolbar' => FALSE,
-            'readOnly' => TRUE,
-            'mode' => 'application/json',
-          ],
-        ];
-
-        // Try to Ensure we're using the twig from user's input instead of the entity's
-        // default.
-        try {
-          $input = $form_state->getUserInput();
-          $entity->set('twig', $input['twig'][0], FALSE);
-          $render = $entity->renderNative($context);
-          if ($show_render_native) {
-            $message = '';
-            switch ($mimetype) {
-              case 'application/ld+json':
-              case 'application/json':
-                json_decode((string) $render);
-                if (JSON_ERROR_NONE !== json_last_error()) {
-                  throw new \Exception(
-                    'Error parsing JSON: ' . json_last_error_msg(),
-                    0,
-                    NULL
-                  );
+          $context_lod = [];
+          $lod_mappings = \Drupal::service('ami.lod')
+            ->getKeyValueMappingsPerAmiSet($id);
+          if ($lod_mappings) {
+            foreach ($lod_mappings as $source_column => $destination) {
+              if (is_array($destination)) {
+                foreach ($destination as $pos_approach) {
+                  $context_lod[$source_column][$pos_approach] = $context_lod[$source_column][$pos_approach] ?? [];
                 }
-                break;
-              case 'text/html':
-                libxml_use_internal_errors(TRUE);
-                $dom = new \DOMDocument('1.0', 'UTF-8');
-                if ($dom->loadHTML((string) $render)) {
-                  if ($error = libxml_get_last_error()) {
-                    libxml_clear_errors();
-                    $message = $error->message;
+              }
+
+              if (isset($jsondata[$source_column])) {
+                // sad here. Ok, this is a work around for our normally
+                // Strange CSV data structure
+                $data_to_clean['data'][0] = [$jsondata[$source_column]];
+                $labels = \Drupal::service('ami.utility')
+                  ->getDifferentValuesfromColumnSplit($data_to_clean,
+                    0);
+
+                foreach ($labels as $label) {
+                  $lod_for_label = \Drupal::service('ami.lod')
+                    ->getKeyValuePerAmiSet($label, $id);
+                  if (is_array($lod_for_label) && count($lod_for_label) > 0) {
+                    foreach ($lod_for_label as $approach => $lod) {
+                      if (isset($lod['lod'])) {
+                        $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [],
+                          $lod['lod']);
+                      }
+                    }
                   }
-                  break;
                 }
-                else {
-                  throw new \Exception(
-                    'Error parsing HTML',
-                    0,
-                    NULL
-                  );
-                }
-              case 'application/xml':
-                libxml_use_internal_errors(TRUE);
-                try {
-                  libxml_clear_errors();
-                  $dom = new \SimpleXMLElement((string) $render);
-                  if ($error = libxml_get_last_error()) {
-                    $message = $error->message;
-                  }
-                } catch (\Exception $e) {
-                  throw new \Exception(
-                    "Error parsing XML: {$e->getMessage()}",
-                    0,
-                    NULL
-                  );
-                }
-                break;
+              }
             }
           }
-          if (!$show_render_native || ($show_render_native && $mimetype != 'text/html')) {
-            $output['preview'] = [
-              '#type' => 'codemirror',
-              '#rows' => 60,
-              '#value' => $render,
-              '#codemirror' => [
-                'lineNumbers' => FALSE,
-                'toolbar' => FALSE,
-                'readOnly' => TRUE,
-                'mode' => $mimetype,
-              ],
-            ];
-          }
-          else {
+
+
+          // Set initial context.
+          $context = [
+            'node' => NULL,
+            'iiif_server' => \Drupal::service('config.factory')
+              ->get('format_strawberryfield.iiif_settings')
+              ->get('pub_server_url'),
+          ];
+
+          $context['data'] = $jsondata;
+          $context['data_lod'] = $context_lod;
+          $output = [];
+          $output['json'] = [
+            '#type' => 'details',
+            '#title' => t('JSON Data'),
+            '#open' => FALSE,
+          ];
+          $output['json']['data'] = [
+            '#title' => t('Your row data. e.g <b>{{ data.keyname }}</b> :'),
+            '#type' => 'codemirror',
+            '#rows' => 60,
+            '#value' => json_encode($context['data'], JSON_PRETTY_PRINT),
+            '#codemirror' => [
+              'lineNumbers' => FALSE,
+              'toolbar' => FALSE,
+              'readOnly' => TRUE,
+              'mode' => 'application/json',
+            ],
+          ];
+          $output['json']['data_lod'] = [
+            '#type' => 'codemirror',
+            '#title' => t('Reconciliated LoD for this row <b>{{ data_lod.keyname.lod_endpoint_type }}</b> :'),
+            '#rows' => 60,
+            '#value' => json_encode($context['data_lod'], JSON_PRETTY_PRINT),
+            '#codemirror' => [
+              'lineNumbers' => FALSE,
+              'toolbar' => FALSE,
+              'readOnly' => TRUE,
+              'mode' => 'application/json',
+            ],
+          ];
+
+          // Try to Ensure we're using the twig from user's input instead of the entity's
+          // default.
+          try {
+            $input = $form_state->getUserInput();
+            $entity->set('twig', $input['twig'][0], FALSE);
+            $render = $entity->renderNative($context);
+            if ($show_render_native) {
+              $message = '';
+              switch ($mimetype) {
+                case 'application/ld+json':
+                case 'application/json':
+                  json_decode((string) $render);
+                  if (JSON_ERROR_NONE !== json_last_error()) {
+                    throw new \Exception(
+                      'Error parsing JSON: ' . json_last_error_msg(),
+                      0,
+                      NULL
+                    );
+                  }
+                  break;
+                case 'text/html':
+                  libxml_use_internal_errors(TRUE);
+                  $dom = new \DOMDocument('1.0', 'UTF-8');
+                  if ($dom->loadHTML((string) $render)) {
+                    if ($error = libxml_get_last_error()) {
+                      libxml_clear_errors();
+                      $message = $error->message;
+                    }
+                    break;
+                  }
+                  else {
+                    throw new \Exception(
+                      'Error parsing HTML',
+                      0,
+                      NULL
+                    );
+                  }
+                case 'application/xml':
+                  libxml_use_internal_errors(TRUE);
+                  try {
+                    libxml_clear_errors();
+                    $dom = new \SimpleXMLElement((string) $render);
+                    if ($error = libxml_get_last_error()) {
+                      $message = $error->message;
+                    }
+                  } catch (\Exception $e) {
+                    throw new \Exception(
+                      "Error parsing XML: {$e->getMessage()}",
+                      0,
+                      NULL
+                    );
+                  }
+                  break;
+              }
+            }
+            if (!$show_render_native || ($show_render_native && $mimetype != 'text/html')) {
+              $output['preview'] = [
+                '#type' => 'codemirror',
+                '#title' => t('Processed Output:'),
+                '#rows' => 60,
+                '#value' => $render,
+                '#codemirror' => [
+                  'lineNumbers' => FALSE,
+                  'toolbar' => FALSE,
+                  'readOnly' => TRUE,
+                  'mode' => $mimetype,
+                ],
+              ];
+            }
+            else {
+              $output['preview'] = [
+                '#type' => 'details',
+                '#open' => TRUE,
+                '#title' => 'HTML Output',
+                'messages' => [
+                  '#markup' => $message,
+                  '#attributes' => [
+                    'class' => ['error'],
+                  ],
+                ],
+                'render' => [
+                  '#markup' => $render,
+                ],
+              ];
+            }
+          } catch (\Exception $exception) {
+            // Make the Message easier to read for the end user
+            if ($exception instanceof TwigError) {
+              $message = $exception->getRawMessage() . ' at line ' . $exception->getTemplateLine();
+            }
+            else {
+              $message = $exception->getMessage();
+            }
             $output['preview'] = [
               '#type' => 'details',
               '#open' => TRUE,
-              '#title' => 'HTML Output',
-              'messages' => [
+              '#title' => t('Syntax error'),
+              'error' => [
                 '#markup' => $message,
-                '#attributes' => [
-                  'class' => ['error'],
-                ],
-              ],
-              'render' => [
-                '#markup' => $render,
-              ],
+              ]
             ];
           }
-        } catch (\Exception $exception) {
-          // Make the Message easier to read for the end user
-          if ($exception instanceof TwigError) {
-            $message = $exception->getRawMessage() . ' at line ' . $exception->getTemplateLine();
-          }
-          else {
-            $message = $exception->getMessage();
-          }
-
+          $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
+            $output, ['width' => '50%']));
+        }
+        else {
           $output['preview'] = [
             '#type' => 'details',
             '#open' => TRUE,
-            '#title' => t('Syntax error'),
+            '#title' => !$file ? t('AMI Set has no CSV File'): t('AMI Set has no data for chosen row.'),
             'error' => [
               '#markup' => $message,
             ]
           ];
+          $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
+            $output, ['width' => '50%']));
         }
-        $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
-          $output, ['width' => '50%']));
       }
     }
     // Always refresh the Preview Element too.
@@ -338,8 +411,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
     if ($id) {
       $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_parameters'] = ['ami_set_entity' => $id];
     }
-    //$form_state->getUserInput()['ado_amiset_preview'] == name (id)
-    //$form_state->getValues()['ado_amiset_preview'] == id
     \Drupal::messenger()->deleteByType(MessengerInterface::TYPE_STATUS);
     $response->addCommand(new ReplaceCommand('#metadata-preview-container', $form['preview']));
     return $response;
