@@ -1011,7 +1011,7 @@ class AmiUtilityService {
 
     $highestRow = count($data);
     if ($always_include_header) {
-      $rowHeaders = $data[0];
+      $rowHeaders = $data[0] ?? [];
       $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
       $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
       $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
