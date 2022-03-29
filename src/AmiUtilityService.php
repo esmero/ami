@@ -29,6 +29,7 @@ use Drupal\file\Entity\File;
 use Drupal\file\FileInterface;
 use Drupal\file\FileUsage\FileUsageInterface;
 use Drupal\strawberryfield\StrawberryfieldFileMetadataService;
+use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
@@ -173,6 +174,16 @@ class AmiUtilityService {
   protected $strawberryfieldFileMetadataService;
 
   /**
+   * @var \Drupal\Core\Config\ConfigFactoryInterface
+   */
+  private ConfigFactoryInterface $config_factory;
+
+  /**
+   * @var \Drupal\strawberryfield\StrawberryfieldFilePersisterService
+   */
+  private StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -190,8 +201,10 @@ class AmiUtilityService {
    * @param \Drupal\Core\Entity\EntityFieldManagerInterface $entity_field_manager
    * @param \Drupal\Core\Entity\EntityTypeBundleInfoInterface $entity_type_bundle_info
    * @param \GuzzleHttp\ClientInterface $http_client
+   * @param \Drupal\ami\AmiLoDService $ami_lod
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
    * @param \Drupal\strawberryfield\StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
+   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberryfield_file_persister_service
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -211,7 +224,8 @@ class AmiUtilityService {
     ClientInterface $http_client,
     AmiLoDService $ami_lod,
     KeyValueFactoryInterface $key_value,
-    StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
+    StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service,
+    StrawberryfieldFilePersisterService $strawberryfield_file_persister_service
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -237,6 +251,8 @@ class AmiUtilityService {
     $this->AmiLoDService = $ami_lod;
     $this->keyValue = $key_value;
     $this->strawberryfieldFileMetadataService = $strawberryfield_file_metadata_service;
+    $this->config_factory = $config_factory;
+    $this->strawberryfieldFilePersisterService = $strawberryfield_file_persister_service;
   }
 
 
@@ -302,7 +318,8 @@ class AmiUtilityService {
 
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
-        if (!file_exists($uri)) {
+        // Try also with our internal S3 check-if-its-there-function
+        if (!file_exists($uri) && !$this->strawberryfieldFilePersisterService->fileS3Exists($uri)) {
           return FALSE;
         }
         $finaluri = $uri;
@@ -361,7 +378,8 @@ class AmiUtilityService {
           '//',
           "{$destination}"
         ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
-      if ($isthere = glob($this->fileSystem->realpath($path) . '.*')) {
+      $escaped_path = str_replace(' ', '\ ', $path);
+      if ($isthere = glob($this->fileSystem->realpath($escaped_path) . '.*')) {
         // Ups its here
         if (count($isthere) == 1) {
           // Use path here instead of the first entry to keep the streamwrapper
