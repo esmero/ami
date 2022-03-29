@@ -320,14 +320,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // This decode will always work because we already decoded and encoded again.
     $processed_metadata = json_decode($processed_metadata, TRUE);
 
-    $custom_file_mapping = isset($processed_metadata['entity:file']) && is_array($processed_metadata['entity:file']) ? $processed_metadata['entity:file'] : [];
-    $custom_node_mapping = isset($processed_metadata['entity:node']) && is_array($processed_metadata['entity:node']) ? $processed_metadata['entity:node'] : [];
+    $custom_file_mapping = isset($processed_metadata['ap:entitymapping']['entity:file']) && is_array($processed_metadata['ap:entitymapping']['entity:file']) ? $processed_metadata['ap:entitymapping']['entity:file'] : [];
+    $custom_node_mapping = isset($processed_metadata['ap:entitymapping']['entity:node']) && is_array($processed_metadata['ap:entitymapping']['entity:node']) ? $processed_metadata['ap:entitymapping']['entity:node'] : [];
 
     $entity_mapping_structure['entity:file'] = array_unique(array_merge($custom_file_mapping, $file_columns));
     $entity_mapping_structure['entity:node'] =  array_unique(array_merge($custom_node_mapping, $ado_columns));
     // Unset so we do not lose our merge after '+' both arrays
-    unset($processed_metadata['entity:file']);
-    unset($processed_metadata['entity:node']);
+    unset($processed_metadata['ap:entitymapping']);
 
     $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
@@ -687,7 +686,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   }
 
   /**
-   * Returns a Patched array using on original/new arrays.
+   * Will return a Patched array using on original/new arrays.
    *
    * @param array $original
    * @param array $new
@@ -695,17 +694,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @throws \Swaggest\JsonDiff\Exception
    */
   protected function patchJson(array $original, array $new) {
-    $r = new JsonDiff(
+    //@TODO bring this back when we add extra patch update flags
+    // JsonDiff can only work with Arrays that do not contain Objects as values.
+    /* $r = new JsonDiff(
       $original,
       $new,
       JsonDiff::REARRANGE_ARRAYS
     );
-    // We just keep track of the changes. If none! Then we do not set
-    // the formstate flag.
-    if ($r->getDiffCnt() > 0) {
-      //error_log(print_r($r->getPatch(),true));
-      //error_log(print_r($r->getMergePatch(),true));
-    }
+    */
   }
 
  /**
