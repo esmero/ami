@@ -24,9 +24,11 @@ use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\Url;
 use Drupal\file\FileUsage\FileUsageInterface;
+use Drupal\webform_strawberryfield\Controller\NominatimController;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use GuzzleHttp\Cookie\CookieJar;
+use Symfony\Component\HttpFoundation\Request;
 
 class AmiLoDService {
 
@@ -280,58 +282,167 @@ class AmiLoDService {
   }
 
   public function invokeLoDRoute(string $domain, string $query, string $auth_type, $vocab = 'subjects', $rdftype = 'thing', $lang = 'en' , $count = 5):array {
+    $response_cleaned = [];
     $current_laguage = $lang ?? \Drupal::languageManager()
         ->getCurrentLanguage()
         ->getId();
 
-    switch ($auth_type) {
-      case 'nominatim':
-        $controller_url = Url::fromRoute(
-          'webform_strawberryfield.nominatim',
-          ['api_type' => 'search', 'count' => $count, 'lang' => $current_laguage]);
-        break;
-      default:
-        $controller_url = Url::fromRoute(
-          'webform_strawberryfield.auth_autocomplete',
-          ['auth_type' => $auth_type, 'vocab' => $vocab, 'rdftype' => $rdftype, 'count' => $count]
+    if ($auth_type != 'nominatim') {
+      $controller_url = Url::fromRoute(
+        'webform_strawberryfield.auth_autocomplete',
+        ['auth_type' => $auth_type, 'vocab' => $vocab, 'rdftype' => $rdftype, 'count' => $count]
+      );
+      // When using this on localhost:8001/Docker the cookie domain won't match with the called one.
+      // That is expected and webform_strawberryfield will use instead the X-CSRF-TOKEN.
+      if ($domain == 'http://localhost:8001') {
+        $domain = $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['SERVER_ADDR'] . ':' . $_SERVER['SERVER_PORT'];
+      }
+      $cookieJar = CookieJar::fromArray($_COOKIE, $domain);
+
+      $controller_path = $controller_url->setAbsolute()
+        ->toString(TRUE)
+        ->getGeneratedUrl();
+      $csrf_token = \Drupal::csrfToken()
+        ->get($controller_url->setAbsolute(FALSE)
+          ->toString(TRUE)
+          ->getGeneratedUrl());
+      $options = [
+        'headers' => [
+          'Content-Type' => 'application/json',
+          'X-CSRF-Token' => $csrf_token,
+        ],
+        'cookies' => $cookieJar,
+      ];
+      // When o docker and running a local instance the server domain is localhost:8001 (normally in our ensemble)
+      // But localhost does not resolve internally to the right IP.
+      // @TODO make this configurable since we can also use esmero-web, but that won't work for multisites
+      // OR SSL certs. So better this way. We could also check if IP actually matches localhost? (127.0.0.1 or 0.0.0.0)
+      if (substr($controller_path, 0, 21) === "http://localhost:8001") {
+        $controller_path = str_replace("http://localhost:8001",
+          $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['SERVER_ADDR'] . ':' . $_SERVER['SERVER_PORT'],
+          $controller_path);
+      }
+
+      $options = array_merge_recursive([
+        'query' => [
+          '_format' => 'json',
+          'q' => $query
+        ]
+      ], $options);
+      $response = $this->httpClient->request('GET', $controller_path, $options);
+      $sucessfull = $response->getStatusCode() >= 200 && $response->getStatusCode() < 300;
+      $response_encoded = $sucessfull ? json_decode($response->getBody()
+        ->getContents()) : [];
+      // Removes desc , changes value for uri to make it SBF webform element compliant
+      foreach ($response_encoded as $key => $entry) {
+        $response_cleaned[$key]['uri'] = $entry->value ?? '';
+        $response_cleaned[$key]['label'] = !empty($entry->desc) ? substr($entry->label ?? '', 0, -strlen($entry->desc)) : $entry->label ?? '';
+      }
+    }
+    else {
+      //@TODO refactor all this in a reusable method inside webform_strawberrfield.
+      $response_cleaned = [];
+      $controller_nominatim = new NominatimController($this->httpClient);
+      // tricky? Our request has the arguments + the method takes the same
+      // Just for compatibility since route collection manager
+      // Does that automatically on a real public request.
+      $controller_url = Url::fromRoute(
+        'webform_strawberryfield.nominatim',
+        ['api_type' => 'search', 'count' => 1, 'lang' => $current_laguage],
+        ['query' => ['q' => $query]]
+      );
+
+      $json_response = $controller_nominatim->handleRequest(
+        Request::create($controller_url->toString(), 'GET'),
+        'search',
+        1,
+        $current_laguage
+      );
+      $nomitanim_response_encoded = $json_response->isSuccessful() ? $json_response->getContent() : [];
+      if (!$json_response->isEmpty()) {
+        $response_encoded = json_decode(
+          $nomitanim_response_encoded,
+          FALSE
         );
-    }
-    // When using this on localhost:8001/Docker the cookie domain won't match with the called one.
-    // That is expected and webform_strawberryfield will use instead the X-CSRF-TOKEN.
-    if ($domain == 'http://localhost:8001') {
-      $domain = $_SERVER['REQUEST_SCHEME'].'://'.$_SERVER['SERVER_ADDR'].':'.$_SERVER['SERVER_PORT'];
-    }
-    $cookieJar = CookieJar::fromArray($_COOKIE, $domain);
+        //Just return if not value present
+        // Just a failsafe, we are already checking for an empty json_response.
+        if (empty($response_encoded[0]->value)) {
+          return $response_cleaned;
+        }
+        $address = $response_encoded[0]->value->properties->address ?? [];
 
-    $controller_path = $controller_url->setAbsolute()->toString(TRUE)->getGeneratedUrl();
-    $csrf_token = \Drupal::csrfToken()->get($controller_url->setAbsolute(FALSE)->toString(TRUE)->getGeneratedUrl());
-    $options = [
-      'headers' =>  [
-        'Content-Type' => 'application/json',
-        'X-CSRF-Token' => $csrf_token,
-      ],
-      'cookies' => $cookieJar,
-    ];
-    // When o docker and running a local instance the server domain is localhost:8001 (normally in our ensemble)
-    // But localhost does not resolve internally to the right IP.
-    // @TODO make this configurable since we can also use esmero-web, but that won't work for multisites
-    // OR SSL certs. So better this way. We could also check if IP actually matches localhost? (127.0.0.1 or 0.0.0.0)
-    if (substr($controller_path, 0, 21 ) === "http://localhost:8001") {
-      $controller_path = str_replace("http://localhost:8001", $_SERVER['REQUEST_SCHEME'].'://'.$_SERVER['SERVER_ADDR'].':'.$_SERVER['SERVER_PORT'], $controller_path);
-    }
+        foreach ($address as $properties => $value)
+          switch ($properties) {
+            case 'hamlet':
+            case 'village':
+            case 'locality':
+            case 'croft' :
+              $normalized_address['locality'] = $value;
+              break;
+            case 'city':
+            case 'town':
+            case 'municipality':
+              $normalized_address['city'] = $value;
+              break;
+            case 'neighbourhood':
+            case 'suburb':
+            case 'city_district':
+            case 'district':
+            case 'quarter':
+            case 'houses':
+            case 'subdivision':
+              $normalized_address['neighbourhood'] = $value;
+              break;
+            case 'county' :
+            case 'local_administrative_area' :
+            case 'county_code':
+              $normalized_address['county'] = $value;
+              break;
+            case 'state_district':
+              $normalized_address['state_district'] = $value;
+              break;
+            case 'state':
+            case 'province':
+            case 'state_code':
+              $normalized_address['state'] = $value;
+              break;
+            case 'country':
+              $normalized_address['country'] = $value;
+              break;
+            case 'country_code':
+              $normalized_address['country_code'] = $value;
+              break;
+            case 'postcode':
+              $normalized_address['postcode'] = $value;
+              break;
+          }
 
-    $options = array_merge_recursive(['query' => ['_format' => 'json', 'q' => $query]], $options);
-    $response = $this->httpClient->request('GET', $controller_path, $options);
-    $sucessfull =  $response->getStatusCode() >= 200 && $response->getStatusCode() < 300;
-    $response_encoded = $sucessfull ? json_decode($response->getBody()->getContents()) : [];
-    // Removes desc , changes value for uri to make it SBF webform element compliant
-    $response_cleaned = [];
-    foreach ($response_encoded as $key => $entry) {
-      $response_cleaned[$key]['uri'] = $entry->value ?? '';
-      $response_cleaned[$key]['label'] = !empty($entry->desc) ? substr($entry->label ?? '', 0, -strlen($entry->desc)) : $entry->label ?? '';
+        // Take what we got from nominatim and put into our location keys.
+        // Lat and Long are in http://en.wikipedia.org/wiki/en:WGS-84
+        $response_cleaned = [
+          'value' => $response_encoded[0]->label ?? NULL,
+          'lat' => $response_encoded[0]->value->geometry->coordinates[1] ?? NULL,
+          'lng' => $response_encoded[0]->value->geometry->coordinates[0] ?? NULL,
+          'category' => $response_encoded[0]->value->properties->category ?? NULL,
+          'display_name' => $response_encoded[0]->label ?? NULL,
+          'osm_id' => $response_encoded[0]->value->properties->osm_id ?? NULL,
+          'osm_type' => $response_encoded[0]->value->properties->osm_type ?? NULL,
+          'neighbourhood' => isset($normalized_address['neighbourhood']) ? $normalized_address['neighbourhood'] : '',
+          'locality' => isset($normalized_address['locality']) ? $normalized_address['locality'] : '',
+          'city' => isset($normalized_address['city']) ? $normalized_address['city'] : '',
+          'county' => isset($normalized_address['county']) ? $normalized_address['county'] : '',
+          'state_district' => isset($normalized_address['state_district']) ? $normalized_address['state_district'] : '',
+          'state' => isset($normalized_address['state']) ? $normalized_address['state'] : '',
+          'postcode' => isset($normalized_address['postcode']) ? $normalized_address['postcode'] : '',
+          'country' => isset($normalized_address['country']) ? $normalized_address['country'] : '',
+          'country_code' => isset($normalized_address['country_code']) ? $normalized_address['country_code'] : '',
+        ];
+      }
     }
     return $response_cleaned;
   }
+
+
 
   /**
    * Checks if a string is valid JSON
