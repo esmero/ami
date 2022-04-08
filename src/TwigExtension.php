@@ -26,13 +26,20 @@ class TwigExtension extends AbstractExtension {
   }
 
 
+  /**
+   * @param mixed $label
+   * @param string $vocab
+   * @param string $len
+   *
+   * @return array|null
+   */
   public function amiLodReconcile(
-    string $label,
+    $label,
     string $vocab,
     string $len = 'en'
   ): ?array {
 
-    $column_options = [
+    $vocaboptions = [
       'loc;subjects;thing' => 'LoC subjects(LCSH)',
       'loc;names;athing' => 'LoC Name Authority File (LCNAF)',
       'loc;genreForms;thing' => 'LoC Genre/Form Terms (LCGFT)',
@@ -51,9 +58,18 @@ class TwigExtension extends AbstractExtension {
       'getty;aat;fuzzy' => 'Getty aat Fuzzy',
       'getty;aat;terms' => 'Getty aat Terms',
       'getty;aat;exact' => 'Getty aat Exact Label Match',
-      'wikidata;subjects;thing' => 'Wikidata Q Items'
+      'wikidata;subjects;thing' => 'Wikidata Q Items',
+      'nominatim;thing;thing' => 'Nominatim Search',
+      'nominatim;thing;search' => 'Nominatim Search',
+      'nominatim;thing;reverse' => 'Nominatim Reverse'
     ];
+    if (!in_array($vocab, array_keys($vocaboptions)) || empty($label) || !is_scalar($label) || is_bool($label)) {
+      return [];
+    }
     $label = trim($label);
+    if (strlen($label) == 0) {
+      return [];
+    }
     try {
       $domain = \Drupal::service('request_stack')->getCurrentRequest()->getSchemeAndHttpHost();
       $lod_route_argument_list = explode(";", $vocab);
