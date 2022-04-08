@@ -346,15 +346,28 @@ class AmiLoDService {
       // tricky? Our request has the arguments + the method takes the same
       // Just for compatibility since route collection manager
       // Does that automatically on a real public request.
-      $controller_url = Url::fromRoute(
-        'webform_strawberryfield.nominatim',
-        ['api_type' => 'search', 'count' => 1, 'lang' => $current_laguage],
-        ['query' => ['q' => $query]]
-      );
+      if (in_array($rdftype, ['thing', 'search'])){
+        $controller_url = Url::fromRoute(
+          'webform_strawberryfield.nominatim',
+          ['api_type' => 'search', 'count' => 1, 'lang' => $current_laguage],
+          ['query' => ['q' => $query]]
+        );
+      }
+      elseif ($rdftype == 'reverse') {
+        [$lat, $long] = explode(",", $query, 2);
+        $controller_url = Url::fromRoute(
+          'webform_strawberryfield.nominatim',
+          ['api_type' => 'reverse', 'count' => 1, 'lang' => $current_laguage],
+          ['query' => ['lat' => $lat, 'lon' => $long]]
+        );
+      }
+      else {
+        return [];
+      }
 
       $json_response = $controller_nominatim->handleRequest(
         Request::create($controller_url->toString(), 'GET'),
-        'search',
+        $rdftype,
         1,
         $current_laguage
       );
