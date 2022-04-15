@@ -479,7 +479,9 @@ class AmiUtilityService {
       }
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
       $filename_from_remote = $basename;
-      [$filename_from_remote_without_extension, $extensions_from_remote] = explode(".", $basename, 2);
+      $filename_from_remote_parts = explode(".", $basename, 2);
+      $filename_from_remote_without_extension = $filename_from_remote_parts[0] ?? NULL;
+      $extensions_from_remote = $filename_from_remote_parts[1] ?? NULL;
       $extension_from_mime = NULL;
       $extension = NULL;
       $content_disposition = $response->getHeader('Content-Disposition');
@@ -489,7 +491,9 @@ class AmiUtilityService {
         if ($filename_from_remote) {
           // we want the name without extension, we do not trust the extension
           // See remote sources with double extension!
-          [$filename_from_remote_without_extension, $extensions_from_remote] = explode(".", $filename_from_remote, 2);
+          $filename_from_remote_parts = explode(".", $filename_from_remote, 2);
+          $filename_from_remote_without_extension = $filename_from_remote_parts[0] ?? NULL;
+          $extensions_from_remote = $filename_from_remote_parts[1] ?? NULL;
         }
       }
     }
