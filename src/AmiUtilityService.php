@@ -700,7 +700,7 @@ class AmiUtilityService {
    * @param string $value
    *
    * @return string|null
-   *    Returns NULL if could not be parsed
+   *    Returns NULL if could not be parsed/empty
    */
   protected function getFilenameFromDisposition(string $value) {
     $value = trim($value);
