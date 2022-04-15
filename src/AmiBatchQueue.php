@@ -76,7 +76,8 @@ class AmiBatchQueue {
         $num_of_items = $queue->numberOfItems();
 
         // Update context
-        $context['results']['processed'][] = $item->item_id;
+        // Redis Queues do not have item_id!
+        $context['results']['processed'][] = $item->item_id ?? $ado_title;
         $context['finished'] = ($context['sandbox']['max'] - $num_of_items) / $context['sandbox']['max'];
       }
       else {

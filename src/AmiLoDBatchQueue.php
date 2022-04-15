@@ -66,7 +66,7 @@ class AmiLoDBatchQueue {
         $num_of_items = $queue->numberOfItems();
 
         // Update context
-        $context['results']['processed'][] = $item->item_id;
+        $context['results']['processed'][] = $item->item_id ?? $label;
         $context['finished'] = ($context['sandbox']['max'] - $num_of_items) / $context['sandbox']['max'];
       }
       else {
