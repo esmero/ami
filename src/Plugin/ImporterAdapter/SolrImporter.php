@@ -445,8 +445,11 @@ class SolrImporter extends SpreadsheetImporter {
       try {
         $query = $client->createSelect();
         $helper = $query->getHelper();
-        $query->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $helper->escapePhrase($input));
-
+        $escaped = $helper->escapePhrase($input);
+        $query->setQuery('*:*');
+        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
+        // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
+        $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
         /*
          * This is a good option if Solr data is homogenenous
          * Maybe on a next iteration?
@@ -689,7 +692,9 @@ class SolrImporter extends SpreadsheetImporter {
         // in this case phrase escaping is used (most common) but you can also do term escaping, see the manual
         // also note that the same can be done using the placeholder syntax, see example 6.3
         $helper = $query->getHelper();
-        $query->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $helper->escapePhrase($input));
+        $escaped = $helper->escapePhrase($input);
+        $query->setQuery('*:*');
+        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
         $query->addSort('PID', 'asc');
