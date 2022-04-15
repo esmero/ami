@@ -10,6 +10,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Drupal\format_strawberryfield\Event\FormatStrawberryfieldFormAlterEvent;
 use Drupal\format_strawberryfield\FormatStrawberryfieldEventType;
+use Drupal\ami\AmiUtilityService;
 
 /**
  * Implements hook_help().
@@ -129,4 +130,24 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
   ];
 
   return $form;
+}
+
+/**
+ * Implements hook_entity_update().
+ */
+function ami_entity_update(Drupal\Core\Entity\EntityInterface $entity) {
+  if ($entity->getEntityTypeId() == 'ami_set_entity') {
+    // Invalidate AMI Set delete processed ADOs access check cache.
+    AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
+  }
+}
+
+/**
+ * Implements hook_entity_delete().
+ */
+function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
+  if ($entity->getEntityTypeId() == 'ami_set_entity') {
+    // Invalidate AMI Set delete processed ADOs access check cache.
+    AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
+  }
 }

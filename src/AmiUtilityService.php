@@ -12,6 +12,7 @@ namespace Drupal\ami;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use \Drupal\Core\Entity\EntityFieldManagerInterface;
@@ -2314,6 +2315,47 @@ class AmiUtilityService {
    */
   public function cleanUpTemp(string $templocation) {
     return $this->strawberryfieldFileMetadataService->cleanUpTemp($templocation);
+  }
+
+  /**
+   * Checks the AMISet operation to determine if it's permissible to delete processed ADOs.
+   *
+   * True if the AMISet operation is not 'update' or 'patch'.
+   *
+   * @param  \Drupal\Core\Entity\EntityInterface  $entity
+   *
+   * @return bool
+   */
+  public static function checkAmiSetDeleteAdosAccess(EntityInterface $entity): bool {
+    // Deny access to delete processed ADOs when the AMI set is configured for update rather than create.
+    $cache_id = 'amiset_deleteados_access_' . $entity->id();
+    $deleteados_access = &drupal_static(__CLASS__ . __METHOD__ . $cache_id);
+    if (!isset($deleteados_access)) {
+      if ($deleteados_access_cache = \Drupal::cache()->get($cache_id)) {
+        return $deleteados_access_cache->data;
+      }
+      else {
+        $set_field = $entity->get('set');
+        if ($set_field instanceof \Drupal\strawberryfield\Field\StrawberryFieldItemList) {
+          $set = json_decode($entity->get('set')->getString(), TRUE);
+          if (json_last_error() == JSON_ERROR_NONE) {
+            $deleteados_access = (empty($set['pluginconfig']['op']) || !in_array($set['pluginconfig']['op'], ['update', 'patch']));
+            \Drupal::cache()->set($cache_id, $deleteados_access);
+          }
+        }
+      }
+    }
+    return $deleteados_access;
+  }
+
+  /**
+   * Invalidates amiset delete ADOs cache for a given AMISet entity.
+   *
+   * @param  \Drupal\Core\Entity\EntityInterface  $entity
+   */
+  public static function invalidateAmiSetDeleteAdosAccessCache(EntityInterface $entity) {
+    $cache_id = 'amiset_deleteados_access_' . $entity->id();
+    \Drupal::cache()->invalidate($cache_id);
   }
 
 }
