@@ -319,7 +319,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // A Smart twig template that adds extra mappings
     // This decode will always work because we already decoded and encoded again.
     $processed_metadata = json_decode($processed_metadata, TRUE);
-    $processed_metadata['ap:entitymapping'] = is_array($processed_metadata['ap:entitymapping']) ? $processed_metadata['ap:entitymapping'] : [];
+    $processed_metadata['ap:entitymapping'] = isset($processed_metadata['ap:entitymapping']) && is_array($processed_metadata['ap:entitymapping']) ? $processed_metadata['ap:entitymapping'] : [];
     $custom_file_mapping = isset($processed_metadata['ap:entitymapping']['entity:file']) && is_array($processed_metadata['ap:entitymapping']['entity:file']) ? $processed_metadata['ap:entitymapping']['entity:file'] : [];
     $custom_node_mapping = isset($processed_metadata['ap:entitymapping']['entity:node']) && is_array($processed_metadata['ap:entitymapping']['entity:node']) ? $processed_metadata['ap:entitymapping']['entity:node'] : [];
 
