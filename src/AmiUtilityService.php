@@ -449,8 +449,9 @@ class AmiUtilityService {
   ) {
     // pre set a failure
     $parsed_url = parse_url($uri);
+    $basename = $this->fileSystem->basename(urldecode($parsed_url['path']));
     if (!isset($destination)) {
-      $path = file_build_uri($this->fileSystem->basename(urldecode($parsed_url['path'])));
+      $path = file_build_uri($basename);
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
@@ -458,11 +459,12 @@ class AmiUtilityService {
         $path = str_replace(
             '///',
             '//',
-            "{$destination}/"
-          ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+            "{$destination}"
+          ) . $basename;
       }
       else {
         $path = $destination;
+        $basename = $this->fileSystem->basename($destination);
       }
     }
     /* @var \Psr\Http\Message\ResponseInterface $response */
@@ -476,12 +478,11 @@ class AmiUtilityService {
         $max_time = 720.00;
       }
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
-      $content_disposition = $response->getHeader('Content-Disposition');
-      $filename_from_remote = NULL;
-      $filename_from_remote_without_extension = NULL;
-      $extensions_from_remote = NULL;
+      $filename_from_remote = $basename;
+      [$filename_from_remote_without_extension, $extensions_from_remote] = explode(".", $basename, 2);
       $extension_from_mime = NULL;
       $extension = NULL;
+      $content_disposition = $response->getHeader('Content-Disposition');
 
       if (!empty($content_disposition)) {
         $filename_from_remote = $this->getFilenameFromDisposition($content_disposition[0]);
@@ -517,7 +518,7 @@ class AmiUtilityService {
       $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
         ->guess($filename_from_remote ?? $path);
       if (($mimefromextension == "application/octet-stream")) {
-        $extension = $extensions_from_remote ?? '';
+        $extension = $extensions_from_remote ?? 'bin';
       }
     }
     if ($filename_from_remote_without_extension) {
@@ -1173,8 +1174,8 @@ class AmiUtilityService {
       SplFileObject::DROP_NEW_LINE
     );
     while (!$spl->eof()) {
-       $spl->fgetcsv();
-       $key = $spl->key();
+      $spl->fgetcsv();
+      $key = $spl->key();
     }
 
     /*
@@ -1330,12 +1331,12 @@ class AmiUtilityService {
    */
   public function getWebformOptions():array {
     try {
-    /** @var \Drupal\webform\WebformOptionsInterface[] $webform_options */
-    $webform_options  = $this->entityTypeManager->getStorage('webform_options')->loadByProperties(['category' => 'archipelago']);
-    $options = [];
-    foreach($webform_options as $webform_option) {
-      $options = array_merge($options, $webform_option->getOptions());
-    }
+      /** @var \Drupal\webform\WebformOptionsInterface[] $webform_options */
+      $webform_options  = $this->entityTypeManager->getStorage('webform_options')->loadByProperties(['category' => 'archipelago']);
+      $options = [];
+      foreach($webform_options as $webform_option) {
+        $options = array_merge($options, $webform_option->getOptions());
+      }
     }
     catch (\Exception $e) {
       // Return some basic defaults in case there are no Options.
@@ -2128,6 +2129,7 @@ class AmiUtilityService {
       // get the mappings for this set if any
       // @TODO Refactor into a Method?
       $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
+      /* @TODO refactor into a reusable method */
       if ($lod_mappings) {
         foreach($lod_mappings as $source_column => $destination) {
           if (isset($context['data'][$source_column])) {
@@ -2142,6 +2144,9 @@ class AmiUtilityService {
                 foreach ($lod_for_label as $approach => $lod) {
                   if (isset($lod['lod'])) {
                     $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
+                    $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
+                    $unique = array_unique($serialized);
+                    $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
                   }
                 }
               }
