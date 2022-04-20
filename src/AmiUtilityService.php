@@ -746,42 +746,55 @@ class AmiUtilityService {
 
     return $filename;
   }
+
   /**
-   * Creates an empty CSV returns file.
+   * Creates an empty CSV and returns a file.
    *
    * @param string|null $filename
-   *    If given it will use that, if null will create a new one
+   *    If given it will use that, if null will create a new one.
+   *    If filename is the full uri to an existing file it will update that one
+   *    and its entity too.
    *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
   public function csv_touch(string $filename = NULL) {
     $path = 'public://ami/csv';
-    $filename = $filename ?? $this->currentUser->id() . '-' . uniqid() . '.csv';
-    // Ensure the directory
-    if (!$this->fileSystem->prepareDirectory(
-      $path,
-      FileSystemInterface::CREATE_DIRECTORY
-      | FileSystemInterface::MODIFY_PERMISSIONS
-    )
-    ) {
-      $this->messenger()->addError(
-        $this->t(
-          'Unable to create directory for CSV file. Verify permissions please'
-        )
-      );
-      return NULL;
+    // Check if dealing with an existing file first
+    if ($filename && is_file($filename) && $this->streamWrapperManager->isValidUri($filename)) {
+      $uri = $filename;
     }
-    // Ensure the file
+    else {
+      // if not there go with our standard naming convention.
+      $filename = $filename ?? $this->currentUser->id() . '-' . uniqid() . '.csv';
+      $uri = $path . '/' . $filename;
+      // Ensure the directory
+      if (!$this->fileSystem->prepareDirectory(
+        $path,
+        FileSystemInterface::CREATE_DIRECTORY
+        | FileSystemInterface::MODIFY_PERMISSIONS
+      )
+      ) {
+        $this->messenger()->addError(
+          $this->t(
+            'Unable to create directory for CSV file. Verify permissions please'
+          )
+        );
+        return NULL;
+      }
+    }
+    // Ensure the file with empty data
     $file = file_save_data(
-      '', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE
+        '', $uri, FileSystemInterface::EXISTS_REPLACE
     );
+
     if (!$file) {
       $this->messenger()->addError(
         $this->t('Unable to create AMI CSV file. Verify permissions please.')
       );
       return NULL;
     }
+    clearstatcache(TRUE, $file->getFileUri());
     $file->setPermanent();
     $file->save();
     return $file->id();
@@ -916,10 +929,15 @@ class AmiUtilityService {
    *    Needed for LoD Reconciling CSVs
    * @param bool $append_header
    *
+   * @param bool $escape_characters
+   *    Defaults to internal PHP mechanism for escaping characters (a "/")
+   *    Set to FALSE if you are passing JSON encoded strings into cells.
+   *    NOTE: Make sure you also disable it IF reading back from files generated through this
+   *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE) {
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE, $escape_characters = TRUE) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
@@ -964,8 +982,12 @@ class AmiUtilityService {
           }
         }
       }
-
-      $fh->fputcsv($row);
+      if ($escape_characters) {
+        $fh->fputcsv($row);
+      }
+      else {
+        $fh->fputcsv($row, ',', '"', "");
+      }
     }
     // PHP Bug! This should happen automatically
     clearstatcache(TRUE, $url);
@@ -988,13 +1010,15 @@ class AmiUtilityService {
    * @param bool $always_include_header
    *    Always return header even with an offset.
    *
+   * @param bool $escape_characters
+   *
    * @return array|null
    *   Returning array will be in this form:
    *    'headers' => $rowHeaders_utf8 or [] if $always_include_header == FALSE
    *    'data' => $table,
    *    'totalrows' => $maxRow,
    */
-  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE) {
+  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE, $escape_characters = TRUE) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
@@ -1021,7 +1045,12 @@ class AmiUtilityService {
     $data = [];
     $seek_to_offset = ($offset > 0 && $always_include_header);
     while (!$spl->eof() && ($count == 0 || ($spl->key() < ($offset + $count)))) {
-      $data[] = $spl->fgetcsv();
+      if (!$escape_characters) {
+        $data[] = $spl->fgetcsv( ',', '"', "");
+      }
+      else {
+        $data[] = $spl->fgetcsv();
+      }
       if ($seek_to_offset) {
         $spl->seek($offset);
         // So we do not process this again.
@@ -1046,7 +1075,6 @@ class AmiUtilityService {
       $not_a_header = $data[0] ?? [];
       $headercount = count($not_a_header);
     }
-
 
     if (($highestRow) >= 1) {
       // Returns Row Headers.
@@ -1086,14 +1114,15 @@ class AmiUtilityService {
 
   }
 
+
   /**
-   * Removes columns from an existing CSV
+   *  Removes columns from an existing CSV.
    *
    * @param \Drupal\file\Entity\File $file
-   *
    * @param array $headerwithdata
    *
-   * @return array|null
+   * @return int|mixed|string|null
+   * @throws \Drupal\Core\Entity\EntityStorageException
    */
   public function csv_clean(File $file, array $headerwithdata = []) {
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
@@ -1159,9 +1188,11 @@ class AmiUtilityService {
   /**
    * @param \Drupal\file\Entity\File $file
    *
+   * @param bool $escape_characters
+   *
    * @return int
    */
-  public function csv_count(File $file) {
+  public function csv_count(File $file, $escape_characters = TRUE) {
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
       return NULL;
@@ -1177,12 +1208,17 @@ class AmiUtilityService {
       SplFileObject::DROP_NEW_LINE
     );
     while (!$spl->eof()) {
-      $spl->fgetcsv();
+      if (!$escape_characters) {
+        $spl->fgetcsv( ',', '"', "");
+      }
+      else {
+        $spl->fgetcsv();
+      }
       $key = $spl->key();
     }
 
     /*
-    PHP 8 fails on seeking on lines with JSON content and either returns
+    Some PHP 8 versions fail on seeking on lines with JSON content and either returns
     0 lines (with the flags) or way more without the flags
     $spl->seek(PHP_INT_MAX);
     $key = $spl->key();

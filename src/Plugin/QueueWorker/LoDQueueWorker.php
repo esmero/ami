@@ -192,7 +192,7 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
         $context_data[$lod_route_column_name]['columns'] = $data->info['csv_columns'];
       }
 
-      $this->AmiUtilityService->csv_append($newdata, $file_lod, NULL, FALSE);
+      $this->AmiUtilityService->csv_append($newdata, $file_lod, NULL, FALSE, FALSE);
       // Sets the same data, per label (as key) into keystore so we can fetch it as Twig Context when needed.
       //@TODO also do similar if going for a "direct" in that case we replace the columns found in the original data
       $this->AmiLoDService->setKeyValuePerAmiSet($data->info['label'], $context_data, $data->info['set_id']);
