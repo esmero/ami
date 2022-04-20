@@ -406,7 +406,6 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             if ($column !== 'original' && $column !== 'csv_columns' && $column!== 'checked') {
               $lod = $persisted_lod_reconciliation[$column]['lod'] ?? NULL;
               $row[$index] = json_encode($lod, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE) ?? '';
-              //$row[$index] = str_replace('\"', '\\"',$row[$index] );
             }
             elseif ($column === 'checked') {
               $row[$index] = $checked;
