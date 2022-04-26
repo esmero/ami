@@ -569,15 +569,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'uid' =>  $data->info['uid'],
         $field_name => $jsonstring
       ];
-      if ($status && is_string($status)) {
-        // String here means we got moderation_status;
-        $nodeValues['moderation_state'] = $status;
-        $status = 0; // Let the Moderation Module set the right value
-      }
+
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
         if ($op ==='create') {
+          if ($status && is_string($status)) {
+            // String here means we got moderation_status;
+            $nodeValues['moderation_state'] = $status;
+            $status = 0; // Let the Moderation Module set the right value
+          }
           $node = $this->entityTypeManager->getStorage('node')
             ->create($nodeValues);
         }
