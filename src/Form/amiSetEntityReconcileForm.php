@@ -294,7 +294,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         $csv_file_processed[0]['target_id']);
       // Reset all values
       if ($file_lod) {
-        $this->AmiUtilityService->csv_touch($file_lod->getFilename());
+        $this->AmiUtilityService->csv_touch($file_lod->getFileUri());
       }
     }
     else {
@@ -403,7 +403,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         return;
       }
       // Append the header to the CSV
-      $file_lod_id = $this->AmiUtilityService->csv_append(['headers' => $headers, 'data' => []], $file_lod, NULL, TRUE );
+      $file_lod_id = $this->AmiUtilityService->csv_append(['headers' => $headers, 'data' => []], $file_lod, NULL, TRUE, FALSE);
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
 

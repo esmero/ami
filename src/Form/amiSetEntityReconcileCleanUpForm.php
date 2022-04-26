@@ -169,7 +169,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
 
         if ($file_lod) {
           $num_per_page = 10;
-          $total_rows =  $this->AmiUtilityService->csv_count($file_lod);
+          $total_rows =  $this->AmiUtilityService->csv_count($file_lod, FALSE);
           // Remove the header in the calculations.
           $total_rows = $total_rows - 1;
           $pager = \Drupal::service('pager.manager')->createPager($total_rows, $num_per_page);
@@ -181,7 +181,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             //$offset  = $offset + 2;
             // @TODO CHECK IF THIS WILL WORK ON PHP 8.x when we get there.
           }
-          $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page);
+          $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page, TRUE, FALSE);
 
           $column_keys = $file_data_all['headers'] ?? [];
           $form['lod_cleanup']['pager_top'] = ['#type' => 'pager'];
@@ -395,7 +395,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
       $file_lod = $this->entityTypeManager->getStorage('file')->load(
         $csv_file_processed[0]['target_id']);
       if ($file_lod) {
-        $file_data_all = $this->AmiUtilityService->csv_read($file_lod);
+        $file_data_all = $this->AmiUtilityService->csv_read($file_lod, 0, 0, TRUE,FALSE);
         $column_keys = $file_data_all['headers'] ?? [];
         $original_index = array_search('original', $column_keys);
         foreach ($file_data_all['data'] as $id => &$row) {
@@ -412,12 +412,12 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             }
           }
         }
-        $this->AmiUtilityService->csv_touch($file_lod->getFilename());
-        $success = $this->AmiUtilityService->csv_append($file_data_all, $file_lod, NULL, TRUE);
+        $success = $this->AmiUtilityService->csv_touch($file_lod->getFileUri());
+        $success = $success && $this->AmiUtilityService->csv_append($file_data_all, $file_lod, NULL, TRUE, FALSE);
         if (!$success) {
           $this->messenger()->addError(
             $this->t(
-              'So Sorry. We could not update the CSV to store your Fixed LoD Reconciled data for @label. Please check your filesystem permissions or contact your System Admin',
+              'So Sorry. We could not update the CSV to store your Fixed LoD Reconciled data for @label. Please check your filesystem permissions or contact your System Admin,',
               [
                 '@label' => $this->entity->label(),
               ]
