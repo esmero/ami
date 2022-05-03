@@ -15,8 +15,6 @@ use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
-use Swaggest\JsonDiff\Exception as JsonDiffException;
-use Swaggest\JsonDiff\JsonPatch;
 use \Drupal\Core\TempStore\PrivateTempStoreFactory;
 
 /**
@@ -162,6 +160,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.
+        'status' => Either a string (moderation state) or a 1/0 for published/unpublished if not moderated
+        'op_secondary' => applies only to Update/Patch operations. Can be one of 'update','replace','append'
+        'ops_safefiles' => Boolean, True if we will not allow files/mappings to be removed/we will keep them warm and safe
+        'log_jsonpatch' => If for Update operations we will generate a single PER ADO Log with a full JSON Patch,
         'attempt' => The number of attempts to process. We always start with a 1
         'zip_file' => File ID of a zip file if a any
         'waiting_for_files' => will only exist and TRUE if we re-enqueued this ADO after figuring out we had too many Files.
@@ -270,11 +272,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $processed_metadata = !empty($processed_metadata) ? json_encode($processed_metadata) : NULL;
       $json_error = json_last_error();
       if ($json_error !== JSON_ERROR_NONE || !$processed_metadata) {
-          $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
-            '@uuid' => $data->info['row']['uuid'],
-            '@setid' => $data->info['set_id']
-          ]));
-          return;
+        $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
+          '@uuid' => $data->info['row']['uuid'],
+          '@setid' => $data->info['set_id']
+        ]));
+        return;
       }
     }
 
@@ -308,7 +310,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $file_columns = [];
     $ado_columns = [];
     if ($file_object && is_object($file_object)) {
-     $file_columns = array_values(get_object_vars($file_object));
+      $file_columns = array_values(get_object_vars($file_object));
     }
 
     if ($ado_object && is_object($ado_object)) {
@@ -485,6 +487,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'delete' => 'Delete existing ADOs',
     */
     $op = $data->pluginconfig->op;
+    $op_secondary =  $data->info['op_secondary'] ?? NULL;
+    /* OP Secondary for Update/Patch operations can be
+    'update', 'replace' , 'append'
+    */
+
     $ophuman = [
       'create' => 'created',
       'update' => 'updated',
@@ -606,29 +613,124 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                 // Now calculate what we need to do here regarding files/node mappings
                 $original_file_mappings = $original_value['ap:entitymapping']['entity:file'] ?? [];
                 $original_node_mappings = $original_value['ap:entitymapping']['entity:node'] ?? [];
+
+                // This will preserve existing File Keys/values/mappings
                 foreach ($original_file_mappings as $filekey) {
                   if (!in_array($filekey, $processed_metadata['ap:entitymapping']['entity:file'])) {
                     $processed_metadata[$filekey] = $original_value[$filekey] ?? [];
                     $processed_metadata['ap:entitymapping']['entity:file'][] = $filekey;
                   }
+                  else {
+                    // Means new processing is adding these and they are already in the mapping. Is safe Files enabled?
+                    if ($data->info['ops_safefiles']) {
+                      // We take the old file ids and merge the new ones. Nothing gets lost ever.
+                      $processed_metadata[$filekey] = array_merge($original_value[$filekey] ?? [], $processed_metadata[$filekey] ?? []);
+                    }
+                  }
                 }
+                // This will preserve existing Node Keys/values/mappings
                 foreach ($original_node_mappings as $nodekey) {
                   if (!in_array($nodekey, $processed_metadata['ap:entitymapping']['entity:node'])) {
                     $processed_metadata[$nodekey] = $original_value[$nodekey] ?? [];
                     $processed_metadata['ap:entitymapping']['entity:node'][] = $nodekey;
                   }
+                  // No old Node-to-Node relationships is preserved if the processed data contains an already mapped key
                 }
                 // Really not needed?
-                $processed_metadata['ap:entitymapping']['entity:node'] = array_unique($processed_metadata['ap:entitymapping']['entity:node']);
-                $processed_metadata['ap:entitymapping']['entity:file'] = array_unique($processed_metadata['ap:entitymapping']['entity:file']);
+                $processed_metadata['ap:entitymapping']['entity:node'] = array_unique($processed_metadata['ap:entitymapping']['entity:node'] ?? []);
+                $processed_metadata['ap:entitymapping']['entity:file'] = array_unique($processed_metadata['ap:entitymapping']['entity:file'] ?? []);
 
                 // Copy directly all as:mediatype into the child, the File Persistent Event will clean this up if redundant.
+                // THIS MEANS WE DO NOT ALLOW AS:FILETYPES OVERRIDES!!! (SO HAPPY)
+                // @TODO: DOCUMENT THIS!
                 foreach(StrawberryfieldJsonHelper::AS_FILE_TYPE as $as_file_type) {
                   if (isset($original_value[$as_file_type])) {
                     $processed_metadata[$as_file_type] = $original_value[$as_file_type];
                   }
                 }
-                $this->patchJson($original_value, $processed_metadata);
+                // Now deal with Update modes.
+                if ($op_secondary == 'replace') {
+                  $processed_metadata_keys = array_keys($processed_metadata);
+                  // We want to avoid replacing File keys.if
+                  if ($data->info['ops_safefiles']) {
+                    // This will exclude all keys that contained files initially.
+                    // Making touching/deleting files basically impossible.
+                    $processed_metadata_keys = array_diff($processed_metadata_keys, $original_file_mappings);
+                  }
+
+                  foreach ($processed_metadata_keys as $processed_metadata_key) {
+                    $original_value[$processed_metadata_key] = $processed_metadata[$processed_metadata_key];
+                  }
+                  $processed_metadata = $original_value;
+                }
+
+
+                if (isset($data->info['log_jsonpatch']) && $data->info['log_jsonpatch']) {
+                  $this->patchJson($original_value ?? [], $processed_metadata ?? [], true);
+                }
+
+                if ($op_secondary == 'append') {
+                  $processed_metadata_keys = array_keys($processed_metadata);
+                  // We will exclude a bunch of keys from appending since
+                  // we already did a smart-ish processing moving them to
+                  // processed_metadata
+                  /* @TODO remove this once PHP 7 is deprecated
+                  // Symfony\Polyfill\Php80 alread implements somthing similar.
+                   */
+                  if (!function_exists('str_starts_with')) {
+                    function str_starts_with($haystack, $needle) {
+                      return (string)$needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
+                    }
+                  }
+                  $contract_keys = array_filter($processed_metadata_keys, function ($value) {
+                    return (str_starts_with($value, "as:") || str_starts_with($value, "ap:"));
+                    }
+                  );
+                  $processed_metadata_keys = array_diff($processed_metadata_keys, $contract_keys);
+                  foreach ($processed_metadata_keys as $processed_metadata_key) {
+                    if (isset($original_value[$processed_metadata_key])) {
+                      // Initialize this as if we were dealing with string/numbers and not arrays
+                      // We check later if any/old/new are indeed arrays or not
+                      $new = [$processed_metadata[$processed_metadata_key]];
+                      $old = [$original_value[$processed_metadata_key]];
+                      if (is_array($original_value[$processed_metadata_key])) {
+                        // If we are dealing with an associative array we treat is an an object that might be
+                        // 1 of many
+                        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($original_value[$processed_metadata_key])) {
+                          $old[] = $original_value[$processed_metadata_key];
+                        }
+                        else {
+                          $old = $original_value[$processed_metadata_key];
+                        }
+                      }
+                      if (is_array($processed_metadata[$processed_metadata_key])) {
+                        // If we are dealing with an associative array we treat is an an object that might be
+                        // 1 of many
+                        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($processed_metadata[$processed_metadata_key])) {
+                          $new[] = $processed_metadata[$processed_metadata_key];
+                        }
+                        else {
+                          $new = $processed_metadata[$processed_metadata_key];
+                        }
+                      }
+                      // This should help avoiding duplicates.
+                      $original_value[$processed_metadata_key] = $old + $new;
+                    }
+                    else {
+                      $original_value[$processed_metadata_key] = $processed_metadata[$processed_metadata_key];
+                    }
+                  }
+                  // Copy over our contract keys.
+                  foreach ($contract_keys as $contract_key) {
+                    $original_value[$contract_key] = $processed_metadata[$contract_key];
+                    // Keep memory footprint lower?
+                    unset($processed_metadata[$contract_key]);
+                  }
+                  $processed_metadata = $original_value;
+                }
+                // @TODO. Log this?
+                // $this->patchJson($original_value, $processed_metadata);
+
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
               }
@@ -692,24 +794,50 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param array $original
    * @param array $new
    *
-   * @throws \Swaggest\JsonDiff\Exception
+   * @param bool $reverse
+   *     If true we will generate an UNDO patch
+   *
+   * @return false|string
    */
-  protected function patchJson(array $original, array $new) {
+  protected function patchJson(array $original, array $new, $reverse = FALSE) {
+    // IMPORTANT:
+    // We need to Object-it-fy here to make sure that
+    // the patch generated is Object properties aware
+    // Instead of an associative Array of arrays (which fails)
+    $original = json_decode(json_encode($original));
+    $new = json_decode(json_encode($new));
     //@TODO bring this back when we add extra patch update flags
     // JsonDiff can only work with Arrays that do not contain Objects as values.
-    /* $r = new JsonDiff(
-      $original,
-      $new,
-      JsonDiff::REARRANGE_ARRAYS
-    );
-    */
+    // @throws \Swaggest\JsonDiff\Exception
+    try {
+      if ($reverse) {
+        $r = new JsonDiff(
+          $original,
+          $new,
+          JsonDiff::SKIP_JSON_MERGE_PATCH + JsonDiff::COLLECT_MODIFIED_DIFF
+        );
+      }
+      else {
+        $r = new JsonDiff(
+          $new,
+          $original,
+          JsonDiff::SKIP_JSON_MERGE_PATCH + JsonDiff::COLLECT_MODIFIED_DIFF
+        );
+      }
+      $patch = $r->getPatch()->jsonSerialize();
+    }
+    catch (\Swaggest\JsonDiff\Exception $exception) {
+      // We do not want to make ingesting slower. Just return [];
+      return [];
+    }
+    return json_encode($patch ?? []);
   }
 
- /**
-  * Processes a File and technical metadata to avoid congestion.
-  *
-  * @param mixed $data
-  */
+  /**
+   * Processes a File and technical metadata to avoid congestion.
+   *
+   * @param mixed $data
+   */
   protected function processFile($data) {
 
     // First check if we already have the info here, if so do nothing.
