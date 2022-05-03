@@ -84,6 +84,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $csv_file_reference[0]['target_id']
       );
     }
+
     // Fetch Zip file if any
     $zip_file = NULL;
     $zip_file_reference = $this->entity->get('zip_file')->getValue();
@@ -141,6 +142,14 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         // the same time.
       }
       $added = [];
+      $op_secondary = NULL;
+      // Only applies to Update/Patch operations but for contract reasons
+      // we generate all $data->info the same.
+      $ops_safefiles = TRUE;
+      if (isset($data->pluginconfig->op) && $data->pluginconfig->op != 'create') {
+        $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
+        $ops_safefiles = $form_state->getValue(['ops_secondary','ops_safefiles'], TRUE);
+      }
       foreach ($info as $item) {
         // We set current User here since we want to be sure the final owner of
         // the object is this and not the user that runs the queue
@@ -150,6 +159,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'set_id' => $this->entity->id(),
           'uid' => $this->currentUser()->id(),
           'status' => $statuses,
+          'op_secondary' => $op_secondary,
+          'ops_safefiles' => $ops_safefiles ? TRUE: FALSE,
+          'log_jsonpatch' => FALSE,
           'set_url' => $SetURL,
           'attempt' => 1,
           'queue_name' => $queue_name,
@@ -223,6 +235,12 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         'update',
         'patch',
       ];
+      $ops_update = [
+        'update' =>  $this->t("Normal Update. Will update a complete existing ADO's configured target field with new JSON Content."),
+        'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field with new JSON content. Not provided ones will be kept"),
+        'append' =>  $this->t("Append Update. Will append values to existing JSON keys in an ADO's configured target field. New ones will be added too."),
+      ];
+
       if (!in_array($op, $ops)) {
         $form['status'] = [
           '#tree' => TRUE,
@@ -236,6 +254,31 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         ];
         return $form;
       }
+      // Updates can be normal update, replace and append
+      if ($op == 'update') {
+        $form['ops_secondary'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' => $this->t('Desired type of <em><b>@op</b></em> operation.',
+            ['@op' => $op]),
+          'ops_safefiles' => [
+             '#type' => 'checkbox',
+             '#title' => $this->t("Do not touch existing files"),
+             '#description' => $this->t("If enabled, update operations will not be able to remove/change/destroy any files already present in an ADO. Enabled by default for your own safety."),
+             '#default_value' => TRUE,
+          ],
+          'ops_secondary_update' => [
+            '#type' => 'select',
+            '#title' => $this->t('Update Operation'),
+            '#options' => $ops_update,
+            '#default_value' => 'update',
+            '#wrapper_attributes' => [
+              'class' => ['container-inline'],
+            ],
+          ],
+        ];
+      }
+
       $form['status'] = [
         '#tree' => TRUE,
         '#type' => 'fieldset',
