@@ -189,6 +189,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             '#prefix' => '<div id="lod-options-wrapper">',
             '#suffix' => '</div>',
           ];
+
           $reconcile_mapping_settings = $form_state->getValue(['lod_options', 'mappings'], NULL) ?? ($data->reconcileconfig->mappings ?? NULL);
           $reconcile_mapping_settings = (array) $reconcile_mapping_settings;
           if ($reconcile_column_settings) {
@@ -257,7 +258,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           'Re-process only adding new terms/LoD Authority Sources.'
         ),
         '#description' => $this->t(
-          'Check this to add to existing reconciliation new terms and LoD Authority Sources, e.g after replacing the Source CSV data.<br> Existing terms/LoD Authority Sources you already selected will not be affected.<br> This also means you can unselect previous configurated terms/LoD Authority Sources and previous settings will be preserved allowing you for example to select a single colum and run the process again adding to what is there'
+          'Check this to add to existing reconciliation new terms and LoD Authority Sources, e.g after replacing the Source CSV data.<br> Existing terms/LoD Authority Sources you already selected will not be affected.<br> This also means you can unselect previous configurated terms/LoD Authority Sources and previous settings will be preserved allowing you for example to select a single colum and run the process again adding to what is there.<em>WARNING:</em> only labels present in the current Source CSV will be preserved. Please backup your Processed CSV.'
         ),
         '#required' => FALSE,
         '#default_value' => !empty($update_existing) ? $update_existing : FALSE,
@@ -348,7 +349,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             $data->reconcileconfig->mappings->{$lod_columns})
           );
         }
-        $data->reconcileconfig = $data->reconcileconfig;
+        $mappings = (array) $data->reconcileconfig->mappings ?? [];
       }
       else {
         //Non update operation
@@ -359,6 +360,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         $data->reconcileconfig->mappings = $form_state->getValue(
           ['lod_options', 'mappings'], NULL
         );
+        $mappings = (array) $data->reconcileconfig->mappings ?? [];
       }
 
       $jsonvalue = json_encode($data, JSON_PRETTY_PRINT);
@@ -379,7 +381,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     // Do the actual processing.
     if ($file && $file_lod && $data !== new \stdClass()) {
       $domain = $this->getRequest()->getSchemeAndHttpHost();
-      $mappings = $form_state->getValue(['lod_options','mappings']);
+
       $form_state->setRebuild(TRUE);
 
       $columns = array_keys($mappings) ?? [];
