@@ -17,3 +17,8 @@ services:
     class: Drupal\ami\TwigExtension
     tags:
       - { name: twig.extension }
+  ami.presaveprocesslod_subscriber:
+    class: Drupal\ami\EventSubscriber\AmiEventPresaveSubscriberProcessedLoDUpdater
+    tags:
+      - { name: event_subscriber }
+    arguments: [ '@string_translation', '@messenger', '@logger.factory', '@current_user', '@ami.utility', '@entity_type.manager', '@ami.lod']

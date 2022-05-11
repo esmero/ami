@@ -142,6 +142,49 @@ class AmiLoDService {
    */
   protected $keyValue;
 
+  public CONST AMI_FORM_EXPOSED_LOD_SOURCES =  [
+    'loc;subjects;thing' => 'LoC subjects(LCSH)',
+    'loc;names;thing' => 'LoC Name Authority File (LCNAF)',
+    'loc;genreForms;thing' => 'LoC Genre/Form Terms (LCGFT)',
+    'loc;graphicMaterials;thing' => 'LoC Thesaurus of Graphic Materials (TGN)',
+    'loc;geographicAreas;thing' => 'LoC MARC List for Geographic Areas',
+    'loc;relators;thing' => 'LoC Relators Vocabulary (Roles)',
+    'loc;rdftype;CorporateName' => 'LoC MADS RDF by type: Corporate Name',
+    'loc;rdftype;PersonalName' => 'LoC MADS RDF by type: Personal Name',
+    'loc;rdftype;FamilyName' => 'LoC MADS RDF by type: Family Name',
+    'loc;rdftype;Topic' => 'LoC MADS RDF by type: Topic',
+    'loc;rdftype;GenreForm' =>  'LoC MADS RDF by type: Genre Form',
+    'loc;rdftype;Geographic' => 'LoC MADS RDF by type: Geographic',
+    'loc;rdftype;Temporal' =>  'LoC MADS RDF by type: Temporal',
+    'loc;rdftype;ExtraterrestrialArea' => 'LoC MADS RDF by type: Extraterrestrial Area',
+    'viaf;subjects;thing' => 'Viaf',
+    'getty;aat;fuzzy' => 'Getty aat Fuzzy',
+    'getty;aat;terms' => 'Getty aat Terms',
+    'getty;aat;exact' => 'Getty aat Exact Label Match',
+    'wikidata;subjects;thing' => 'Wikidata Q Items'
+  ];
+
+  public CONST LOD_COLUMN_TO_ARGUMENTS = [
+    'loc_subjects_thing' => 'loc;subjects;thing',
+    'loc_names_thing' => 'loc;names;thing',
+    'loc_genreforms_thing' => 'loc;genreForms;thing',
+    'loc_graphicmaterials_thing' => 'loc;graphicMaterials;thing',
+    'loc_geographicareas_thing' => 'loc;geographicAreas;thing',
+    'loc_relators_thing' => 'loc;relators;thing',
+    'loc_rdftype_corporatename' => 'loc;rdftype;CorporateName',
+    'loc_rdftype_personalname' =>  'loc;rdftype;PersonalName',
+    'loc_rdftype_familyname' => 'loc;rdftype;FamilyName',
+    'loc_rdftype_topic' => 'loc;rdftype;Topic',
+    'loc_rdftype_genreform' =>  'loc;rdftype;GenreForm',
+    'loc_rdftype_geographic' => 'loc;rdftype;Geographic',
+    'loc_rdftype_temporal' =>  'loc;rdftype;Temporal',
+    'loc_rdftype_extraterrestrialarea' => 'loc;rdftype;ExtraterrestrialArea',
+    'viaf_subjects_thing' => 'viaf;subjects;thing',
+    'getty_aat_fuzzy' => 'getty;aat;fuzzy',
+    'getty_aat_terms' => 'getty;aat;terms',
+    'getty_aat_exact' => 'getty;aat;exact',
+    'wikidata_subjects_thing' => 'wikidata;subjects;thing'
+  ];
 
   /**
    * AmiLoDService constructor.
