@@ -1037,6 +1037,9 @@ class AmiUtilityService {
         SplFileObject::SKIP_EMPTY |
         SplFileObject::DROP_NEW_LINE
       );
+      if (!$escape_characters) {
+        $spl->setCsvControl(',', '"', "");
+      }
     }
 
     if ($offset > 0 && !$always_include_header) {
@@ -1091,8 +1094,8 @@ class AmiUtilityService {
         $row = $row ?? [];
         $flat = trim(implode('', $row));
         //check for empty row...if found stop there.
+        $maxRow = $rowindex;
         if (strlen($flat) == 0) {
-          $maxRow = $rowindex;
           break;
         }
         // This was done already by the Import Plugin but since users
