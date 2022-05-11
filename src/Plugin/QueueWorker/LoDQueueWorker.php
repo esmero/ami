@@ -153,6 +153,7 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
                1 => "loc;rdftype;GenreForm"
                2 => "getty;aat;exact"
             'set_id' =>  The Set id
+            'update_existing' => True if we are going to reusue keystored entries
             'csv' => The ID of the CSV file that will hold the results
             'uid' => The User ID that processed the Set
             'set_url' => A direct URL to the set.
@@ -173,14 +174,30 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
     $context_data = [];
     if (isset($data->info['lodconfig']) && is_array($data->info['lodconfig']) && $file_lod) {
       $lod_route_arguments = $data->info['lodconfig'];
+      // If we are updating an existing LoD reconciliated set we will first check
+      // If there is data there first, and only invoke for new Labels
+      // or existing labels and new LoD arguments.
+      $existing_lod = [];
+      if ($data->info['update_existing'] ?? FALSE) {
+        $existing_lod = $this->AmiLoDService->getKeyValuePerAmiSet($data->info['label'],$data->info['set_id']);
+      }
+
       foreach ($lod_route_arguments as $lod_route_argument) {
         $lod_route_argument_list = explode(';', $lod_route_argument);
         //@TODO allow the number of results to be set on the \Drupal\ami\Form\amiSetEntityReconcileForm
         // And passed as an argument. Same with Language? Not all LoD Routes can make use or more languages.
         $lod_route_column_name = strtolower(implode('_', $lod_route_argument_list));
-        $lod = $this->AmiLoDService->invokeLoDRoute($data->info['domain'],
-        $data->info['label'], $lod_route_argument_list[0],
-        $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1);
+        if (isset($existing_lod[$lod_route_column_name]['lod'])) {
+          // retrieve the saved $lod if present, even if Empty
+          $lod = $existing_lod[$lod_route_column_name]['lod'] ?? [];
+        }
+        else {
+          $lod = $this->AmiLoDService->invokeLoDRoute(
+            $data->info['domain'],
+            $data->info['label'], $lod_route_argument_list[0],
+            $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1
+          );
+        }
 
         $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?? '';
         $newdata['data'][0]['original'] = (string) $data->info['label'];
