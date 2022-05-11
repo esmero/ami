@@ -4,10 +4,10 @@
  * Contains ami.module.
  */
 
-use Drupal\Core\Language\Language;
+use Drupal\ami\AmiEventType;
+use Drupal\ami\Event\AmiCrudEvent;
 use Drupal\Core\Routing\RouteMatchInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\Url;
 use Drupal\format_strawberryfield\Event\FormatStrawberryfieldFormAlterEvent;
 use Drupal\format_strawberryfield\FormatStrawberryfieldEventType;
 use Drupal\ami\AmiUtilityService;
@@ -149,5 +149,19 @@ function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
   if ($entity->getEntityTypeId() == 'ami_set_entity') {
     // Invalidate AMI Set delete processed ADOs access check cache.
     AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
+    // Remove any AMI LoD Key Values.
+    \Drupal::service('ami.lod')->cleanKeyValuesPerAmiSet($entity->id());
+  }
+}
+
+
+/**
+ * Implements hook_ENTITY_TYPE_presave().
+ */
+function ami_ami_set_entity_presave(Drupal\Core\Entity\EntityInterface $entity) {
+  if ($sbf_fields = \Drupal::service('strawberryfield.utility')->bearsStrawberryfield($entity)) {
+    $event_type = AmiEventType::PRESAVE;
+    $event = new AmiCrudEvent($event_type, $entity, $sbf_fields);
+    \Drupal::service('event_dispatcher')->dispatch($event_type, $event);
   }
 }
