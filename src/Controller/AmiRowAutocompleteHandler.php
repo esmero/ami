@@ -240,6 +240,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
 
           $context['data'] = $jsondata;
           $context['data_lod'] = $context_lod;
+          // Allow other modules to provide extra Context!
+          // Call modules that implement the hook, and let them add items.
+          \Drupal::moduleHandler()
+            ->alter('format_strawberryfield_twigcontext', $context);
           $output = [];
           $output['json'] = [
             '#type' => 'details',
