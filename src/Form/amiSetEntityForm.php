@@ -28,7 +28,7 @@ class amiSetEntityForm extends ContentEntityForm {
   public function save(array $form, FormStateInterface $form_state) {
     $status = parent::save($form, $form_state);
     $entity = $this->entity;
-    $form_state->setRedirectUrl($entity->toUrl('collection'));
+    $form_state->setRedirectUrl($entity->toUrl('canonical'));
     return $status;
   }
 }

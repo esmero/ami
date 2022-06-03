@@ -97,8 +97,6 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
-    // Read Config first to get the Selected Bundles based on the Config
-    // type selected. Based on that we can set Moderation Options here
 
     $data = new \stdClass();
     foreach ($this->entity->get('set') as $item) {
@@ -164,11 +162,13 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           $csv_file_reference[0]['target_id']
         );
         if ($file) {
+          $file_data_all = $this->AmiUtilityService->csv_read($file);
+          $column_keys = $file_data_all['headers'] ?? [];
 
           $reconcile_column_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->columns ?? []);
           $reconcile_column_settings = (array) $reconcile_column_settings;
-          $file_data_all = $this->AmiUtilityService->csv_read($file);
-          $column_keys = $file_data_all['headers'] ?? [];
+          //@ TODO we should remove from settings columns not present in the Source Data.
+          // Forms state will do that automatically but i prefer that as a sanity check
           $form['mapping']['lod_columns'] = [
             '#type' => 'select',
             '#title' => $this->t('Select which columns you want to reconcile against LoD providers'),
@@ -189,32 +189,12 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             '#prefix' => '<div id="lod-options-wrapper">',
             '#suffix' => '</div>',
           ];
-          $reconcile_mapping_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->mappings ?? NULL);
+
+          $reconcile_mapping_settings = $form_state->getValue(['lod_options', 'mappings'], NULL) ?? ($data->reconcileconfig->mappings ?? NULL);
           $reconcile_mapping_settings = (array) $reconcile_mapping_settings;
           if ($reconcile_column_settings) {
-
             $source_options = $reconcile_column_settings;
-            $column_options = [
-              'loc;subjects;thing' => 'LoC subjects(LCSH)',
-              'loc;names;thing' => 'LoC Name Authority File (LCNAF)',
-              'loc;genreForms;thing' => 'LoC Genre/Form Terms (LCGFT)',
-              'loc;graphicMaterials;thing' => 'LoC Thesaurus of Graphic Materials (TGN)',
-              'loc;geographicAreas;thing' => 'LoC MARC List for Geographic Areas',
-              'loc;relators;thing' => 'LoC Relators Vocabulary (Roles)',
-              'loc;rdftype;CorporateName' => 'LoC MADS RDF by type: Corporate Name',
-              'loc;rdftype;PersonalName' => 'LoC MADS RDF by type: Personal Name',
-              'loc;rdftype;FamilyName' => 'LoC MADS RDF by type: Family Name',
-              'loc;rdftype;Topic' => 'LoC MADS RDF by type: Topic',
-              'loc;rdftype;GenreForm' =>  'LoC MADS RDF by type: Genre Form',
-              'loc;rdftype;Geographic' => 'LoC MADS RDF by type: Geographic',
-              'loc;rdftype;Temporal' =>  'LoC MADS RDF by type: Temporal',
-              'loc;rdftype;ExtraterrestrialArea' => 'LoC MADS RDF by type: Extraterrestrial Area',
-              'viaf;subjects;thing' => 'Viaf',
-              'getty;aat;fuzzy' => 'Getty aat Fuzzy',
-              'getty;aat;terms' => 'Getty aat Terms',
-              'getty;aat;exact' => 'Getty aat Exact Label Match',
-              'wikidata;subjects;thing' => 'Wikidata Q Items'
-            ];
+            $column_options = $this->AmiLoDService::AMI_FORM_EXPOSED_LOD_SOURCES;
             $form['lod_options']['#type'] = 'fieldset';
             $form['lod_options']['#tree'] = TRUE;
 
@@ -258,6 +238,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       }
 
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
+      $update_existing = $form_state->getValue('update_existing', NULL);
 
       $form['not_process_now'] = [
         '#type' => 'checkbox',
@@ -270,6 +251,20 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         '#required' => FALSE,
         '#default_value' => !empty($notprocessnow) ? $notprocessnow : FALSE,
       ];
+
+      $form['update_existing'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t(
+          'Re-process only adding new terms/LoD Authority Sources.'
+        ),
+        '#description' => $this->t(
+          'Check this to add to existing reconciliation new terms and LoD Authority Sources, e.g after replacing the Source CSV data.<br> Existing terms/LoD Authority Sources you already selected will not be affected.<br> This also means you can unselect previous configurated terms/LoD Authority Sources and previous settings will be preserved allowing you for example to select a single colum and run the process again adding to what is there.<em>WARNING:</em> only labels present in the current Source CSV will be preserved. Please backup your Processed CSV.'
+        ),
+        '#required' => FALSE,
+        '#default_value' => !empty($update_existing) ? $update_existing : FALSE,
+      ];
+
+
     }
     $form = $form + parent::buildForm($form, $form_state);
     return $form;
@@ -320,19 +315,59 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     }
 
     $data = new \stdClass();
+
+    // Is this a new reconciliation or one being appended to?
+    $update_existing = $form_state->getValue('update_existing', FALSE);
+
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
       // Set also the new config back
-      $data->reconcileconfig = new \stdClass();
-      $data->reconcileconfig->columns = $form_state->getValue(['mapping', 'lod_columns'], NULL);
-      $data->reconcileconfig->mappings = $form_state->getValue(['lod_options','mappings'], NULL);
+      $new_lod_columns = [];
+      $new_lod_mappings = [];
+      // Deal with merging existing config with new config. This won't
+      // remove old configs yet
+      if ($update_existing) {
+        $new_lod_columns = $form_state->getValue(
+          ['mapping', 'lod_columns'], []
+        );
+        $new_lod_mappings = $form_state->getValue(
+          ['lod_options', 'mappings'], []
+        );
+
+        foreach ($new_lod_columns as $lod_columns) {
+          $data->reconcileconfig->columns->{$lod_columns} = $lod_columns;
+        }
+        foreach ($new_lod_mappings as $lod_columns => $lod_mappings) {
+          // We use array_values to avoid an Object casting of reordered Arrays
+          $data->reconcileconfig->mappings->{$lod_columns}
+            = isset($data->reconcileconfig->mappings->{$lod_columns}) && is_array($data->reconcileconfig->mappings->{$lod_columns})
+            ? array_values(array_merge(
+              $data->reconcileconfig->mappings->{$lod_columns}, $lod_mappings
+            )) : array_values($lod_mappings);
+          $data->reconcileconfig->mappings->{$lod_columns} = array_values(array_unique(
+            $data->reconcileconfig->mappings->{$lod_columns})
+          );
+        }
+        $mappings = (array) $data->reconcileconfig->mappings ?? [];
+      }
+      else {
+        //Non update operation
+        $data->reconcileconfig = new \stdClass();
+        $data->reconcileconfig->columns = $form_state->getValue(
+          ['mapping', 'lod_columns'], NULL
+        );
+        $data->reconcileconfig->mappings = $form_state->getValue(
+          ['lod_options', 'mappings'], NULL
+        );
+        $mappings = (array) $data->reconcileconfig->mappings ?? [];
+      }
+
       $jsonvalue = json_encode($data, JSON_PRETTY_PRINT);
       $this->entity->set('set', $jsonvalue);
       try {
         $this->entity->save();
-      }
-      catch (\Exception $exception) {
+      } catch (\Exception $exception) {
         $this->messenger()->addError(
           t(
             'Ami Set LoD Settings Failed to be persisted because of @message',
@@ -343,15 +378,12 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         return;
       }
     }
+    // Do the actual processing.
     if ($file && $file_lod && $data !== new \stdClass()) {
       $domain = $this->getRequest()->getSchemeAndHttpHost();
-      $mappings = $form_state->getValue(['lod_options','mappings']);
+
       $form_state->setRebuild(TRUE);
-      $output = [];
-      $output['table'] = [
-        '#type' => 'table',
-        '#caption' => t('Unique processed values for this column'),
-      ];
+
       $columns = array_keys($mappings) ?? [];
       $values_per_column = $this->AmiUtilityService->provideDifferentColumnValuesFromCSV($file,
         $columns);
@@ -378,8 +410,10 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       // This will be used to fetch the right values when passing to the twig template
       // Could be read from the config but this is faster during process.
 
-      // Clears old values before processing new ones.
-      $this->AmiLoDService->cleanKeyValuesPerAmiSet($this->entity->id());
+      // Clears old values before processing new ones for new sets
+      if (!$update_existing) {
+        $this->AmiLoDService->cleanKeyValuesPerAmiSet($this->entity->id());
+      }
       $this->AmiLoDService->setKeyValueMappingsPerAmiSet($normalized_mapping, $this->entity->id());
 
 
@@ -434,6 +468,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
           'csv_columns' => $column_map_inverted[$label],
           'normalized_mappings' => $normalized_mapping,
           'lodconfig' => $lodconfig,
+          'update_existing' => $update_existing,
           'set_id' => $this->entity->id(),
           'csv' => $file_lod_id,
           'uid' => $this->currentUser()->id(),

@@ -19,28 +19,6 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
  */
 class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
 
-
-  CONST LOD_COLUMN_TO_ARGUMENTS = [
-    'loc_subjects_thing' => 'loc;subjects;thing',
-    'loc_names_thing' => 'loc;names;thing',
-    'loc_genreforms_thing' => 'loc;genreForms;thing',
-    'loc_graphicmaterials_thing' => 'loc;graphicMaterials;thing',
-    'loc_geographicareas_thing' => 'loc;geographicAreas;thing',
-    'loc_relators_thing' => 'loc;relators;thing',
-    'loc_rdftype_corporatename' => 'loc;rdftype;CorporateName',
-    'loc_rdftype_personalname' =>  'loc;rdftype;PersonalName',
-    'loc_rdftype_familyname' => 'loc;rdftype;FamilyName',
-    'loc_rdftype_topic' => 'loc;rdftype;Topic',
-    'loc_rdftype_genreform' =>  'loc;rdftype;GenreForm',
-    'loc_rdftype_geographic' => 'loc;rdftype;Geographic',
-    'loc_rdftype_temporal' =>  'loc;rdftype;Temporal',
-    'loc_rdftype_extraterrestrialarea' => 'loc;rdftype;ExtraterrestrialArea',
-    'viaf_subjects_thing' => 'viaf;subjects;thing',
-    'getty_aat_fuzzy' => 'getty;aat;fuzzy',
-    'getty_aat_terms' => 'getty;aat;terms',
-    'getty_aat_exact' => 'getty;aat;exact',
-    'wikidata_subjects_thing' => 'wikidata;subjects;thing'
-  ];
   /**
    * @var \Drupal\ami\AmiUtilityService
    */
@@ -214,7 +192,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
 
           foreach ($column_keys as $column) {
             if ($column !== 'original' && $column != 'csv_columns' && $column !='checked') {
-              $argument_string = static::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
+              $argument_string = $this->AmiLoDService::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
               if ($argument_string) {
                 $arguments = explode(';', $argument_string);
                 $elements[$column] = [
@@ -338,16 +316,20 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
         $csv_columns = json_decode($csv_columns, TRUE);
         // If these do not exist, we can not process.
         if ($label && $csv_columns) {
+          $context_data = [];
           foreach ($column_keys as $index => $column) {
             if ($column !== 'original' && $column !== 'csv_columns' && $column !== 'checked') {
               $lod = $form_state->getValue($column . '-' . $id, NULL);
               $context_data[$column]['lod'] = $lod;
-              $context_data[$column]['columns'] = $csv_columns;
-              $context_data['checked'] = $checked;
-              $this->AmiLoDService->setKeyValuePerAmiSet($label,
-                $context_data, $this->entity->id());
             }
           }
+          // This was wrongly called too many times. Only once per label needed
+          $context_data['checked'] = $checked;
+          $context_data[$column]['columns'] = $csv_columns;
+          $this->AmiLoDService->setKeyValuePerAmiSet(
+            $label,
+            $context_data, $this->entity->id()
+          );
         }
         else {
           $this->messenger()->addError(
