@@ -563,8 +563,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $status = $data->info['status'][$bundle] ?? 0;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
+    if (is_array($processed_metadata['ap:tasks'])) {
+      $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+    }
+    else {
+      $processed_metadata['ap:tasks'] = [];
+      $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+    }
 
-    $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
     // JSON_ENCODE AGAIN!
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
@@ -623,7 +629,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     // Means new processing is adding these and they are already in the mapping. Is safe Files enabled?
                     if ($data->info['ops_safefiles']) {
                       // We take the old file ids and merge the new ones. Nothing gets lost ever.
-                      $processed_metadata[$filekey] = array_merge($original_value[$filekey] ?? [], $processed_metadata[$filekey] ?? []);
+                      // If there were no new ones, or new ones were URLs and failed processing
+                      // The $processed_metadata[$filekey] might be a string or empty!
+                      $processed_metadata[$filekey] = array_merge((array) $original_value[$filekey] ?? [],  is_array($processed_metadata[$filekey]) ? $processed_metadata[$filekey] : []);
                     }
                   }
                 }
@@ -747,6 +755,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             // Set data for the revision
             $node->setRevisionLogMessage('ADO modified via AMI Set ' . $data->info['set_id']);
             $node->setRevisionUserId($data->info['uid']);
+            $node->isDefaultRevision(TRUE);
           }
         }
         // In case $status was not moderated.
