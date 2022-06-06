@@ -8,6 +8,7 @@ use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\StreamWrapper\StreamWrapperInterface;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -279,11 +280,22 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         ];
       }
 
+      /* Give users a view of Free space in temporary */
+      $bytes = disk_free_space(\Drupal::service('file_system')->getTempDirectory());
+      $si_prefix = array( 'B', 'KB', 'MB', 'GB', 'TB', 'EB', 'ZB', 'YB' );
+      $base = 1024;
+      $class = min((int)log($bytes , $base) , count($si_prefix) - 1);
+      echo sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class] . '<br />';
+
       $form['status'] = [
         '#tree' => TRUE,
         '#type' => 'fieldset',
         '#title' => $this->t('Desired ADOs statuses after this <em><b>@op</b></em> operation process.',
           ['@op' => $op]
+        ),
+        '#description' => $this->t('You have @free remaining free space on your Drupal temporary filesystem. Please be aware of that before running a batch with large files', [
+          '@free' => sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class],
+          ]
         ),
       ];
       $access = TRUE;

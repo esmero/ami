@@ -367,7 +367,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
               // Last sanity check and make file temporary
               // TODO: remove on SBF 1.0.0 since we are going to also persist files where the source is
-              // of streamwrapper temporary://
+              // of streamwrapper temporary:// type
               /* @var \Drupal\file\FileInterface $file */
               $file = $this->entityTypeManager->getStorage('file')->load($processed_file_data['file_id']);
               if ($file) {
@@ -576,7 +576,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'uid' =>  $data->info['uid'],
         $field_name => $jsonstring
       ];
-
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {

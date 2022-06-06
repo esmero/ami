@@ -336,6 +336,7 @@ class AmiUtilityService {
         elseif ($zip_file) {
           // Try with the ZIP file in case there is a ZIP and local failed
           // Use the Zip file uuid to prefix the destination.
+          // @TODO file_build_uri is deprecated replace before Drupal 10.0.0
           $localfile = file_build_uri(
             $this->fileSystem->basename($ami_temp_folder . $zip_file->uuid() . '/' . urldecode($parsed_url['path']))
           );
