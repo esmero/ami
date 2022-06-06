@@ -381,7 +381,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
         $amisetdata->mapping->globalmapping = "custom";
         // Set by ::execute()
         foreach ($this->context['sandbox']['type_bundle'] as $type => $bundle_field) {
-          {$type} = new \stdClass();
+          $amisetdata->mapping->custommapping_settings->{$type} = new \stdClass();
           $amisetdata->mapping->custommapping_settings->{$type}->files = $this->context['sandbox']['file_columns'] ?? [];
           $amisetdata->mapping->custommapping_settings->{$type}->bundle = $bundle_field;
           $amisetdata->mapping->custommapping_settings->{$type}->metadata = "direct";
