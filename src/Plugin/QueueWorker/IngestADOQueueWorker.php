@@ -755,7 +755,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             // Set data for the revision
             $node->setRevisionLogMessage('ADO modified via AMI Set ' . $data->info['set_id']);
             $node->setRevisionUserId($data->info['uid']);
-            $node->isDefaultRevision(TRUE);
           }
         }
         // In case $status was not moderated.
