@@ -365,6 +365,13 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
       if ($file_id && $this->configuration['create_ami_set']) {
         $amisetdata = new \stdClass();
         $amisetdata->plugin = 'spreadsheet';
+        /* start definitions to make php8 happy */
+        $amisetdata->pluginconfig = new \stdClass();
+        $amisetdata->adomapping = new \stdClass();
+        $amisetdata->mapping = new \stdClass();
+        $amisetdata->adomapping->base = new \stdClass();
+        $amisetdata->adomapping->uuid = new \stdClass();
+        $amisetdata->mapping->custommapping_settings = new \stdClass();
         $amisetdata->pluginconfig->op = 'update';
         $amisetdata->pluginconfig->file = [$file_id];
         $amisetdata->adomapping->base->label = "label";
@@ -374,6 +381,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
         $amisetdata->mapping->globalmapping = "custom";
         // Set by ::execute()
         foreach ($this->context['sandbox']['type_bundle'] as $type => $bundle_field) {
+          $amisetdata->mapping->custommapping_settings->{$type} = new \stdClass();
           $amisetdata->mapping->custommapping_settings->{$type}->files = $this->context['sandbox']['file_columns'] ?? [];
           $amisetdata->mapping->custommapping_settings->{$type}->bundle = $bundle_field;
           $amisetdata->mapping->custommapping_settings->{$type}->metadata = "direct";

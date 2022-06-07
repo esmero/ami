@@ -276,6 +276,18 @@ class AmiRowAutocompleteHandler extends ControllerBase {
               'mode' => 'application/json',
             ],
           ];
+          $output['json']['dataOriginal'] = [
+            '#type' => 'codemirror',
+            '#title' => t('Original JSON of this ADO <b>{{ dataOriginal.keyname.lod_endpoint_type }}</b> :'),
+            '#rows' => 60,
+            '#value' => json_encode($context['dataOriginal'], JSON_PRETTY_PRINT),
+            '#codemirror' => [
+              'lineNumbers' => FALSE,
+              'toolbar' => FALSE,
+              'readOnly' => TRUE,
+              'mode' => 'application/json',
+            ],
+          ];
 
           // Try to Ensure we're using the twig from user's input instead of the entity's
           // default.
