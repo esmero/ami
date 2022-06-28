@@ -285,7 +285,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       }
       else {
         $form['message-error'] = [
-          '#markup' => '<div class="error">' . $this->t('Your data needs to provide a "type" column and at least one ADO type value under that column. None found ') . '</div>',
+          '#markup' => '<div class="error">' . $this->t('Your data should provide a "type" column and at least one ADO type value under that column. None found.') . '</div>',
         ];
       }
     }
@@ -447,15 +447,17 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
         // Check if the Plugin is ready processing or needs more data
         $ready = $form_state->getValue('pluginconfig')['ready'] ?? TRUE;
+        $op = $form_state->getValue('pluginconfig')['op'] ?? 'create';
         if (!$ready) {
           // Back yo Step 2 until the Plugin is ready doing its thing.
           $this->step = 2;
           $form_state->setRebuild();
         }
         else {
-          // Why 3? At least title, a type and a parent even if empty
+          // Why 3 Ingest? 2 for updates. At least title, a type and a parent even if empty
+          // If new, UUID and something to update (obvious) for updates.
           // Total rows contains data without headers So a single one is good enough.
-          if (is_array($data) && !empty($data) and isset($data['headers']) && count($data['headers']) >= 3 && isset($data['totalrows']) && $data['totalrows'] >= 1) {
+          if (is_array($data) && !empty($data) and isset($data['headers']) && ((count($data['headers']) >= 3) || (count($data['headers']) >= 2 && $op != 'create')) && isset($data['totalrows']) && $data['totalrows'] >= 1) {
             $this->store->set('data', $data);
           }
           else {
@@ -464,7 +466,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             $form_state->setRebuild();
             // @TODO show how its lacking?
             $this->messenger()
-              ->addError($this->t('Sorry. Your Source data is not enough for Processing. We need at least a header column, 3 columns and a data column. Please adjust your Plugin Configuration and try again.'));
+              ->addError($this->t('Sorry. Your Source data is not enough for Processing. We need at least a header column, 3 columns and a data column for new Ingests or 2 at least for Updates. Please adjust your Plugin Configuration and try again.'));
           }
         }
       }
