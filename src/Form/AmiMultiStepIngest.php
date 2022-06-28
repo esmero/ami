@@ -457,7 +457,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           // Why 3 Ingest? 2 for updates. At least title, a type and a parent even if empty
           // If new, UUID and something to update (obvious) for updates.
           // Total rows contains data without headers So a single one is good enough.
-          if (is_array($data) && !empty($data) and isset($data['headers']) && ((count($data['headers']) >= 3) || (count($data['headers']) >= 2 && $op!= 'create')) && isset($data['totalrows']) && $data['totalrows'] >= 1) {
+          if (is_array($data) && !empty($data) and isset($data['headers']) && ((count($data['headers']) >= 3) || (count($data['headers']) >= 2 && $op != 'create')) && isset($data['totalrows']) && $data['totalrows'] >= 1) {
             $this->store->set('data', $data);
           }
           else {
