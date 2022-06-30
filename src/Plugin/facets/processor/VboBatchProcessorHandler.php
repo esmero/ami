@@ -14,6 +14,8 @@ use Drupal\facets\Processor\PreQueryProcessorInterface;
 use Drupal\facets\Processor\ProcessorPluginBase;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\Request;
+use Drupal\Core\Http\RequestStack as DrupalRequestStack;
+use Symfony\Component\HttpFoundation\RequestStack as SymfonyRequestStack;
 
 /**
  * The URL processor handler triggers the actual url processor.
@@ -164,6 +166,25 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
+    if (method_exists(SymfonyRequestStack::class, 'getMainRequest')) {
+      $request =  $container->get('request_stack')->getMainRequest();
+    }
+    else {
+      $request =  $container->get('request_stack')->getMasterRequest();
+    }
+    return new static(
+      $configuration,
+      $plugin_id,
+      $plugin_definition,
+      $request,
+      $container->get('tempstore.private'),
+      $container->get('current_user'),
+      $container->get('entity_type.manager'),
+    );
+
+
+
+
     return new static(
       $configuration,
       $plugin_id,
