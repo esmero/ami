@@ -514,15 +514,35 @@ class AmiUtilityService {
     if (!empty($response->getHeader('Content-Type'))) {
       $mimetype = $response->getHeader('Content-Type');
       if (count($mimetype) > 0) {
-        $extension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
-          ->inverseguess($mimetype[0]);
+        // Happens that text files can have ALSO a charset, so mime can be
+        // joined by a; like text/vtt;charset=UTF-8
+        $mimetype_array = explode(";", $mimetype[0]);
+        if ($mimetype_array) {
+          $mimefromextension = NULL;
+          if ($extensions_from_remote) {
+            $mimefromextension = \Drupal::service(
+              'strawberryfield.mime_type.guesser.mime'
+            )
+              ->guess($filename_from_remote ?? $path);
+
+          }
+          if (($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
+            $extension = \Drupal::service(
+              'strawberryfield.mime_type.guesser.mime'
+            )
+              ->inverseguess($mimetype_array[0]);
+          }
+          else {
+            $extension = $extensions_from_remote;
+          }
+        }
       }
     }
     // If none try with the filename either from remote (if set) of from the download path
-    if (!$extension){
+    if (!$extension || $extension == 'bin'){
       $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
         ->guess($filename_from_remote ?? $path);
-      if (($mimefromextension == "application/octet-stream")) {
+      if (($mimefromextension !== "application/octet-stream")) {
         $extension = $extensions_from_remote ?? 'bin';
       }
     }
@@ -787,7 +807,7 @@ class AmiUtilityService {
     }
     // Ensure the file with empty data
     $file = file_save_data(
-        '', $uri, FileSystemInterface::EXISTS_REPLACE
+      '', $uri, FileSystemInterface::EXISTS_REPLACE
     );
 
     if (!$file) {
