@@ -563,7 +563,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $status = $data->info['status'][$bundle] ?? 0;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
-    if (is_array($processed_metadata['ap:tasks'])) {
+    if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
       $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
     }
     else {
