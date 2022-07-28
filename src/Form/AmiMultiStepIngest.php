@@ -327,7 +327,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#required' => FALSE,
         '#description' => $node_description,
         '#empty_option' => $this->t('- Please select columns -'),
+        '#validate' => ['::validateMapping'],
       ];
+
+      // Enforce this checked for ANY plugin that implements/defines its process
+      // as batch. I can not see any reason why a remote service would provide UUIDs.
+      // @TODO ask Allison/Katie about edge cases?
       if  ($op == 'update' || $op == 'patch') {
         $form['ingestsetup']['adomapping']['autouuid'] = [
           '#type' => 'checkbox',
@@ -341,6 +346,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ];
       }
       else {
+        $autouuid = $plugin_instance->getPluginDefinition()['batch'] ?? FALSE;
+        $autouuid =  $autouuid == TRUE ? $autouuid: (isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE);
         $form['ingestsetup']['adomapping']['autouuid'] = [
           '#type' => 'checkbox',
           '#title' => $this->t('Automatically assign UUID'),
@@ -348,7 +355,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             'Check this to automatically Assign UUIDs to each ADO. <br/><b>Important</b>: AMI will generate those under a <b>node_uuid</b> column.<br/>If you data already contains a <b>node_uuid</b> column with UUIDs inside, existing values will be used.'
           ),
           '#required' => FALSE,
-          '#default_value' => isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE,
+          '#disabled' => $plugin_instance->getPluginDefinition()['batch'] ?? FALSE,
+          '#default_value' => $autouuid,
         ];
       }
       $form['ingestsetup']['adomapping']['uuid'] = [
@@ -373,7 +381,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           'required' => [
             ':input[name*="autouuid"]' => ['checked' => FALSE],
           ]
-        ]
+        ],
+      '#validate' => ['::validateMapping'],
       ];
       if ($op == 'update' || $op == 'patch') {
         unset($form['ingestsetup']['adomapping']['uuid']['#states']);
@@ -421,6 +430,45 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     return $form;
   }
+
+  /**
+   * Validate handler for the "mapping" fase.
+   *
+   * Checks for double mapped elements.
+   */
+  public function validateMapping(array &$form, FormStateInterface $form_state) {
+
+    if ($form_state->getErrors()) {
+      //$form_state->setErrorByName('api_parameter_configs', t('Error Message'));
+    }
+    else {
+      // Check If there is already a parameter with the same name
+      if ($form_state->get('parameters')
+        && is_array(
+          $form_state->get('parameters')
+        )
+      ) {
+        $param_name = $form_state->getValue(
+          ['api_parameter_configs', 'params', 'name']
+        );
+        // Editing?
+        $editing = $form_state->getValue(
+          ['api_parameter_configs', 'params', 'editing'], FALSE
+        );
+        if (!$editing
+          && in_array(
+            $param_name, array_keys($form_state->get('parameters'))
+          )
+        ) {
+          $form_state->setErrorByName(
+            'api_parameter_configs][params][name',
+            t('This Parameter Name already exist')
+          );
+        }
+      }
+    }
+  }
+
 
   /**
    * {@inheritdoc}
@@ -533,12 +581,18 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $amisetdata->total_rows = $data['totalrows'];
         }
 
-        // We should probably add the UUIDs here right now.
-        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
+        /* remove from the mappings any column used as file source */
+        if (isset($amisetdata->adomapping['autouuid']) && $amisetdata->adomapping['autouuid']) {
+          $uuid_key = 'node_uuid';
+        }
+        else {
+          $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
+        }
         // We want to reset this value now
         $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
         if (!$plugin_instance->getPluginDefinition()['batch']) {
-          $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
+          // We now pass also if auto UUID was chosen or not.
+          $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key, $amisetdata->adomapping['autouuid'] ?? FALSE);
         } else {
           $fileid = $this->AmiUtilityService->csv_touch();
         }
