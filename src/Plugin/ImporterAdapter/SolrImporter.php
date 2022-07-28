@@ -122,13 +122,22 @@ class SolrImporter extends SpreadsheetImporter {
         ['ready']), FALSE),
     ];
 
-
-    $rows  = $form_state->get('rows');
-    $rows = $rows ?? $form_state->getValue(array_merge($parents,
-        ['solarium_config', 'rows']), 0);
+    $rows_form_state  = $form_state->get('rows');
+    $rows = $form_state->getValue(array_merge($parents,
+      ['solarium_config', 'rows']), 0);
+    if ($rows_form_state !== NULL) {
+      $rows = $rows_form_state;
+    }
     if (empty($rows)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
+
+    /* Calculate Max timeout based on PHP Settings */
+    $max_time = (int) ini_get('max_execution_time') * 0.75;
+    if ($max_time === 0) {
+      $max_time = 60;
+    }
+    $max_time = floor($max_time);
 
     $form['solarium_config'] = [
       '#prefix' => '<div id="ami-solrapi">',
@@ -175,6 +184,18 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('example: /'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'path'])),
+      ],
+      'timeout' => [
+        '#type' => 'number',
+        '#required' => TRUE,
+        '#min' => 5,
+        '#max' => $max_time,
+        '#title' => $this->t('Remote Solr Server time out in seconds.'),
+        '#description' => $this->t('The default is 5 seconds. The maximum allowed value your server can manage is @max. seconds',[
+          '@max' => $max_time
+        ]),
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_config', 'timeout']),5),
       ],
       'type' => [
         '#type' => 'select',
@@ -236,7 +257,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#default_value' => $rows,
       ],
     ];
-
+    /* @TODO let's tell the user why it is not ready? */
     $cmodels = $form_state->get('facet_cmodel') ?? $form_state->getValue(array_merge($parents,
         ['solarium_mapping', 'cmodel_mapping']), []);
     $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
@@ -387,6 +408,7 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
+    $adapter->setTimeout($config['timeout'] ?? 5);
     $eventDispatcher = new EventDispatcher();
 
     $client = new SolariumClient($adapter, $eventDispatcher, $solr_config);
@@ -421,9 +443,10 @@ class SolrImporter extends SpreadsheetImporter {
       // Solr Cloud uses collection instead of core
       $solr_config['endpoint']['amiremote']['collection'] = $config['solarium_config']['collection'];
     }
-    $input = 'info:fedora/' . $config['solarium_config']['islandora_collection'];
+    $input = $config['solarium_config']['islandora_collection'];
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
+    $adapter->setTimeout($config['solarium_config']['timeout'] ?? 5);
     $eventDispatcher = new EventDispatcher();
 
     $client = new SolariumClient($adapter, $eventDispatcher, $solr_config);
@@ -445,7 +468,15 @@ class SolrImporter extends SpreadsheetImporter {
       try {
         $query = $client->createSelect();
         $helper = $query->getHelper();
-        $escaped = $helper->escapePhrase($input);
+        /* @TODO we should save the config this way too */
+        $pids = array_map('trim', explode("\n", $input));
+        $pids = array_filter($pids);
+        foreach ($pids as &$pid) {
+            $pid = $helper->escapePhrase('info:fedora/' . $pid);
+        }
+        $escaped = implode(' OR ', $pids);
+        $escaped = '('. $escaped .')';
+
         $query->setQuery('*:*');
         $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
@@ -621,7 +652,31 @@ class SolrImporter extends SpreadsheetImporter {
         $form_state->setUserInput($user_input);
         $form_state->setValue(['pluginconfig', 'solarium_config', 'rows'],  $resultset->getNumFound());
         $form_state->setValue(['pluginconfig','ready'], FALSE);
+        if ($resultset->getNumFound() == 0) {
+          $this->messenger()->addMessage(
+            t(
+              'Your query did not match any ROWS in the remote server. Check your PIDs and server configuration and try again.'
+            ),
+            MessengerInterface::TYPE_ERROR
+          );
+        }
+        else {
+          $form_state->set('rows', $resultset->getNumFound());
+        }
       }
+      elseif ($resultset->getNumFound() == 0) {
+          $user_input = $form_state->getUserInput();
+          $form_state->setValue(['pluginconfig','ready'], FALSE);
+          $form_state->setValue(['pluginconfig', 'solarium_config', 'rows'],  0);
+          $form_state->set('rows', 0);
+          $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
+          $form_state->setUserInput($user_input);
+          $this->messenger()->addMessage(
+            t('Your query did not yield any results in the remote server. Check your Collection PIDs and/or server configuration and try again.'),
+            MessengerInterface::TYPE_ERROR
+          );
+      }
+
     }
     else {
       $this->messenger()->addMessage(
@@ -662,6 +717,7 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
+    $adapter->setTimeout($config['solarium_config']['timeout'] ?? 5);
     $eventDispatcher = new EventDispatcher();
     // This adds 'headerswithdata' so we can clean our mess up once finished
     $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0, 'totalfound' => 0, 'headerswithdata' => $headersWithData];
@@ -685,15 +741,21 @@ class SolrImporter extends SpreadsheetImporter {
     if ($ping_sucessful) {
       try {
         $query = $client->createSelect();
-
         // search input string, this value fails without escaping because of the double-quote
-        $input = 'info:fedora/' . $config['solarium_config']['islandora_collection'];
+        $input = $config['solarium_config']['islandora_collection'];
 
         // in this case phrase escaping is used (most common) but you can also do term escaping, see the manual
         // also note that the same can be done using the placeholder syntax, see example 6.3
         $helper = $query->getHelper();
-        $escaped = $helper->escapePhrase($input);
+        $pids = array_map('trim', explode("\n", $input));
+        $pids = array_filter($pids);
+        foreach ($pids as &$pid) {
+          $pid = $helper->escapePhrase('info:fedora/' . $pid);
+        }
+        $escaped = implode(' OR ', $pids);
+        $escaped = '('. $escaped .')';
         $query->setQuery('*:*');
+
         $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
@@ -1114,7 +1176,12 @@ class SolrImporter extends SpreadsheetImporter {
       else {
         $context['sandbox']['prev_index'] = $context['sandbox']['prev_index'] + $data['totalfound'];
         $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
-        \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers);
+        // New here or @TODO. We should append to CSV sooner instead of moving data around
+        // Why? A single Solr query data structure with children might fill up
+        // The PHP memory
+        // $amisetdata->adomapping['uuid']['uuid'] for this case will always be node_uuid and autouuid always TRUE.
+        // This is the form settings. Wonder if for safety i should just still fix the values here?
+        \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers, TRUE, $amisetdata->adomapping['autouuid'] ?? FALSE);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
         $context['results']['processed']['fileuuid'] = $file->uuid();
