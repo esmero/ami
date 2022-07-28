@@ -252,8 +252,8 @@ class SolrImporter extends SpreadsheetImporter {
         '#type' => 'number',
         '#min' => 0,
         '#max' => 65535,
-        '#title' => $this->t('Number of Rows'),
-        '#description' => $this->t('Total number of Rows to Fetch. Settings this to empty or null will prefill with the real Number Rows found by the Solr Query invoked. If you set this number higher than the actual results we will only fetch what can be fetched'),
+        '#title' => $this->t('Number of Rows for Top Objects'),
+        '#description' => $this->t('Total number of Rows to Fetch for top Objects. Settings this to empty or null will prefill with the real Number Rows found by the Solr Query invoked. If you set this number higher than the actual results we will only fetch what can be fetched.</br><em>Note:</em>Children objects are not being counted for and will add to your total spreadsheet row count if found.'),
         '#default_value' => $rows,
       ],
     ];
@@ -738,6 +738,7 @@ class SolrImporter extends SpreadsheetImporter {
     $offset = $page;
     $per_page = $per_page > 0 ? $per_page : static::BATCH_INCREMENTS;
 
+    $next_forced_offset = NULL;
     if ($ping_sucessful) {
       try {
         $query = $client->createSelect();
@@ -840,16 +841,18 @@ class SolrImporter extends SpreadsheetImporter {
           if (in_array($sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri'], static::MULTICHILDREN_CMODELS)) {
             $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['pid'];
           }
+          // If deep traverse is enabled we should also mark collections here?
+          // Call getData recursevely?
+
         } catch (\Exception $exception) {
           continue;
         }
       }
 
       if (($highestRow) >= 1) {
-        // Returns Row Headers.
-        $maxRow = 1; // at least until here.
         $childrenoffset = 0;
         // There is a chance that not all Rows have the same fields.
+        // $sp_data will contain here max static::BATCH_INCREMENTS;
         foreach ($sp_data as $rowindex => $row) {
           $i = 0;
           $newrow = [];
@@ -865,6 +868,9 @@ class SolrImporter extends SpreadsheetImporter {
 
           $table[$realrowindex] = $newrow;
           if (isset($pids_to_fetch[$rowindex])) {
+            // We will let all children to be harvested
+            // Even if they surpass the given static::BATCH_INCREMENTS;
+            // But we will return and stop getting more children if so
             $children_data = $this->getDataChildren($config, $client, $pids_to_fetch[$rowindex]);
             if (count($children_data)) {
               foreach ($children_data as $childrenindex => $childrenrow) {
@@ -907,6 +913,15 @@ class SolrImporter extends SpreadsheetImporter {
               $childrenoffset = !$collapse_children ? $childrenoffset + count($children_data) : $childrenoffset;
             }
           }
+        if (count($table) >= $per_page) {
+          // This will forcely reduce the expected nextoffset to the actual top object position
+          // We managed to fetch. Will of course re-do the original query
+          // And get some of the same Top PIDs but will also
+          // Avoid memory running out (hopefully)
+          $next_forced_offset = $offset + $rowindex + 1;
+          $highestRow = $rowindex + 1;
+          break 1;
+          }
         }
       }
 
@@ -919,6 +934,7 @@ class SolrImporter extends SpreadsheetImporter {
         'totalrows' => $highestRow,
         'totalfound' => count($table),
         'headerswithdata' => $headersWithData,
+        'nextforcedoffset' => $next_forced_offset
       ];
     }
     else {
@@ -1151,8 +1167,10 @@ class SolrImporter extends SpreadsheetImporter {
     }
     $context['finished'] = 0;
     try {
-      // Incremente constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
+      // Increment constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
       $next_increment = ($context['sandbox']['progress'] + $increment > $rows) ? ($rows - $context['sandbox']['progress']) : $increment;
+      $nextoffset = $context['sandbox']['progress'] + $offset;
+      $nextoffset = isset($context['sandbox']['nextforcedoffset']) && $context['sandbox']['nextforcedoffset'] !== NULL ? $context['sandbox']['nextforcedoffset'] : $nextoffset;
 
       $title = t('Processing %progress of <b>%count</b>', [
         '%count' => $rows,
@@ -1168,8 +1186,19 @@ class SolrImporter extends SpreadsheetImporter {
       // And not the mess each doc returns
       $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
-      $data = $plugin_instance->getData($config, $context['sandbox']['progress'] + $offset,
+
+
+      $data = $plugin_instance->getData($config, $nextoffset,
         $next_increment);
+
+      if (isset($data['nextforcedoffset']) && $data['nextforcedoffset'] !== NULL ) {
+        $context['sandbox']['nextforcedoffset'] = $data['nextforcedoffset'];
+        error_log('Forced offset found, rewinding to ' . $data['nextforcedoffset']);
+      }
+      else {
+        $context['sandbox']['nextforcedoffset'] = NULL;
+        error_log('No forced offset found!');
+      }
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
       }
