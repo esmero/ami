@@ -761,6 +761,16 @@ class SolrImporter extends SpreadsheetImporter {
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
         $query->addSort('PID', 'asc');
+        // New thing here
+        // If we are in the mode of getting a lot of children
+        // And ending with little top objects, e.g i request 100, return 3 and the rest are children
+        // I can here, fictiously based on the last time that happened
+        // Reduce the number of top objects to make all faster
+        // Once we return to a state where the number of objects we get
+        // is e.g 75% or more of what is requested i restore this value
+        // But i can not change it on the caller (the batch)
+        // because it would also reduce the number of children?
+        // Nah, not really.
         $query->setStart($offset)->setRows($per_page);
         $query->setFields([
           'PID',
@@ -1155,6 +1165,7 @@ class SolrImporter extends SpreadsheetImporter {
     $increment = static::BATCH_INCREMENTS;
     if (!isset($context['sandbox']['progress'])) {
       $context['sandbox']['progress'] = 0;
+      $context['sandbox']['totalfound'] = 0;
     }
 
     if (!array_key_exists('max',
@@ -1172,9 +1183,10 @@ class SolrImporter extends SpreadsheetImporter {
       $nextoffset = $context['sandbox']['progress'] + $offset;
       $nextoffset = isset($context['sandbox']['nextforcedoffset']) && $context['sandbox']['nextforcedoffset'] !== NULL ? $context['sandbox']['nextforcedoffset'] : $nextoffset;
 
-      $title = t('Processing %progress of <b>%count</b>', [
+      $title = t('Processing %progress of <b>%count</b> top Objects with <b>%total</b> total rows fetched so far.', [
         '%count' => $rows,
-        '%progress' => $context['sandbox']['progress'] + $next_increment
+        '%progress' => $context['sandbox']['progress'],
+        '%total' => $context['sandbox']['totalfound']
       ]);
       $context['message'] = $title;
       // WE keep track in the AMI set Config of the previous total rows
@@ -1213,6 +1225,7 @@ class SolrImporter extends SpreadsheetImporter {
         \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers, TRUE, $amisetdata->adomapping['autouuid'] ?? FALSE);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
+        $context['sandbox']['totalfound'] = $context['sandbox']['totalfound'] + $data['totalfound'];
         $context['results']['processed']['fileuuid'] = $file->uuid();
         $context['results']['processed']['headers'] = $data['headers'];
         $context['results']['processed']['total_rows'] = $data['totalrows'] ?? 0;
