@@ -52,7 +52,7 @@ class SolrImporter extends SpreadsheetImporter {
     'models',
   ];
 
-  const BATCH_INCREMENTS = 100;
+  const BATCH_INCREMENTS = 500;
 
   /**
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
@@ -258,6 +258,8 @@ class SolrImporter extends SpreadsheetImporter {
       ],
     ];
     /* @TODO let's tell the user why it is not ready? */
+    /* Also todo, move mappings already done between children/parents/children */
+    /* That way previous decisions on any of each sides will stick on the other */
     $cmodels = $form_state->get('facet_cmodel') ?? $form_state->getValue(array_merge($parents,
         ['solarium_mapping', 'cmodel_mapping']), []);
     $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
@@ -1179,7 +1181,20 @@ class SolrImporter extends SpreadsheetImporter {
     $context['finished'] = 0;
     try {
       // Increment constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
+
       $next_increment = ($context['sandbox']['progress'] + $increment > $rows) ? ($rows - $context['sandbox']['progress']) : $increment;
+      // Or if the requested number is under a 75%. If so reduce the request
+      // This means we are getting lots of children.
+      // Once this returns to a higher threashold keep incrementing normally
+      // This helps with over processing of parents when we are only be able to fetch a few
+      if (isset($context['sandbox']['nextforcedoffset']) && $context['sandbox']['nextforcedoffset'] !== NULL && $context['sandbox']['progress'] > 0 && $next_increment > 0) {
+        $ratio = ($context['results']['processed']['total_rows'] / $next_increment);
+        if ($ratio < 0.75) {
+          $next_increment_smaller = ceil($increment * $ratio);
+          $next_increment = $next_increment_smaller > 0 ? $next_increment_smaller + 1 : $next_increment;
+        }
+      }
+
       $nextoffset = $context['sandbox']['progress'] + $offset;
       $nextoffset = isset($context['sandbox']['nextforcedoffset']) && $context['sandbox']['nextforcedoffset'] !== NULL ? $context['sandbox']['nextforcedoffset'] : $nextoffset;
 
@@ -1199,17 +1214,14 @@ class SolrImporter extends SpreadsheetImporter {
       $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
 
-
       $data = $plugin_instance->getData($config, $nextoffset,
         $next_increment);
 
       if (isset($data['nextforcedoffset']) && $data['nextforcedoffset'] !== NULL ) {
         $context['sandbox']['nextforcedoffset'] = $data['nextforcedoffset'];
-        error_log('Forced offset found, rewinding to ' . $data['nextforcedoffset']);
       }
       else {
         $context['sandbox']['nextforcedoffset'] = NULL;
-        error_log('No forced offset found!');
       }
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
