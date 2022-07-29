@@ -160,6 +160,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('If checked AMI will try to fetch Collections of Collections. Even if disabled, by default it will always get other parent/children hierarchies.'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'deep'])),
+        '#disabled' => TRUE,
       ],
       'host' => [
         '#type' => 'textfield',
@@ -937,9 +938,6 @@ class SolrImporter extends SpreadsheetImporter {
         }
       }
 
-      // Clean empty headers
-
-
       $tabdata = [
         'headers' => array_keys($headers),
         'data' => $table,
@@ -951,7 +949,7 @@ class SolrImporter extends SpreadsheetImporter {
     }
     else {
       $this->messenger()->addMessage(
-        t('Your Solr Config did not work out. Sorry'),
+        t('Your Solr Config did not work out. Sorry. Check your settings or if your remote server is having issues.'),
         MessengerInterface::TYPE_ERROR
       );
     }
