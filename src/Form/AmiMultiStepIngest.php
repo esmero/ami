@@ -291,7 +291,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
 
     if ($this->step == 4) {
-      $data = $this->store->get('data');
+      $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
       $op = $pluginconfig['op'];
       $plugin_instance = $this->store->get('plugininstance');
