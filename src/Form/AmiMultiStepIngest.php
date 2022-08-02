@@ -118,7 +118,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($this->step == 3) {
       // We should never reach this point if data is not enough. Submit handler
       // will back to Step 2 if so.
-      $data = $this->store->get('data');
+      $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
       $plugin_instance = $this->store->get('plugininstance');
       $op = $pluginconfig['op'];
@@ -150,12 +150,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#description' => $this->t('Columns will be casted to ADO metadata (JSON) using a Twig template setup for JSON output'),
       ];
 
-     /* $element_conditional['webform'] =[
-        '#type' => 'select',
-        '#title' => $this->t('Webform'),
-        '#options' => $webform,
-        '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
-      ];*/
+      /* $element_conditional['webform'] =[
+         '#type' => 'select',
+         '#title' => $this->t('Webform'),
+         '#options' => $webform,
+         '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
+       ];*/
 
       $form['ingestsetup']['globalmapping'] = [
         '#type' => 'select',
@@ -327,7 +327,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#required' => FALSE,
         '#description' => $node_description,
         '#empty_option' => $this->t('- Please select columns -'),
-        '#validate' => ['::validateMapping'],
+        '#element_validate' => ['::validateMapping'],
       ];
 
       // Enforce this checked for ANY plugin that implements/defines its process
@@ -367,8 +367,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ),
         '#description_display' => 'before',
         '#empty_option' =>  $this->t('- Let AMI decide -'),
-        '#empty_value' =>  NULL,
-        '#default_value' =>  isset($adomapping['uuid']) ? $adomapping['uuid'] : [],
+        '#empty_value' =>  'node_uuid',
+        '#default_value' =>  $plugin_instance->getPluginDefinition()['batch'] ? 'node_uuid' : (isset($adomapping['uuid']) ? $adomapping['uuid'] : []),
         '#required' => FALSE,
         '#source' => [ 'uuid' => 'ADO UUID'],
         '#source__title' => $this->t('ADO mappings'),
@@ -382,14 +382,13 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             ':input[name*="autouuid"]' => ['checked' => FALSE],
           ]
         ],
-      '#validate' => ['::validateMapping'],
       ];
       if ($op == 'update' || $op == 'patch') {
         unset($form['ingestsetup']['adomapping']['uuid']['#states']);
         $form['ingestsetup']['adomapping']['uuid']['#required'] = TRUE;
       }
 
-        $form['ingestsetup']['adomapping']['base'] = [
+      $form['ingestsetup']['adomapping']['base'] = [
         '#type' => 'webform_mapping',
         '#title' => $this->t('Required ADO mappings'),
         '#format' => 'list',
@@ -437,33 +436,29 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
    * Checks for double mapped elements.
    */
   public function validateMapping(array &$form, FormStateInterface $form_state) {
-
-    if ($form_state->getErrors()) {
-      //$form_state->setErrorByName('api_parameter_configs', t('Error Message'));
-    }
-    else {
-      // Check If there is already a parameter with the same name
-      if ($form_state->get('parameters')
-        && is_array(
-          $form_state->get('parameters')
-        )
-      ) {
-        $param_name = $form_state->getValue(
-          ['api_parameter_configs', 'params', 'name']
-        );
-        // Editing?
-        $editing = $form_state->getValue(
-          ['api_parameter_configs', 'params', 'editing'], FALSE
-        );
-        if (!$editing
-          && in_array(
-            $param_name, array_keys($form_state->get('parameters'))
-          )
+    if ($form_state->getTriggeringElement()['#name'] == 'next') {
+      $uuid_map = $form_state->getValue(
+        ['adomapping', 'uuid', 'uuid'], 'node_uuid'
+      );
+      if ($uuid_map == "") {
+        $uuid_map = 'node_uuid';
+      }
+      $parents_map = $form_state->getValue(
+        ['adomapping', 'parents'], []
+      );
+      if (in_array($uuid_map, $parents_map)) {
+        if (!$form_state->getValue(
+          ['adomapping', 'autouuid'], FALSE)
         ) {
           $form_state->setErrorByName(
-            'api_parameter_configs][params][name',
-            t('This Parameter Name already exist')
-          );
+            'adomapping][parents',
+            $this->t('UUID and Parents can not share Column names.'));
+        }
+        else {
+          $form_state->setErrorByName(
+            'adomapping][parents',
+            $this->t('When Auto UUID is enabled, <em>"node_uuid"</em> can not be set as parent.'));
+
         }
       }
     }
