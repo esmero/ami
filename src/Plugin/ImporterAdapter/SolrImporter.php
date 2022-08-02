@@ -857,7 +857,8 @@ class SolrImporter extends SpreadsheetImporter {
           // If deep traverse is enabled we should also mark collections here?
           // Call getData recursevely?
 
-        } catch (\Exception $exception) {
+        }
+        catch (\Exception $exception) {
           continue;
         }
       }
