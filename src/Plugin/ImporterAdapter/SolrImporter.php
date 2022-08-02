@@ -642,7 +642,8 @@ class SolrImporter extends SpreadsheetImporter {
       if (((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_children'], []), $cmodel_children)) == count($cmodel_children))
           && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
         $form_state->setValue(['pluginconfig', 'ready'], TRUE);
-      } else {
+      }
+      else {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
 
