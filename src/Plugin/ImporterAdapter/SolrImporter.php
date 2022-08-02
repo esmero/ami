@@ -287,6 +287,15 @@ class SolrImporter extends SpreadsheetImporter {
     $cmodels_source_children = $cmodels_children ? array_combine(array_keys($cmodels_children),
       array_keys($cmodels_children)) : [];
 
+    $cmodel_values = $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'cmodel_mapping'], []));
+    $cmodel_values_children = $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'cmodel_children'], []));
+    /* Doing this for Alliomeria, so mapping is passed from children/tops/back */
+    $cmodel_values_combined = $cmodel_values + $cmodel_values_children;
+
+
+
     $form['solarium_mapping'] = [
       '#tree' => TRUE,
       '#prefix' => '<div id="ami-solrmapping">',
@@ -320,8 +329,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('Your Islandora Content Models to ADO types mapping, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
         '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
         '#empty_value' => NULL,
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_mapping', 'cmodel_mapping'], [])),
+        '#default_value' => $cmodel_values_combined,
         '#source' => $cmodels_source,
         '#source__title' => $this->t('CMODELs found'),
         '#destination__title' => $this->t('ADO Types'),
@@ -334,8 +342,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('Your Islandora Content Models to ADO types mapping for possible Children, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
         '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
         '#empty_value' => NULL,
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_mapping', 'cmodel_children'], [])),
+        '#default_value' => $cmodel_values_combined,
         '#source' => $cmodels_source_children,
         '#source__title' => $this->t('Other CMODELs'),
         '#destination__title' => $this->t('ADO Types'),
@@ -931,7 +938,6 @@ class SolrImporter extends SpreadsheetImporter {
             $highestRow = $rowindex + 1;
             break 1;
           }
-          error_log('what i really got '.count($table).' what i was asked for ' . $per_page);
         }
       }
 
@@ -1175,27 +1181,51 @@ class SolrImporter extends SpreadsheetImporter {
     try {
       // Increment constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
 
-      $next_increment = ($context['sandbox']['progress'] + $increment > $rows) ? ($rows - $context['sandbox']['progress']) : $increment;
+      $next_increment = ($context['sandbox']['progress'] + $increment > $rows)
+        ? ($rows - $context['sandbox']['progress']) : $increment;
       // Or if the requested number is under a 75%. If so reduce the request
       // This means we are getting lots of children.
       // Once this returns to a higher threashold keep incrementing normally
       // This helps with over processing of parents when we are only be able to fetch a few
-      if (isset($context['sandbox']['nextforcedoffset']) && $context['sandbox']['nextforcedoffset'] !== NULL && $context['sandbox']['progress'] > 0 && $next_increment > 0) {
-        $ratio = ($context['results']['processed']['total_rows'] / $next_increment);
+      if (isset($context['sandbox']['nextforcedoffset'])
+        && $context['sandbox']['nextforcedoffset'] !== NULL
+        && $context['sandbox']['progress'] > 0
+        && $next_increment > 0
+      ) {
+        $ratio = ($context['results']['processed']['total_rows']
+          / $next_increment);
         if ($ratio < 0.75) {
           $next_increment_smaller = ceil($increment * $ratio);
-          $next_increment = $next_increment_smaller > 0 ? $next_increment_smaller + 1 : $next_increment;
+          $next_increment = $next_increment_smaller > 0
+            ? $next_increment_smaller + 1 : $next_increment;
         }
       }
 
       $nextoffset = $context['sandbox']['progress'] + $offset;
-      $nextoffset = isset($context['sandbox']['nextforcedoffset']) && $context['sandbox']['nextforcedoffset'] !== NULL ? $context['sandbox']['nextforcedoffset'] : $nextoffset;
+      $nextoffset = isset($context['sandbox']['nextforcedoffset'])
+      && $context['sandbox']['nextforcedoffset'] !== NULL
+        ? $context['sandbox']['nextforcedoffset'] : $nextoffset;
 
-      $title = t('Processing %progress of <b>%count</b> top Objects with <b>%total</b> total rows fetched so far.', [
-        '%count' => $rows,
-        '%progress' => $context['sandbox']['progress'],
-        '%total' => $context['sandbox']['totalfound']
-      ]);
+      if ($context['sandbox']['progress'] == 0) {
+        $title = t(
+          'Attempting to fetch first %progress of <b>%count</b> Objects.',
+          [
+            '%count'    => $rows,
+            '%progress' => $context['sandbox']['progress'] + $next_increment,
+          ]
+        );
+      }
+      else {
+        $title = t(
+          'Fetching %progress of <b>%count</b> top Objects with <b>%total</b> total rows retrieved so far.',
+          [
+            '%count'    => $rows,
+            '%progress' => $context['sandbox']['progress'] + $next_increment,
+            '%total'    => $context['sandbox']['totalfound']
+          ]
+        );
+      }
+
       $context['message'] = $title;
       // WE keep track in the AMI set Config of the previous total rows
       // Because Children will offset all the results significantly
