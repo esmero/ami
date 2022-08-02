@@ -1216,11 +1216,13 @@ class SolrImporter extends SpreadsheetImporter {
         );
       }
       else {
+        $progress = $context['sandbox']['progress'] + $next_increment;
+        $progress = ($progress >= $rows) ? $rows : $progress;
         $title = t(
           'Fetching %progress of <b>%count</b> top Objects with <b>%total</b> total rows retrieved so far.',
           [
             '%count'    => $rows,
-            '%progress' => $context['sandbox']['progress'] + $next_increment,
+            '%progress' => $progress,
             '%total'    => $context['sandbox']['totalfound']
           ]
         );
