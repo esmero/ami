@@ -117,7 +117,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     // TO keep this discrete and easier to edit maybe move to it's own method?
     if ($this->step == 3) {
       // We should never reach this point if data is not enough. Submit handler
-      // will back to Step 2 if so.
+      // will go back to Step 2 if so.
       $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
       $plugin_instance = $this->store->get('plugininstance');
