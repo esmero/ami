@@ -590,7 +590,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         if (!$plugin_instance->getPluginDefinition()['batch']) {
           // We now pass also if auto UUID was chosen or not.
           $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key, $amisetdata->adomapping['autouuid'] ?? FALSE);
-        } else {
+        }
+        else {
           $fileid = $this->AmiUtilityService->csv_touch();
         }
         $batch = [];
