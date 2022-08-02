@@ -399,7 +399,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             '#title' => !$file ? t('AMI Set has no CSV File'): t('AMI Set has no data for chosen row.'),
             'error' => [
               '#markup' => t('The AMI set is empty.'),
-            ]
+            ],
           ];
           $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
             $output, ['width' => '50%']));
