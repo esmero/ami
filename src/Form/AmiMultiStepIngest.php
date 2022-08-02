@@ -117,8 +117,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     // TO keep this discrete and easier to edit maybe move to it's own method?
     if ($this->step == 3) {
       // We should never reach this point if data is not enough. Submit handler
-      // will back to Step 2 if so.
-      $data = $this->store->get('data');
+      // will go back to Step 2 if so.
+      $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
       $plugin_instance = $this->store->get('plugininstance');
       $op = $pluginconfig['op'];
@@ -150,12 +150,14 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#description' => $this->t('Columns will be casted to ADO metadata (JSON) using a Twig template setup for JSON output'),
       ];
 
-     /* $element_conditional['webform'] =[
-        '#type' => 'select',
-        '#title' => $this->t('Webform'),
-        '#options' => $webform,
-        '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
-      ];*/
+      /**
+       * $element_conditional['webform'] = [
+       *   '#type' => 'select',
+       *   '#title' => $this->t('Webform'),
+       *   '#options' => $webform,
+       *   '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
+       * ];
+       */
 
       $form['ingestsetup']['globalmapping'] = [
         '#type' => 'select',
@@ -291,7 +293,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
 
     if ($this->step == 4) {
-      $data = $this->store->get('data');
+      $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
       $op = $pluginconfig['op'];
       $plugin_instance = $this->store->get('plugininstance');
@@ -327,7 +329,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#required' => FALSE,
         '#description' => $node_description,
         '#empty_option' => $this->t('- Please select columns -'),
+        '#element_validate' => ['::validateMapping'],
       ];
+
+      // Enforce this checked for ANY plugin that implements/defines its process
+      // as batch. I can not see any reason why a remote service would provide UUIDs.
+      // @TODO ask Allison/Katie about edge cases?
       if  ($op == 'update' || $op == 'patch') {
         $form['ingestsetup']['adomapping']['autouuid'] = [
           '#type' => 'checkbox',
@@ -341,6 +348,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ];
       }
       else {
+        $autouuid = $plugin_instance->getPluginDefinition()['batch'] ?? FALSE;
+        $autouuid =  $autouuid == TRUE ? $autouuid: (isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE);
         $form['ingestsetup']['adomapping']['autouuid'] = [
           '#type' => 'checkbox',
           '#title' => $this->t('Automatically assign UUID'),
@@ -348,7 +357,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             'Check this to automatically Assign UUIDs to each ADO. <br/><b>Important</b>: AMI will generate those under a <b>node_uuid</b> column.<br/>If you data already contains a <b>node_uuid</b> column with UUIDs inside, existing values will be used.'
           ),
           '#required' => FALSE,
-          '#default_value' => isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE,
+          '#disabled' => $plugin_instance->getPluginDefinition()['batch'] ?? FALSE,
+          '#default_value' => $autouuid,
         ];
       }
       $form['ingestsetup']['adomapping']['uuid'] = [
@@ -359,8 +369,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ),
         '#description_display' => 'before',
         '#empty_option' =>  $this->t('- Let AMI decide -'),
-        '#empty_value' =>  NULL,
-        '#default_value' =>  isset($adomapping['uuid']) ? $adomapping['uuid'] : [],
+        '#empty_value' =>  'node_uuid',
+        '#default_value' =>  $plugin_instance->getPluginDefinition()['batch'] ? 'node_uuid' : (isset($adomapping['uuid']) ? $adomapping['uuid'] : []),
         '#required' => FALSE,
         '#source' => [ 'uuid' => 'ADO UUID'],
         '#source__title' => $this->t('ADO mappings'),
@@ -373,14 +383,14 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           'required' => [
             ':input[name*="autouuid"]' => ['checked' => FALSE],
           ]
-        ]
+        ],
       ];
       if ($op == 'update' || $op == 'patch') {
         unset($form['ingestsetup']['adomapping']['uuid']['#states']);
         $form['ingestsetup']['adomapping']['uuid']['#required'] = TRUE;
       }
 
-        $form['ingestsetup']['adomapping']['base'] = [
+      $form['ingestsetup']['adomapping']['base'] = [
         '#type' => 'webform_mapping',
         '#title' => $this->t('Required ADO mappings'),
         '#format' => 'list',
@@ -421,6 +431,41 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     }
     return $form;
   }
+
+  /**
+   * Validate handler for the "mapping" fase.
+   *
+   * Checks for double mapped elements.
+   */
+  public function validateMapping(array &$form, FormStateInterface $form_state) {
+    if ($form_state->getTriggeringElement()['#name'] == 'next') {
+      $uuid_map = $form_state->getValue(
+        ['adomapping', 'uuid', 'uuid'], 'node_uuid'
+      );
+      if ($uuid_map == "") {
+        $uuid_map = 'node_uuid';
+      }
+      $parents_map = $form_state->getValue(
+        ['adomapping', 'parents'], []
+      );
+      if (in_array($uuid_map, $parents_map)) {
+        if (!$form_state->getValue(
+          ['adomapping', 'autouuid'], FALSE)
+        ) {
+          $form_state->setErrorByName(
+            'adomapping][parents',
+            $this->t('UUID and Parents can not share Column names.'));
+        }
+        else {
+          $form_state->setErrorByName(
+            'adomapping][parents',
+            $this->t('When Auto UUID is enabled, <em>"node_uuid"</em> can not be set as parent.'));
+
+        }
+      }
+    }
+  }
+
 
   /**
    * {@inheritdoc}
@@ -533,13 +578,20 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           $amisetdata->total_rows = $data['totalrows'];
         }
 
-        // We should probably add the UUIDs here right now.
-        $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
+        /* remove from the mappings any column used as file source */
+        if (isset($amisetdata->adomapping['autouuid']) && $amisetdata->adomapping['autouuid']) {
+          $uuid_key = 'node_uuid';
+        }
+        else {
+          $uuid_key = isset($amisetdata->adomapping['uuid']['uuid']) && !empty($amisetdata->adomapping['uuid']['uuid']) ? $amisetdata->adomapping['uuid']['uuid'] : 'node_uuid';
+        }
         // We want to reset this value now
         $amisetdata->adomapping['uuid']['uuid'] = $uuid_key;
         if (!$plugin_instance->getPluginDefinition()['batch']) {
-          $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key);
-        } else {
+          // We now pass also if auto UUID was chosen or not.
+          $fileid = $this->AmiUtilityService->csv_save($data, $uuid_key, $amisetdata->adomapping['autouuid'] ?? FALSE);
+        }
+        else {
           $fileid = $this->AmiUtilityService->csv_touch();
         }
         $batch = [];

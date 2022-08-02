@@ -832,11 +832,15 @@ class AmiUtilityService {
    *   'data' will be rows and may/not be associative.
    *
    * @param string $uuid_key
+   *    The header key can has/should have the UUIDs of new/existing ADOs.
+   * @param boolean $auto_uuid
+   *    Defines if we are going to generate UUIDs when not valid/not present
+   *    Or leave the $uuid_key field as it is and let this fail/if later.
    *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_save(array $data, $uuid_key = 'node_uuid') {
+  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE) {
 
     //$temporary_directory = $this->fileSystem->getTempDirectory();
     // We should be allowing downloads for this from temp
@@ -959,7 +963,7 @@ class AmiUtilityService {
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE, $escape_characters = TRUE) {
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE, $escape_characters = TRUE, $auto_uuid = TRUE) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {

@@ -40,8 +40,8 @@ class SolrImporter extends SpreadsheetImporter {
     'info:fedora/islandora:bookCModel',
     'info:fedora/islandora:newspaperIssueCModel',
     'info:fedora/islandora:newspaperCModel',
+    'info:fedora/islandora:manuscriptCModel',
   ];
-
 
   const FILE_COLUMNS = [
     'documents',
@@ -52,7 +52,7 @@ class SolrImporter extends SpreadsheetImporter {
     'models',
   ];
 
-  const BATCH_INCREMENTS = 100;
+  const BATCH_INCREMENTS = 500;
 
   /**
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
@@ -122,13 +122,22 @@ class SolrImporter extends SpreadsheetImporter {
         ['ready']), FALSE),
     ];
 
-
-    $rows  = $form_state->get('rows');
-    $rows = $rows ?? $form_state->getValue(array_merge($parents,
-        ['solarium_config', 'rows']), 0);
+    $rows_form_state  = $form_state->get('rows');
+    $rows = $form_state->getValue(array_merge($parents,
+      ['solarium_config', 'rows']), 0);
+    if ($rows_form_state !== NULL) {
+      $rows = $rows_form_state;
+    }
     if (empty($rows)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
+
+    /* Calculate Max timeout based on PHP Settings */
+    $max_time = (int) ini_get('max_execution_time') * 0.75;
+    if ($max_time === 0) {
+      $max_time = 60;
+    }
+    $max_time = floor($max_time);
 
     $form['solarium_config'] = [
       '#prefix' => '<div id="ami-solrapi">',
@@ -144,13 +153,6 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('Example: islandora:root. If multiple use one PID per line.'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'islandora_collection'])),
-      ],
-      'deep' => [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Deep Collection traverse'),
-        '#description' => $this->t('If checked AMI will try to fetch Collections of Collections. Even if disabled, by default it will always get other parent/children hierarchies.'),
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_config', 'deep'])),
       ],
       'host' => [
         '#type' => 'textfield',
@@ -175,6 +177,18 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('example: /'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'path'])),
+      ],
+      'timeout' => [
+        '#type' => 'number',
+        '#required' => TRUE,
+        '#min' => 5,
+        '#max' => $max_time,
+        '#title' => $this->t('Remote Solr Server time out in seconds.'),
+        '#description' => $this->t('The default is 5 seconds. The maximum allowed value your server can manage is @max. seconds',[
+          '@max' => $max_time
+        ]),
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_config', 'timeout']),5),
       ],
       'type' => [
         '#type' => 'select',
@@ -231,12 +245,16 @@ class SolrImporter extends SpreadsheetImporter {
         '#type' => 'number',
         '#min' => 0,
         '#max' => 65535,
-        '#title' => $this->t('Number of Rows'),
-        '#description' => $this->t('Total number of Rows to Fetch. Settings this to empty or null will prefill with the real Number Rows found by the Solr Query invoked. If you set this number higher than the actual results we will only fetch what can be fetched'),
+        '#title' => $this->t('Number of Rows for Top Objects'),
+        '#description' => $this->t('Total number of Rows to Fetch for top Objects. Settings this to empty or null will prefill with the real Number Rows found by the Solr Query invoked. If you set this number higher than the actual results we will only fetch what can be fetched.</br><em>Note:</em>Children objects are not being counted for and will add to your total spreadsheet row count if found.'),
         '#default_value' => $rows,
       ],
     ];
-
+    /**
+     * @TODO let's tell the user why it is not ready?
+     * Also todo, move mappings already done between children/parents/children
+     * That way previous decisions on any of each sides will stick on the other
+     */
     $cmodels = $form_state->get('facet_cmodel') ?? $form_state->getValue(array_merge($parents,
         ['solarium_mapping', 'cmodel_mapping']), []);
     $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
@@ -247,11 +265,11 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     if (empty($cmodels_children) && $form_state->getValue(array_merge($parents,
-      ['solarium_mapping', 'collapse']), FALSE)) {
+        ['solarium_mapping', 'collapse']), FALSE)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
 
-      $default_parent = $form_state->getValue(array_merge($parents,
+    $default_parent = $form_state->getValue(array_merge($parents,
       ['solarium_mapping', 'parent_ado']), NULL);
     if ($default_parent) {
       try {
@@ -260,7 +278,7 @@ class SolrImporter extends SpreadsheetImporter {
       }
       catch (\Exception $e) {
         $this->messenger()->addError('Could not load Parent ADO with message @e'. [
-          '@e' => $e->getMessage(),
+            '@e' => $e->getMessage(),
           ]);
       }
     }
@@ -270,6 +288,15 @@ class SolrImporter extends SpreadsheetImporter {
       array_keys($cmodels)) : [];
     $cmodels_source_children = $cmodels_children ? array_combine(array_keys($cmodels_children),
       array_keys($cmodels_children)) : [];
+
+    $cmodel_values = $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'cmodel_mapping'], []));
+    $cmodel_values_children = $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'cmodel_children'], []));
+    /* Doing this for Alliomeria, so mapping is passed from children/tops/back */
+    $cmodel_values_combined = $cmodel_values + $cmodel_values_children;
+
+
 
     $form['solarium_mapping'] = [
       '#tree' => TRUE,
@@ -304,8 +331,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('Your Islandora Content Models to ADO types mapping, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
         '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
         '#empty_value' => NULL,
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_mapping', 'cmodel_mapping'], [])),
+        '#default_value' => $cmodel_values_combined,
         '#source' => $cmodels_source,
         '#source__title' => $this->t('CMODELs found'),
         '#destination__title' => $this->t('ADO Types'),
@@ -318,8 +344,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#description' => $this->t('Your Islandora Content Models to ADO types mapping for possible Children, eg: for <em>info:fedora/islandora:sp_large_image_cmodel</em> you may want to use <em>Photograph</em>.'),
         '#empty_option' => $this->t('- Please Map your Islandora CMODELs to ADO types -'),
         '#empty_value' => NULL,
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_mapping', 'cmodel_children'], [])),
+        '#default_value' => $cmodel_values_combined,
         '#source' => $cmodels_source_children,
         '#source__title' => $this->t('Other CMODELs'),
         '#destination__title' => $this->t('ADO Types'),
@@ -387,6 +412,7 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
+    $adapter->setTimeout($config['timeout'] ?? 5);
     $eventDispatcher = new EventDispatcher();
 
     $client = new SolariumClient($adapter, $eventDispatcher, $solr_config);
@@ -414,16 +440,17 @@ class SolrImporter extends SpreadsheetImporter {
         ],
       ],
     ];
-     if ($config['solarium_config']['type'] == 'single') {
+    if ($config['solarium_config']['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['solarium_config']['core'];
     }
     else {
       // Solr Cloud uses collection instead of core
       $solr_config['endpoint']['amiremote']['collection'] = $config['solarium_config']['collection'];
     }
-    $input = 'info:fedora/' . $config['solarium_config']['islandora_collection'];
+    $input = $config['solarium_config']['islandora_collection'];
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
+    $adapter->setTimeout($config['solarium_config']['timeout'] ?? 5);
     $eventDispatcher = new EventDispatcher();
 
     $client = new SolariumClient($adapter, $eventDispatcher, $solr_config);
@@ -445,9 +472,17 @@ class SolrImporter extends SpreadsheetImporter {
       try {
         $query = $client->createSelect();
         $helper = $query->getHelper();
-        $escaped = $helper->escapePhrase($input);
+        /* @TODO we should save the config this way too */
+        $pids = array_map('trim', explode("\n", $input));
+        $pids = array_filter($pids);
+        foreach ($pids as &$pid) {
+          $pid = $helper->escapePhrase('info:fedora/' . $pid);
+        }
+        $escaped = implode(' OR ', $pids);
+        $escaped = '('. $escaped .')';
+
         $query->setQuery('*:*');
-        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
+        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $escaped . ' OR RELS_EXT_isMemberOf_uri_s:' . $escaped);
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
         /*
@@ -607,9 +642,10 @@ class SolrImporter extends SpreadsheetImporter {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
       if (((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_children'], []), $cmodel_children)) == count($cmodel_children))
-        && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
+          && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
         $form_state->setValue(['pluginconfig', 'ready'], TRUE);
-      } else {
+      }
+      else {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
 
@@ -621,7 +657,31 @@ class SolrImporter extends SpreadsheetImporter {
         $form_state->setUserInput($user_input);
         $form_state->setValue(['pluginconfig', 'solarium_config', 'rows'],  $resultset->getNumFound());
         $form_state->setValue(['pluginconfig','ready'], FALSE);
+        if ($resultset->getNumFound() == 0) {
+          $this->messenger()->addMessage(
+            t(
+              'Your query did not match any ROWS in the remote server. Check your PIDs and server configuration and try again.'
+            ),
+            MessengerInterface::TYPE_ERROR
+          );
+        }
+        else {
+          $form_state->set('rows', $resultset->getNumFound());
+        }
       }
+      elseif ($resultset->getNumFound() == 0) {
+        $user_input = $form_state->getUserInput();
+        $form_state->setValue(['pluginconfig','ready'], FALSE);
+        $form_state->setValue(['pluginconfig', 'solarium_config', 'rows'],  0);
+        $form_state->set('rows', 0);
+        $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
+        $form_state->setUserInput($user_input);
+        $this->messenger()->addMessage(
+          t('Your query did not yield any results in the remote server. Check your Collection PIDs and/or server configuration and try again.'),
+          MessengerInterface::TYPE_ERROR
+        );
+      }
+
     }
     else {
       $this->messenger()->addMessage(
@@ -662,6 +722,7 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     $adapter = new SolariumCurl(); // or any other adapter implementing AdapterInterface
+    $adapter->setTimeout($config['solarium_config']['timeout'] ?? 5);
     $eventDispatcher = new EventDispatcher();
     // This adds 'headerswithdata' so we can clean our mess up once finished
     $tabdata = ['headers' => [], 'data' => [], 'totalrows' => 0, 'totalfound' => 0, 'headerswithdata' => $headersWithData];
@@ -682,22 +743,39 @@ class SolrImporter extends SpreadsheetImporter {
     $offset = $page;
     $per_page = $per_page > 0 ? $per_page : static::BATCH_INCREMENTS;
 
+    $next_forced_offset = NULL;
     if ($ping_sucessful) {
       try {
         $query = $client->createSelect();
-
         // search input string, this value fails without escaping because of the double-quote
-        $input = 'info:fedora/' . $config['solarium_config']['islandora_collection'];
+        $input = $config['solarium_config']['islandora_collection'];
 
         // in this case phrase escaping is used (most common) but you can also do term escaping, see the manual
         // also note that the same can be done using the placeholder syntax, see example 6.3
         $helper = $query->getHelper();
-        $escaped = $helper->escapePhrase($input);
+        $pids = array_map('trim', explode("\n", $input));
+        $pids = array_filter($pids);
+        foreach ($pids as &$pid) {
+          $pid = $helper->escapePhrase('info:fedora/' . $pid);
+        }
+        $escaped = implode(' OR ', $pids);
+        $escaped = '('. $escaped .')';
         $query->setQuery('*:*');
-        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
+
+        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $escaped . ' OR RELS_EXT_isMemberOf_uri_s:' . $escaped);
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
         $query->addSort('PID', 'asc');
+        // New thing here
+        // If we are in the mode of getting a lot of children
+        // And ending with little top objects, e.g i request 100, return 3 and the rest are children
+        // I can here, fictiously based on the last time that happened
+        // Reduce the number of top objects to make all faster
+        // Once we return to a state where the number of objects we get
+        // is e.g 75% or more of what is requested i restore this value
+        // But i can not change it on the caller (the batch)
+        // because it would also reduce the number of children?
+        // Nah, not really.
         $query->setStart($offset)->setRows($per_page);
         $query->setFields([
           'PID',
@@ -778,16 +856,19 @@ class SolrImporter extends SpreadsheetImporter {
           if (in_array($sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri'], static::MULTICHILDREN_CMODELS)) {
             $pids_to_fetch[$resultset_iterator->key()] = $sp_data[$resultset_iterator->key()]['pid'];
           }
-        } catch (\Exception $exception) {
+          // If deep traverse is enabled we should also mark collections here?
+          // Call getData recursevely?
+
+        }
+        catch (\Exception $exception) {
           continue;
         }
       }
 
       if (($highestRow) >= 1) {
-        // Returns Row Headers.
-        $maxRow = 1; // at least until here.
         $childrenoffset = 0;
         // There is a chance that not all Rows have the same fields.
+        // $sp_data will contain here max static::BATCH_INCREMENTS;
         foreach ($sp_data as $rowindex => $row) {
           $i = 0;
           $newrow = [];
@@ -803,6 +884,9 @@ class SolrImporter extends SpreadsheetImporter {
 
           $table[$realrowindex] = $newrow;
           if (isset($pids_to_fetch[$rowindex])) {
+            // We will let all children to be harvested
+            // Even if they surpass the given static::BATCH_INCREMENTS;
+            // But we will return and stop getting more children if so
             $children_data = $this->getDataChildren($config, $client, $pids_to_fetch[$rowindex]);
             if (count($children_data)) {
               foreach ($children_data as $childrenindex => $childrenrow) {
@@ -845,11 +929,21 @@ class SolrImporter extends SpreadsheetImporter {
               $childrenoffset = !$collapse_children ? $childrenoffset + count($children_data) : $childrenoffset;
             }
           }
+          // Instead of checking against the actual requested $per_page (which can be low) because it might have
+          // been reduced by our attempt to process/get less top objects when many children are present
+          // We will still try to get many children here. If not possible all good. No forced offset in the next
+          // pass.
+          if (count($table) >= static::BATCH_INCREMENTS) {
+            // This will forcely reduce the expected nextoffset to the actual top object position
+            // We managed to fetch. Will of course re-do the original query
+            // And get some of the same Top PIDs but will also
+            // Avoid memory running out (hopefully)
+            $next_forced_offset = $offset + $rowindex + 1;
+            $highestRow = $rowindex + 1;
+            break 1;
+          }
         }
       }
-
-      // Clean empty headers
-
 
       $tabdata = [
         'headers' => array_keys($headers),
@@ -857,11 +951,12 @@ class SolrImporter extends SpreadsheetImporter {
         'totalrows' => $highestRow,
         'totalfound' => count($table),
         'headerswithdata' => $headersWithData,
+        'nextforcedoffset' => $next_forced_offset
       ];
     }
     else {
       $this->messenger()->addMessage(
-        t('Your Solr Config did not work out. Sorry'),
+        t('Your Solr Config did not work out. Sorry. Check your settings or if your remote server is having issues.'),
         MessengerInterface::TYPE_ERROR
       );
     }
@@ -903,9 +998,9 @@ class SolrImporter extends SpreadsheetImporter {
     ]);
 
     $resultset = $client->select($query);
-    // display the total number of documents found by solr
-    error_log('NumFound: ' . $resultset->getNumFound());
-    if ($resultset->getNumFound() == 0) { return []; }
+    if ($resultset->getNumFound() == 0) {
+      return [];
+    }
 
     $resultset_iterator = $resultset->getIterator();
     // Empty value? just return
@@ -967,7 +1062,7 @@ class SolrImporter extends SpreadsheetImporter {
    */
   protected function buildDatastreamURL(array $config, \Solarium\QueryType\Select\Result\Document $document):array {
     if (!empty($document->fedora_datastream_latest_OBJ_MIMETYPE_ms)) {
-        // Calculate the destination json key
+      // Calculate the destination json key
       $dsid = 'OBJ';
       $mime = $document->fedora_datastream_latest_OBJ_MIMETYPE_ms[0];
     }
@@ -1077,6 +1172,7 @@ class SolrImporter extends SpreadsheetImporter {
     $increment = static::BATCH_INCREMENTS;
     if (!isset($context['sandbox']['progress'])) {
       $context['sandbox']['progress'] = 0;
+      $context['sandbox']['totalfound'] = 0;
     }
 
     if (!array_key_exists('max',
@@ -1084,18 +1180,60 @@ class SolrImporter extends SpreadsheetImporter {
       $context['sandbox']['max'] = $rows;
     }
     if (!array_key_exists('prev_index',
-        $context['sandbox'])) {
+      $context['sandbox'])) {
       $context['sandbox']['prev_index'] = 0;
     }
     $context['finished'] = 0;
     try {
-      // Incremente constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
-      $next_increment = ($context['sandbox']['progress'] + $increment > $rows) ? ($rows - $context['sandbox']['progress']) : $increment;
+      // Increment constantly by static::BATCH_INCREMENTS except when what is left < static::BATCH_INCREMENTS
 
-      $title = t('Processing %progress of <b>%count</b>', [
-        '%count' => $rows,
-        '%progress' => $context['sandbox']['progress'] + $next_increment
-      ]);
+      $next_increment = ($context['sandbox']['progress'] + $increment > $rows)
+        ? ($rows - $context['sandbox']['progress']) : $increment;
+      // Or if the requested number is under a 75%. If so reduce the request
+      // This means we are getting lots of children.
+      // Once this returns to a higher threashold keep incrementing normally
+      // This helps with over processing of parents when we are only be able to fetch a few
+      if (isset($context['sandbox']['nextforcedoffset'])
+        && $context['sandbox']['nextforcedoffset'] !== NULL
+        && $context['sandbox']['progress'] > 0
+        && $next_increment > 0
+      ) {
+        $ratio = ($context['results']['processed']['total_rows']
+          / $next_increment);
+        if ($ratio < 0.75) {
+          $next_increment_smaller = ceil($increment * $ratio);
+          $next_increment = $next_increment_smaller > 0
+            ? $next_increment_smaller + 1 : $next_increment;
+        }
+      }
+
+      $nextoffset = $context['sandbox']['progress'] + $offset;
+      $nextoffset = isset($context['sandbox']['nextforcedoffset'])
+      && $context['sandbox']['nextforcedoffset'] !== NULL
+        ? $context['sandbox']['nextforcedoffset'] : $nextoffset;
+
+      if ($context['sandbox']['progress'] == 0) {
+        $title = t(
+          'Attempting to fetch first %progress of <b>%count</b> Objects.',
+          [
+            '%count'    => $rows,
+            '%progress' => $context['sandbox']['progress'] + $next_increment,
+          ]
+        );
+      }
+      else {
+        $progress = $context['sandbox']['progress'] + $next_increment;
+        $progress = ($progress >= $rows) ? $rows : $progress;
+        $title = t(
+          'Fetching %progress of <b>%count</b> top Objects with <b>%total</b> total rows retrieved so far.',
+          [
+            '%count'    => $rows,
+            '%progress' => $progress,
+            '%total'    => $context['sandbox']['totalfound']
+          ]
+        );
+      }
+
       $context['message'] = $title;
       // WE keep track in the AMI set Config of the previous total rows
       // Because Children will offset all the results significantly
@@ -1106,17 +1244,31 @@ class SolrImporter extends SpreadsheetImporter {
       // And not the mess each doc returns
       $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
-      $data = $plugin_instance->getData($config, $context['sandbox']['progress'] + $offset,
+
+      $data = $plugin_instance->getData($config, $nextoffset,
         $next_increment);
+
+      if (isset($data['nextforcedoffset']) && $data['nextforcedoffset'] !== NULL) {
+        $context['sandbox']['nextforcedoffset'] = $data['nextforcedoffset'];
+      }
+      else {
+        $context['sandbox']['nextforcedoffset'] = NULL;
+      }
       if ($data['totalrows'] == 0) {
         $context['finished'] = 1;
       }
       else {
         $context['sandbox']['prev_index'] = $context['sandbox']['prev_index'] + $data['totalfound'];
         $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
-        \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers);
+        // New here or @TODO. We should append to CSV sooner instead of moving data around
+        // Why? A single Solr query data structure with children might fill up
+        // The PHP memory
+        // $amisetdata->adomapping['uuid']['uuid'] for this case will always be node_uuid and autouuid always TRUE.
+        // This is the form settings. Wonder if for safety i should just still fix the values here?
+        \Drupal::service('ami.utility')->csv_append($data, $file, $amisetdata->adomapping['uuid']['uuid'], $append_headers, TRUE, $amisetdata->adomapping['autouuid'] ?? FALSE);
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
+        $context['sandbox']['totalfound'] = $context['sandbox']['totalfound'] + $data['totalfound'];
         $context['results']['processed']['fileuuid'] = $file->uuid();
         $context['results']['processed']['headers'] = $data['headers'];
         $context['results']['processed']['total_rows'] = $data['totalrows'] ?? 0;
