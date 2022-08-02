@@ -250,9 +250,11 @@ class SolrImporter extends SpreadsheetImporter {
         '#default_value' => $rows,
       ],
     ];
-    /* @TODO let's tell the user why it is not ready? */
-    /* Also todo, move mappings already done between children/parents/children */
-    /* That way previous decisions on any of each sides will stick on the other */
+    /** 
+     * @TODO let's tell the user why it is not ready?
+     * Also todo, move mappings already done between children/parents/children
+     * That way previous decisions on any of each sides will stick on the other
+     */
     $cmodels = $form_state->get('facet_cmodel') ?? $form_state->getValue(array_merge($parents,
         ['solarium_mapping', 'cmodel_mapping']), []);
     $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
