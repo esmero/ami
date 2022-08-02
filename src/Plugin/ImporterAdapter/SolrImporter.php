@@ -760,7 +760,7 @@ class SolrImporter extends SpreadsheetImporter {
         $escaped = '('. $escaped .')';
         $query->setQuery('*:*');
 
-        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:'.$escaped .' OR RELS_EXT_isMemberOf_uri_s:'.$escaped );
+        $query->createFilterQuery('collection_members')->setQuery('RELS_EXT_isMemberOfCollection_uri_s:' . $escaped . ' OR RELS_EXT_isMemberOf_uri_s:' . $escaped);
         // PLEASE REMOVE Collection Objects that ARE ALSO part of a compound. WE DO NOT WANT THOSE
         $query->createFilterQuery('notconstituent')->setQuery('-RELS_EXT_isConstituentOf_uri_ms:[ * TO * ]');
         $query->addSort('PID', 'asc');
