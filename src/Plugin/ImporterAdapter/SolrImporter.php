@@ -40,8 +40,8 @@ class SolrImporter extends SpreadsheetImporter {
     'info:fedora/islandora:bookCModel',
     'info:fedora/islandora:newspaperIssueCModel',
     'info:fedora/islandora:newspaperCModel',
+    'info:fedora/islandora:manuscriptCModel',
   ];
-
 
   const FILE_COLUMNS = [
     'documents',
@@ -250,7 +250,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#default_value' => $rows,
       ],
     ];
-    /** 
+    /**
      * @TODO let's tell the user why it is not ready?
      * Also todo, move mappings already done between children/parents/children
      * That way previous decisions on any of each sides will stick on the other
