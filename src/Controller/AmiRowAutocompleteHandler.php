@@ -53,7 +53,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
     $this->currentUser = $current_user;
     $this->entityTypeManager = $entity_type_manager;
     $this->AmiUtilityService = $ami_utility;
-
   }
 
   /**
@@ -80,7 +79,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
     if (!$input) {
       return new JsonResponse($results);
     }
-
 
     if (!$ami_set_entity) {
       return new JsonResponse($results);
@@ -229,7 +227,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             }
           }
 
-
           // Set initial context.
           $context = [
             'node' => NULL,
@@ -278,9 +275,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           ];
           $output['json']['dataOriginal'] = [
             '#type' => 'codemirror',
-            '#title' => t('Original JSON of this ADO <b>{{ dataOriginal.keyname.lod_endpoint_type }}</b> :'),
+            '#title' => t('Original JSON of an ADO <b>{{ dataOriginal.keyname }}</b> :'),
+            '#description' => t('This will data structure will contain the original values (before modification) of an ADO only when updating. Sadly we can not at this time preview it during an AMI set preview'),
             '#rows' => 60,
-            '#value' => json_encode($context['dataOriginal'], JSON_PRETTY_PRINT),
+            '#value' => json_encode('{}', JSON_PRETTY_PRINT),
             '#codemirror' => [
               'lineNumbers' => FALSE,
               'toolbar' => FALSE,
@@ -400,7 +398,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             '#open' => TRUE,
             '#title' => !$file ? t('AMI Set has no CSV File'): t('AMI Set has no data for chosen row.'),
             'error' => [
-              '#markup' => $message,
+              '#markup' => t('The AMI set is empty.'),
             ]
           ];
           $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
