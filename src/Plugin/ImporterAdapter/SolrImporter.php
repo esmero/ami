@@ -154,14 +154,6 @@ class SolrImporter extends SpreadsheetImporter {
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'islandora_collection'])),
       ],
-      'deep' => [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Deep Collection traverse'),
-        '#description' => $this->t('If checked AMI will try to fetch Collections of Collections. Even if disabled, by default it will always get other parent/children hierarchies.'),
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['solarium_config', 'deep'])),
-        '#disabled' => TRUE,
-      ],
       'host' => [
         '#type' => 'textfield',
         '#required' => TRUE,
@@ -271,11 +263,11 @@ class SolrImporter extends SpreadsheetImporter {
     }
 
     if (empty($cmodels_children) && $form_state->getValue(array_merge($parents,
-      ['solarium_mapping', 'collapse']), FALSE)) {
+        ['solarium_mapping', 'collapse']), FALSE)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
 
-      $default_parent = $form_state->getValue(array_merge($parents,
+    $default_parent = $form_state->getValue(array_merge($parents,
       ['solarium_mapping', 'parent_ado']), NULL);
     if ($default_parent) {
       try {
@@ -284,7 +276,7 @@ class SolrImporter extends SpreadsheetImporter {
       }
       catch (\Exception $e) {
         $this->messenger()->addError('Could not load Parent ADO with message @e'. [
-          '@e' => $e->getMessage(),
+            '@e' => $e->getMessage(),
           ]);
       }
     }
@@ -439,7 +431,7 @@ class SolrImporter extends SpreadsheetImporter {
         ],
       ],
     ];
-     if ($config['solarium_config']['type'] == 'single') {
+    if ($config['solarium_config']['type'] == 'single') {
       $solr_config['endpoint']['amiremote']['core'] = $config['solarium_config']['core'];
     }
     else {
@@ -475,7 +467,7 @@ class SolrImporter extends SpreadsheetImporter {
         $pids = array_map('trim', explode("\n", $input));
         $pids = array_filter($pids);
         foreach ($pids as &$pid) {
-            $pid = $helper->escapePhrase('info:fedora/' . $pid);
+          $pid = $helper->escapePhrase('info:fedora/' . $pid);
         }
         $escaped = implode(' OR ', $pids);
         $escaped = '('. $escaped .')';
@@ -641,7 +633,7 @@ class SolrImporter extends SpreadsheetImporter {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
       }
       if (((count(array_intersect_key($form_state->getValue(['pluginconfig', 'solarium_mapping','cmodel_children'], []), $cmodel_children)) == count($cmodel_children))
-        && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
+          && count($cmodel_children) >= 1) || $form_state->getValue(['pluginconfig', 'solarium_mapping', 'collapse']) == TRUE) {
         $form_state->setValue(['pluginconfig', 'ready'], TRUE);
       } else {
         $form_state->setValue(['pluginconfig', 'ready'], FALSE);
@@ -668,16 +660,16 @@ class SolrImporter extends SpreadsheetImporter {
         }
       }
       elseif ($resultset->getNumFound() == 0) {
-          $user_input = $form_state->getUserInput();
-          $form_state->setValue(['pluginconfig','ready'], FALSE);
-          $form_state->setValue(['pluginconfig', 'solarium_config', 'rows'],  0);
-          $form_state->set('rows', 0);
-          $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
-          $form_state->setUserInput($user_input);
-          $this->messenger()->addMessage(
-            t('Your query did not yield any results in the remote server. Check your Collection PIDs and/or server configuration and try again.'),
-            MessengerInterface::TYPE_ERROR
-          );
+        $user_input = $form_state->getUserInput();
+        $form_state->setValue(['pluginconfig','ready'], FALSE);
+        $form_state->setValue(['pluginconfig', 'solarium_config', 'rows'],  0);
+        $form_state->set('rows', 0);
+        $user_input['pluginconfig']['solarium_config']['rows'] = $resultset->getNumFound();
+        $form_state->setUserInput($user_input);
+        $this->messenger()->addMessage(
+          t('Your query did not yield any results in the remote server. Check your Collection PIDs and/or server configuration and try again.'),
+          MessengerInterface::TYPE_ERROR
+        );
       }
 
     }
@@ -926,15 +918,20 @@ class SolrImporter extends SpreadsheetImporter {
               $childrenoffset = !$collapse_children ? $childrenoffset + count($children_data) : $childrenoffset;
             }
           }
-        if (count($table) >= $per_page) {
-          // This will forcely reduce the expected nextoffset to the actual top object position
-          // We managed to fetch. Will of course re-do the original query
-          // And get some of the same Top PIDs but will also
-          // Avoid memory running out (hopefully)
-          $next_forced_offset = $offset + $rowindex + 1;
-          $highestRow = $rowindex + 1;
-          break 1;
+          // Instead of checking against the actual requested $per_page (which can be low) because it might have
+          // been reduced by our attempt to process/get less top objects when many children are present
+          // We will still try to get many children here. If not possible all good. No forced offset in the next
+          // pass.
+          if (count($table) >= static::BATCH_INCREMENTS) {
+            // This will forcely reduce the expected nextoffset to the actual top object position
+            // We managed to fetch. Will of course re-do the original query
+            // And get some of the same Top PIDs but will also
+            // Avoid memory running out (hopefully)
+            $next_forced_offset = $offset + $rowindex + 1;
+            $highestRow = $rowindex + 1;
+            break 1;
           }
+          error_log('what i really got '.count($table).' what i was asked for ' . $per_page);
         }
       }
 
@@ -991,8 +988,6 @@ class SolrImporter extends SpreadsheetImporter {
     ]);
 
     $resultset = $client->select($query);
-    // display the total number of documents found by solr
-    error_log('NumFound: ' . $resultset->getNumFound());
     if ($resultset->getNumFound() == 0) { return []; }
 
     $resultset_iterator = $resultset->getIterator();
@@ -1055,7 +1050,7 @@ class SolrImporter extends SpreadsheetImporter {
    */
   protected function buildDatastreamURL(array $config, \Solarium\QueryType\Select\Result\Document $document):array {
     if (!empty($document->fedora_datastream_latest_OBJ_MIMETYPE_ms)) {
-        // Calculate the destination json key
+      // Calculate the destination json key
       $dsid = 'OBJ';
       $mime = $document->fedora_datastream_latest_OBJ_MIMETYPE_ms[0];
     }
@@ -1173,7 +1168,7 @@ class SolrImporter extends SpreadsheetImporter {
       $context['sandbox']['max'] = $rows;
     }
     if (!array_key_exists('prev_index',
-        $context['sandbox'])) {
+      $context['sandbox'])) {
       $context['sandbox']['prev_index'] = 0;
     }
     $context['finished'] = 0;
