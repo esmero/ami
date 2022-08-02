@@ -996,7 +996,9 @@ class SolrImporter extends SpreadsheetImporter {
     ]);
 
     $resultset = $client->select($query);
-    if ($resultset->getNumFound() == 0) { return []; }
+    if ($resultset->getNumFound() == 0) {
+      return [];
+    }
 
     $resultset_iterator = $resultset->getIterator();
     // Empty value? just return
