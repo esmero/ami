@@ -1244,7 +1244,7 @@ class SolrImporter extends SpreadsheetImporter {
       $data = $plugin_instance->getData($config, $nextoffset,
         $next_increment);
 
-      if (isset($data['nextforcedoffset']) && $data['nextforcedoffset'] !== NULL ) {
+      if (isset($data['nextforcedoffset']) && $data['nextforcedoffset'] !== NULL) {
         $context['sandbox']['nextforcedoffset'] = $data['nextforcedoffset'];
       }
       else {
