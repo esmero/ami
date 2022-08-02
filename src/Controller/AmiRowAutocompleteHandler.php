@@ -276,7 +276,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $output['json']['dataOriginal'] = [
             '#type' => 'codemirror',
             '#title' => t('Original JSON of an ADO <b>{{ dataOriginal.keyname }}</b> :'),
-            '#description' => t('This will data structure will contain the original values (before modification) of an ADO only when updating. Sadly we can not at this time preview it during an AMI set preview'),
+            '#description' => t('This data structure will contain the original values (before modification) of an ADO only when updating. Sadly we can not at this time preview it during an AMI set preview.'),
             '#rows' => 60,
             '#value' => json_encode('{}', JSON_PRETTY_PRINT),
             '#codemirror' => [
