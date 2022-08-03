@@ -689,19 +689,21 @@ class AmiUtilityService {
         [
           'uri' => $localpath,
           'uid' => $this->currentUser->id(),
-          'status' => FILE_STATUS_PERMANENT,
+          'status' => FileInterface::STATUS_PERMANENT,
         ]
       );
       // If we are replacing an existing file re-use its database record.
       // @todo Do not create a new entity in order to update it. See
       //   https://www.drupal.org/node/2241865.
       // Check if File with same URI already exists.
+      // @TODO: Should we check for AMI also if the current user can update the file?
       $existing_files = \Drupal::entityTypeManager()
         ->getStorage('file')
         ->loadByProperties(['uri' => $localpath]);
       if (count($existing_files)) {
         $existing = reset($existing_files);
         $file->fid = $existing->id();
+        $file->uuid = $existing->uuid();
         $file->setOriginalId($existing->id());
         $file->setFilename($existing->getFilename());
       }
