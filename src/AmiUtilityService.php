@@ -1071,7 +1071,12 @@ class AmiUtilityService {
 
     if ($offset > 0 && !$always_include_header) {
       // If header needs to be included then we offset later on
-      $spl->seek($offset);
+      // PHP 8.0.16 IS STILL BUGGY with SEEK.
+      //$spl->seek($offset) does not work here.
+      for ($i = 0; $i < $offset; $i++) {
+        $spl->next();
+      }
+
     }
     $data = [];
     $seek_to_offset = ($offset > 0 && $always_include_header);
@@ -1083,7 +1088,11 @@ class AmiUtilityService {
         $data[] = $spl->fgetcsv();
       }
       if ($seek_to_offset) {
-        $spl->seek($offset);
+        for ($i = 0; $i < $offset; $i++) {
+          $spl->next();
+        }
+        // PHP 8.0.16 IS STILL BUGGY with SEEK.
+        //$spl->seek($offset); doe snot work here
         // So we do not process this again.
         $seek_to_offset = FALSE;
       }
