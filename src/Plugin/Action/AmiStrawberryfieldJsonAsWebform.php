@@ -62,7 +62,6 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
     $form_state->setAlwaysProcess(TRUE);
     $webform = $this->AmiUtilityService->getWebforms();
-    $form_state->disableCache();
     $form['#tree'] = TRUE;
     $form['webform'] =[
       '#type' => 'select',
@@ -85,7 +84,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     ];
     $form['elements_rendered'] = [
       '#tree' => TRUE,
-      '#type' => 'fieldset',
+      '#type' => 'container',
       '#prefix' => '<div id="webform-elements-render-wrapper">',
       '#suffix' => '</div>',
     ];
@@ -102,7 +101,6 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
        }
 
     if ($webform_id) {
-
       /* @var \Drupal\webform\Entity\Webform $webform_entity */
       $webform_entity = $this->entityTypeManager->getStorage('webform')->load($webform_id);
       $anyelement = $webform_entity->getElementsInitializedAndFlattened('update');
@@ -141,29 +139,23 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     }
 
     if ($webform_entity && $chosen_element) {
-      $myelement = $webform_entity->getElementDecoded($chosen_element);
-
-      //$myelement2 = \Drupal::service('plugin.manager.webform.element')->processElements($myelement);
+      $myelement = $webform_entity->getElementInitialized($chosen_element);
       $libraries = $webform_entity->getSubmissionForm()['#attached']['library'] ?? [];
       $form['#attached']['library'] = ($form['#attached']['library'] ?? []) + $libraries;
       $cleanelement = [];
       foreach($myelement as $key => $value) {
-        if (strpos($key, '#webform') === FALSE && strpos($key, '#access_') === FALSE) {
+        /*if (strpos($key, '#webform4') === FALSE && strpos($key, '#access_') === FALSE) {
           $cleanelement[$key] = $value;
-        }
+        }*/
+        $cleanelement[$key] = $value;
       }
       $cleanelement['#required'] = FALSE;
       $cleanelement['#validated'] = FALSE;
+      $form['elements_rendered']['jsonfind_element_'.$chosen_element]= $cleanelement;
 
-      $cleanelement['#default_value'] = $form_state->getValue('jsonfind_element', NULL);
-      $form['jsonfind_element']= $cleanelement;
-
-      $form['jsonfind_element']['#title'] = $this->t('Value to Search for in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
-      $form['jsonreplace_element']['#title'] = $this->t('Value to replace with in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
-      $form['jsonreplace_element']= $cleanelement;
-      $form['jsonreplace_element']['#name'] = 'jsonreplace_element';
-      $form['jsonfind_element']['#name'] = 'jsonfind_element';
-      $form['jsonfind_element']['#default_value'] =  $form_state->getValue('jsonreplace_element', NULL);
+      $form['elements_rendered']['jsonfind_element_'.$chosen_element]['#title'] = $this->t('Value to Search for in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
+      $form['elements_rendered']['jsonreplace_element_'.$chosen_element]= $cleanelement;
+      $form['elements_rendered']['jsonreplace_element_'.$chosen_element]['#title'] = $this->t('Value to replace with in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
     }
 
 
@@ -180,23 +172,15 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
   }
 
   public function webformElementAjaxCallback(array $form, FormStateInterface $form_state) {
-    $element['elements_rendered'] = [
-      '#tree' => TRUE,
-      '#type' => 'fieldset',
-      '#prefix' => '<div id="webform-elements-render-wrapper">',
-      '#suffix' => '</div>',
-    ];
-    $element['elements_rendered']['jsonfind_element'] = $form['jsonfind_element'];
-    $element['elements_rendered']['jsonreplace_element'] = $form['jsonreplace_element'];
-    return $element;
+    return $form['elements_rendered'];
   }
 
   public function submitConfigurationForm(array &$form, FormStateInterface $form_state) {
     // Hacky but its the way we can do this dynamically
-    $jsonfind = $form_state->getValue('jsonfind_element', NULL) ?? ($form_state->getUserInput()['jsonfind_element'] ?? []);
-    $jsonreplace = $form_state->getValue('jsonreplace_element', NULL) ?? ($form_state->getUserInput()['jsonreplace_element'] ?? []);
     $chosen_element = $form_state->getValue(['webform_elements','elements_for_this_form'], NULL);
     if ($chosen_element) {
+      $jsonfind = $form_state->getValue(['elements_rendered','jsonfind_element_'.$chosen_element], NULL) ?? ($form_state->getUserInput()['jsonfind_element_'.$chosen_element] ?? []);
+      $jsonreplace = $form_state->getValue(['elements_rendered','jsonreplace_element_'.$chosen_element], NULL) ?? ($form_state->getUserInput()['jsonreplace_element_'.$chosen_element] ?? []);
       $jsonfind_ready[$chosen_element] = $jsonfind;
       $jsonreplace_ready[$chosen_element] = $jsonreplace;
       $this->configuration['jsonfind'] = json_encode($jsonfind_ready) ?? '{}';
@@ -257,11 +241,55 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                 }
               }
               if (!$isAssociativeOriginal) {
-                foreach($fullvaluesmodified[$key] as &$item) {
-                  if ($item == $decoded_jsonfind[$key]) {
-                    // Exact Array to Array 1:1 match
-                    $item = $decoded_jsonreplace[$key];
-                    $patched = TRUE;
+                // We have a few things to catch here
+                // Before trying to iterate over each member trying to replace a value
+                // We will check IF the $decoded_jsonfind[$key] is actually == $fullvaluesmodified[$key]
+                // e.g ismemberof: [] and decoded_jsonreplace[$key] == []
+                if ($fullvaluesmodified[$key] == $decoded_jsonfind[$key]) {
+                  $fullvaluesmodified[$key] = $decoded_jsonreplace[$key];
+                  $patched = TRUE;
+                }
+                else {
+                  // Now if original is indexed we do not know if the replacement is a value or also indexed
+                  // So try first like original is indexed but each member is an array and compare...
+                  foreach ($fullvaluesmodified[$key] as &$item) {
+                    if ($item == $decoded_jsonfind[$key]) {
+                      // Exact Array to Array 1:1 match
+                      $item = $decoded_jsonreplace[$key];
+                      $patched = TRUE;
+                    }
+                  }
+                  // We are not going to do selective a few versus another?
+                  // We can!
+                  if (!$patched && is_array($decoded_jsonfind[$key]) && !StrawberryfieldJsonHelper::arrayIsMultiSimple($decoded_jsonfind[$key])) {
+                    // Still we need to be sure ALL things to be searched for exist. A single difference means no patching
+                    // So we traverse differently here
+                    // Only if all needles are in the haystack
+                    // we do the actual replacement.
+                    $all_found = [];
+                    $fullvaluesmodified_for_key_stashed =  $fullvaluesmodified[$key];
+                    foreach ($decoded_jsonfind[$key] as $item) {
+                      // And to be sure we make a STRICT comparison
+                      $found = array_search($item, $fullvaluesmodified[$key], TRUE);
+                      if ($found !== FALSE) {
+                        // Since we do not know if the Match/search for are more items than the replacements we will delete the found and add any new ones at the end.
+                        unset($fullvaluesmodified[$key][$found]);
+                        $patched = TRUE;
+                      }
+                      else {
+                        $patched = FALSE;
+                        break;
+                      }
+                    }
+                    // If after this we decide we could not patch
+                    // We return the original value.
+                    if (!$patched) {
+                      $fullvaluesmodified[$key] = $fullvaluesmodified_for_key_stashed;
+                    }
+                    else {
+                      // Here we merge the already stripped from the Match pattern source with the replacements
+                      $fullvaluesmodified[$key] = array_values(array_merge($fullvaluesmodified[$key], $decoded_jsonreplace[$key]));
+                    }
                   }
                 }
               }
@@ -441,6 +469,13 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
 
   public function getPluginDefinition() {
     return parent::getPluginDefinition(); // TODO: Change the autogenerated stub
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function access($object, AccountInterface $account = NULL, $return_as_object = FALSE) {
+    return $object->access('update', $account, $return_as_object);
   }
 
   /**
