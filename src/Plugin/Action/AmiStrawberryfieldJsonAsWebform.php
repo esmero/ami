@@ -139,14 +139,15 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     }
 
     if ($webform_entity && $chosen_element) {
-      $myelement = $webform_entity->getElementDecoded($chosen_element);
+      $myelement = $webform_entity->getElementInitialized($chosen_element);
       $libraries = $webform_entity->getSubmissionForm()['#attached']['library'] ?? [];
       $form['#attached']['library'] = ($form['#attached']['library'] ?? []) + $libraries;
       $cleanelement = [];
       foreach($myelement as $key => $value) {
-        if (strpos($key, '#webform') === FALSE && strpos($key, '#access_') === FALSE) {
+        /*if (strpos($key, '#webform4') === FALSE && strpos($key, '#access_') === FALSE) {
           $cleanelement[$key] = $value;
-        }
+        }*/
+        $cleanelement[$key] = $value;
       }
       $cleanelement['#required'] = FALSE;
       $cleanelement['#validated'] = FALSE;
