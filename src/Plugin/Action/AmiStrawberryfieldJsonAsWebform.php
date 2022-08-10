@@ -249,11 +249,45 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                   $patched = TRUE;
                 }
                 else {
+                  // Now if original is indexed we do not know if the replacement is a value or also indexed
+                  // So try first like original is indexed but each member is an array and compare...
                   foreach ($fullvaluesmodified[$key] as &$item) {
                     if ($item == $decoded_jsonfind[$key]) {
                       // Exact Array to Array 1:1 match
                       $item = $decoded_jsonreplace[$key];
                       $patched = TRUE;
+                    }
+                  }
+                  // We are not going to do selective a few versus another?
+                  // We can!
+                  if (!$patched && is_array($decoded_jsonfind[$key]) && !StrawberryfieldJsonHelper::arrayIsMultiSimple($decoded_jsonfind[$key])) {
+                    // Still we need to be sure ALL things to be searched for exist. A single difference means no patching
+                    // So we traverse differently here
+                    // Only if all needles are in the haystack
+                    // we do the actual replacement.
+                    $all_found = [];
+                    $fullvaluesmodified_for_key_stashed =  $fullvaluesmodified[$key];
+                    foreach ($decoded_jsonfind[$key] as $item) {
+                      // And to be sure we make a STRICT comparison
+                      $found = array_search($item, $fullvaluesmodified[$key], TRUE);
+                      if ($found !== FALSE) {
+                        // Since we do not know if the Match/search for are more items than the replacements we will delete the found and add any new ones at the end.
+                        unset($fullvaluesmodified[$key][$found]);
+                        $patched = TRUE;
+                      }
+                      else {
+                        $patched = FALSE;
+                        break;
+                      }
+                    }
+                    // If after this we decide we could not patch
+                    // We return the original value.
+                    if (!$patched) {
+                      $fullvaluesmodified[$key] = $fullvaluesmodified_for_key_stashed;
+                    }
+                    else {
+                      // Here we merge the already stripped from the Match pattern source with the replacements
+                      $fullvaluesmodified[$key] = array_values(array_merge($fullvaluesmodified[$key], $decoded_jsonreplace[$key]));
                     }
                   }
                 }
