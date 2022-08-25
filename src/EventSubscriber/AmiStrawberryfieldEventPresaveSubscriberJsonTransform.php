@@ -102,8 +102,8 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
   public function __construct(
     TranslationInterface $string_translation,
     MessengerInterface $messenger,
-    AccountInterface $account,
     LoggerChannelFactoryInterface $logger_factory,
+    AccountInterface $account,
     AmiUtilityService $ami_utility,
     EntityTypeManagerInterface $entity_type_manager,
     RequestStack $request_stack,
@@ -190,7 +190,8 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
               // If JSON API we must trigger an exception event here.
               break;
             }
-            if ($metadatadisplay_entity->get('mimetype') !== 'application/json') {
+
+            if ($metadatadisplay_entity->get('mimetype')->first()->getValue()['value'] !== 'application/json') {
               // If JSON API we must trigger an exception event here.
               break;
             }
