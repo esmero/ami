@@ -22,6 +22,11 @@ services:
     tags:
       - { name: event_subscriber }
     arguments: [ '@string_translation', '@messenger', '@logger.factory', '@current_user', '@ami.utility', '@entity_type.manager', '@ami.lod']
+  ami.strawberryfield_presaveprocessjson_subscriber:
+    class: Drupal\ami\EventSubscriber\AmiStrawberryfieldEventPresaveSubscriberJsonTransform
+    tags:
+      - { name: event_subscriber }
+    arguments: [ '@string_translation', '@messenger', '@logger.factory', '@current_user', '@ami.utility', '@entity_type.manager', '@request_stack', '@renderer', '@config.factory']
   ami.facet_batch_view_data_provider:
     class: Drupal\ami\EventSubscriber\AmiFacetsViewsBulkOperationsEventSubscriber
     arguments: [ '@views_bulk_operations.data' ,'@current_user', '@tempstore.private' ]
