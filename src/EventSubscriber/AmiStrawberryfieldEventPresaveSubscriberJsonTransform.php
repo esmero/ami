@@ -4,16 +4,21 @@ namespace Drupal\ami\EventSubscriber;
 
 use Drupal\ami\AmiUtilityService;
 use Drupal\Component\Uuid\Uuid;
+use Drupal\Core\Entity\ContentEntityInterface;
+use Drupal\format_strawberryfield\MetadataDisplayInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
+use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
+use Drupal\migrate_drupal\Plugin\migrate\source\ContentEntity;
 use Drupal\strawberryfield\Event\StrawberryfieldCrudEvent;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\StringTranslation\TranslationInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\Config\ConfigFactoryInterface;
+use Drupal\strawberryfield\Semantic\ActivityStream;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Drupal\strawberryfield\EventSubscriber\StrawberryfieldEventPresaveSubscriber;
 
@@ -146,8 +151,6 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
       $this->loggerFactory->get('ami')->error($message);
       return;
     }
-
-
      */
     /** @var \Drupal\Core\Entity\ContentEntityInterface $entity*/
     $entity = $event->getEntity();
@@ -242,6 +245,11 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
                   break;
                 }
                 unset($jsondata['ap:tasks']['ap:ami']);
+                // Now check if the Template added it's own as:generator, if not
+                // add ours.
+                if (empty($jsondata['as:generator'])) {
+                  $jsondata["as:generator"] = $this->addActivityStream($entity, $metadatadisplay_entity);
+                }
                 if (!$itemfield->setMainValueFromArray((array) $jsondata)) {
                   $message = $this->t(
                     'We could not persist correct JSON via Metadata Display "@metadatadisplay" into future ADO with UUID @uuid.',
@@ -272,5 +280,28 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
     }
     $current_class = get_called_class();
     $event->setProcessedBy($current_class, TRUE);
+  }
+
+  protected function addActivityStream(ContentEntityInterface $entity, MetadataDisplayInterface $metadatadisplay_entity) {
+
+    // We use this to keep track of the webform used to create/update the field's json
+    $eventBody = [
+      'summary' => 'Generator',
+      'endTime' => date('c'),
+    ];
+    // @TODO We need to dispatch this too, as we did on Archipelago
+    // @TODO TYPE = Create id new , Update if Old
+    // @TODO also see how we are going to keep tombstones.
+
+    $actor_properties = [
+      'name' => $metadatadisplay_entity->label() ?: 'NaW',
+      'url' => $metadatadisplay_entity->toUrl()->setAbsolute()->toString() ?: '',
+    ];
+    $event_type = $entity->isNew() ? ActivityStream::ASTYPES['Create'] : ActivityStream::ASTYPES['Update'];
+
+    $activitystream = new ActivityStream($event_type, $eventBody);
+
+    $activitystream->addActor(ActivityStream::ACTORTYPES['Service'], $actor_properties);
+    return $activitystream->getAsBody() ?? [];
   }
 }
