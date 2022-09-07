@@ -412,6 +412,22 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ])
       ->setDisplayConfigurable('view', TRUE)
       ->setDisplayConfigurable('form', TRUE);
+
+    $fields['report_file'] = BaseFieldDefinition::create('file')
+      ->setLabel(t('AMI Process Reports'))
+      ->setDescription(t('Processed set reports in CSV format'))
+      ->setSetting('file_extensions', 'csv')
+      ->setSetting('upload_validators', $validators)
+      ->setSetting('uri_scheme', 'private')
+      ->setSetting('file_directory', '/ami/reports')
+      ->setRequired(FALSE)
+      ->setDisplayOptions('view', [
+        'label' => 'above',
+        'type' => 'file',
+        'weight' => -2,
+      ])
+      ->setDisplayConfigurable('view', TRUE)
+      ->setDisplayConfigurable('form', TRUE);
     return $fields;
   }
 }

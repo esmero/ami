@@ -114,5 +114,31 @@ function ami_update_8904() {
   \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition);
 }
 
+/**
+ * Update 8905 - Add Report CSV file Field for AMI Set entity.
+ */
+function ami_update_8905() {
+  $validators = [
+      'file_validate_extensions' => ['csv'],
+      'file_validate_size' => [Environment::getUploadMaxSize()],
+    ];
+
+  $storage_definition = BaseFieldDefinition::create('file')
+       ->setLabel(t('AMI Process Reports'))
+       ->setDescription(t('Processed set report in CSV format'))
+       ->setSetting('file_extensions', 'csv')
+       ->setSetting('upload_validators', $validators)
+       ->setSetting('uri_scheme', 'private')
+       ->setSetting('file_directory', '/ami/reports')
+       ->setRequired(FALSE)
+       ->setDisplayOptions('view', [
+         'label' => 'above',
+         'type' => 'file',
+         'weight' => -2,
+       ])
+       ->setDisplayConfigurable('view', TRUE)
+       ->setDisplayConfigurable('form', TRUE);
+  \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('report_file', 'ami_set_entity', 'ami', $storage_definition);
+}
 
 
