@@ -8,7 +8,6 @@ use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\StreamWrapper\StreamWrapperInterface;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
@@ -51,8 +50,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity.repository'),
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
-      $container->get('ami.utility'),
-      $container->get('strawberryfield.utility')
+      $container->get('ami.utility')
     );
   }
 
@@ -78,6 +76,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
+    $ops_abortonmissing_files = $form_state->getValue('abortonmissing', []);
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
@@ -147,6 +146,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       // Only applies to Update/Patch operations but for contract reasons
       // we generate all $data->info the same.
       $ops_safefiles = TRUE;
+      $ops_skip_onmissing_file = TRUE;
       if (isset($data->pluginconfig->op) && $data->pluginconfig->op != 'create') {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
         $ops_safefiles = $form_state->getValue(['ops_secondary','ops_safefiles'], TRUE);
@@ -169,6 +169,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'force_file_queue' => (bool) $form_state->getValue('force_file_queue', FALSE),
           'force_file_process' => (bool) $form_state->getValue('force_file_process', FALSE),
           'manyfiles' => $manyfiles,
+          'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
         ];
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
@@ -285,6 +286,13 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $si_prefix = array( 'B', 'KB', 'MB', 'GB', 'TB', 'EB', 'ZB', 'YB' );
       $base = 1024;
       $class = min((int)log($bytes , $base) , count($si_prefix) - 1);
+
+      $form['skip_onmissing_file'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t("Skip ADO processing on missing File"),
+        '#description' => $this->t("If enabled a referenced missed file or one that can not be processed from the source, remote or local will make AMI skip the affected ROW. Enabled by default for better QA during processing."),
+        '#default_value' => TRUE,
+      ];
 
       $form['status'] = [
         '#tree' => TRUE,
