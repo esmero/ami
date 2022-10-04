@@ -362,6 +362,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           $process_files_via_queue = TRUE;
         }
         foreach ($filenames as $filename) {
+          $filename = trim($filename);
           if (!empty($data->info['waiting_for_files'])) {
             $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
             if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
@@ -849,7 +850,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     // First check if we already have the info here, if so do nothing.
     if (($data->info['force_file_process'] ?? FALSE) || empty($this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename'])))) {
-      $file = $this->AmiUtilityService->file_get($data->info['filename'],
+      $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
         $data->info['zip_file']);
       if ($file) {
         $reduced = $data->info['reduced'] ?? FALSE;

@@ -303,6 +303,8 @@ class AmiUtilityService {
    *   - If does not exist boolean FALSE
    */
   public function file_get($uri, File $zip_file = NULL) {
+    $uri = trim($uri);
+
     $parsed_url = parse_url($uri);
     $remote_schemes = ['http', 'https', 'feed'];
     $ami_temp_folder = 'ami/setfiles/';
@@ -316,6 +318,7 @@ class AmiUtilityService {
     ) {
       // Now that we know its not remote, try with our registered schemas
       // means its either private/public/s3, etc
+      // normalize targetx
 
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
@@ -328,17 +331,22 @@ class AmiUtilityService {
       else {
         // Means it may be local to the accessible file storage, eg. a path inside
         // the server or inside a provided ZIP file
-        //@TODO check if we should copy here or just deal with it.
         $localfile = $this->fileSystem->realpath($uri);
-        if (!file_exists($localfile) && !$zip_file) {
+
+        if (!$localfile && !$zip_file) {
           return FALSE;
         }
-        elseif ($zip_file) {
+        elseif ($localfile) {
+          // Means the file is there already locally. Just assign.
+          $finaluri = $localfile;
+        }
+        elseif (!$localfile && $zip_file) {
+          // Means no local file but we can check inside a ZIP.
           // Try with the ZIP file in case there is a ZIP and local failed
           // Use the Zip file uuid to prefix the destination.
           // @TODO file_build_uri is deprecated replace before Drupal 10.0.0
-          $localfile = file_build_uri(
-            $this->fileSystem->basename($ami_temp_folder . $zip_file->uuid() . '/' . urldecode($parsed_url['path']))
+          $localfile = $this->streamWrapperManager->normalizeUri(
+           $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
           );
           if (!file_exists($localfile)) {
             $destination_zip = $destination . $zip_file->uuid() . '/';
@@ -370,9 +378,7 @@ class AmiUtilityService {
       // This may be remote!
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
-      $localfile = file_build_uri(
-        $this->fileSystem->basename(urldecode($parsed_url['path']))
-      );
+
       $md5uri = md5($uri);
       $destination = $destination . $md5uri . '/' ;
       $path = str_replace(
@@ -380,14 +386,18 @@ class AmiUtilityService {
           '//',
           "{$destination}"
         ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+      $localfile = $this->streamWrapperManager->normalizeUri($path);
       $escaped_path = str_replace(' ', '\ ', $path);
-      if ($isthere = glob($this->fileSystem->realpath($escaped_path) . '.*')) {
+      // This is very naive since the remote file might be different than
+      // the last part of the actual URL (header given name).
+      $isthere = glob($this->fileSystem->realpath($escaped_path) . '.*');
+      $isthere = is_array($isthere) && (count($isthere) == 1) ? $isthere : glob($this->fileSystem->realpath($escaped_path));
+
+      if (is_array($isthere) && count($isthere) == 1) {
         // Ups its here
-        if (count($isthere) == 1) {
-          // Use path here instead of the first entry to keep the streamwrapper
-          // around for future use
-          $localfile = $path;
-        }
+        // Use path here instead of the first entry to keep the streamwrapper
+        // around for future use
+        $localfile = $path;
       }
       // Actual remote heavy lifting only if not present.
       if (!file_exists($localfile)) {
@@ -452,11 +462,12 @@ class AmiUtilityService {
     $parsed_url = parse_url($uri);
     $basename = $this->fileSystem->basename(urldecode($parsed_url['path']));
     if (!isset($destination)) {
-      $path = file_build_uri($basename);
+      $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
+      $path = $this->streamWrapperManager->normalizeUri($basename);
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
-        // Prevent URIs with triple slashes when glueing parts together.
+        // Prevent URIs with triple slashes when glue-ing parts together.
         $path = str_replace(
             '///',
             '//',
@@ -609,10 +620,11 @@ class AmiUtilityService {
       return FALSE;
     }
     $zip_realpath = NULL;
-    $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
+      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
+      $path = $this->streamWrapperManager->normalizeUri($basename);
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
@@ -620,8 +632,8 @@ class AmiUtilityService {
         $path = str_replace(
             '///',
             '//',
-            "{$destination}/"
-          ) . $md5uri . '_' . $this->fileSystem->basename(
+            "{$destination}"
+          ) . $this->fileSystem->basename(
             $parsed_url['path']
           );
       }
