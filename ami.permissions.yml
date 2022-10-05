@@ -37,3 +37,5 @@ deleteados amiset entity:
   restrict access: TRUE
 deleteados own amiset entity:
   title: 'Delete ADOs generated through own AMI Set Entities'
+override file destination ami entity:
+  title: 'Override default persistent file destination and naming for Files ingested via AMI Set Entities'
