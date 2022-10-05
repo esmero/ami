@@ -170,7 +170,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'queue_name' => because well ... we use Hydroponics too
         'force_file_queue' => defaults to false, will always treat files as separate queue items.
         'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
-        'manyfiles' => Number of files (passed by \Drupal\ami\Form\amiSetEntityProcessForm::submitForm) that will trigger queue processing for files
+        'manyfiles' => Number of files (passed by \Drupal\ami\Form\amiSetEntityProcessForm::submitForm) that will trigger queue processing for files,
+        'ops_skip_onmissing_file' => Skips ADO operations if a passed/mapped file is not present,
+        'ops_forcemanaged_destination_file' => Forces Archipelago to manage a files destination when the source matches the destination Schema (e.g S3),
       ];
     */
     /* Data info for a File has this structure
@@ -185,7 +187,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'processed_row' => Full metadata of the ADO holding the file processed and ready as an array
         'queue_name' => because well ... we use Hydroponics too
         'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
-        'reduced' => If reduced EXIF or not should be generated
+        'reduced' => If reduced EXIF or not should be generated,
+        'ops_forcemanaged_destination_file' => Forces Archipelago to manage a files destination when the source matches the destination Schema (e.g S3),
       ];
     */
 
@@ -405,6 +408,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                 'uuid' => $data->info['row']['uuid'],
                 'force_file_process' => $data->info['force_file_process'],
                 'reduced' => $reduced,
+                'ops_forcemanaged_destination_file' => isset($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE,
               ];
               \Drupal::queue($data->info['queue_name'])
                 ->createItem($data_file);
@@ -414,6 +418,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                 $data->info['zip_file']);
 
               if ($file) {
+                // IN this case and ONLY for files that match the same final destination
+                // we can short circuit the Filename/destination taking over by making the file permanent.
+                // @TODO compare here.
                 $file->setTemporary();
                 $file->save();
                 $processed_files++;
@@ -438,7 +445,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       // If so we need to push this one to the end..
       // Reset the attempts
       $data->info['waiting_for_files'] = TRUE;
-      $data->info['attempt'] = $data->info['attempt'] ? $data->info['attempt'] +1 : 0;
+      $data->info['attempt'] = $data->info['attempt'] ? $data->info['attempt'] + 1 : 0;
       \Drupal::queue($data->info['queue_name'])
         ->createItem($data);
       return;
@@ -853,13 +860,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
         $data->info['zip_file']);
       if ($file) {
+        $force_destination = isset($data->info['ops_forcemanaged_destination_file']) && is_bool($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE;
         $reduced = $data->info['reduced'] ?? FALSE;
         $processedAsValuesForKey = $this->strawberryfilepersister
           ->generateAsFileStructure(
             [$file->id()],
             $data->info['file_column'],
             $data->info['processed_row'],
-            FALSE,
+            $force_destination,
             $reduced
           );
         $data_to_store['as_data'] = $processedAsValuesForKey;
