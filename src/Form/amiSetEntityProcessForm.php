@@ -76,7 +76,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
-    $ops_abortonmissing_files = $form_state->getValue('abortonmissing', []);
+    $ops_skip_onmissing_file = $form_state->getValue('skip_onmissing_file', TRUE);
+    $ops_forcemanaged_destination_file = $form_state->getValue('take_control_file', TRUE);
+
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
@@ -146,7 +148,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       // Only applies to Update/Patch operations but for contract reasons
       // we generate all $data->info the same.
       $ops_safefiles = TRUE;
-      $ops_skip_onmissing_file = TRUE;
+
       if (isset($data->pluginconfig->op) && $data->pluginconfig->op != 'create') {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
         $ops_safefiles = $form_state->getValue(['ops_secondary','ops_safefiles'], TRUE);
@@ -170,6 +172,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'force_file_process' => (bool) $form_state->getValue('force_file_process', FALSE),
           'manyfiles' => $manyfiles,
           'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
+          'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
         ];
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
@@ -292,6 +295,13 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         '#title' => $this->t("Skip ADO processing on missing File"),
         '#description' => $this->t("If enabled a referenced missed file or one that can not be processed from the source, remote or local will make AMI skip the affected ROW. Enabled by default for better QA during processing."),
         '#default_value' => TRUE,
+      ];
+      $form['take_control_file'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t("Let Archipelago organize my files"),
+        '#description' => $this->t("If enabled all files referenced in this AMI set that share with this repositories configured <em>Storage Scheme for Persisting Files</em> will be copied into an Archipelago managed location and sanitized. If disabled those files will maintain its original location and it will be up to the manager to ensure they are not removed from there."),
+        '#default_value' => TRUE,
+        '#access' =>  $this->currentUser()->hasPermission('override file destination ami entity') || $this->currentUser()->hasRole('administrator'),
       ];
 
       $form['status'] = [
