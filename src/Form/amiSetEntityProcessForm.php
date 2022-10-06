@@ -76,8 +76,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
-    $ops_skip_onmissing_file = $form_state->getValue('skip_onmissing_file', TRUE);
-    $ops_forcemanaged_destination_file = $form_state->getValue('take_control_file', TRUE);
+    $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
+    $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
 
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
@@ -299,7 +299,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $form['take_control_file'] = [
         '#type' => 'checkbox',
         '#title' => $this->t("Let Archipelago organize my files"),
-        '#description' => $this->t("If enabled all files referenced in this AMI set that share with this repositories configured <em>Storage Scheme for Persisting Files</em> will be copied into an Archipelago managed location and sanitized. If disabled those files will maintain its original location and it will be up to the manager to ensure they are not removed from there."),
+        '#description' => $this->t("If enabled all files referenced in this AMI set that share with this repositories configured <em>Storage Scheme for Persisting Files</em> will be copied into an Archipelago managed location and sanitized.<br> If disabled those files will maintain its original location and it will be up to the manager to ensure they are not removed from there."),
         '#default_value' => TRUE,
         '#access' =>  $this->currentUser()->hasPermission('override file destination ami entity') || $this->currentUser()->hasRole('administrator'),
       ];
