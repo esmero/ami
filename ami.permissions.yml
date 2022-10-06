@@ -38,4 +38,4 @@ deleteados amiset entity:
 deleteados own amiset entity:
   title: 'Delete ADOs generated through own AMI Set Entities'
 override file destination ami entity:
-  title: 'Override default persistent file destination and naming for Files ingested via AMI Set Entities'
+  title: 'Override default persistent file destination and naming for Files ingested via AMI Set Entities. This permission breaks how Archipelago conceives file preservation as a core concern so out of the box will not trigger any chance without enabled a Drupal settings.php global option. See Documentation for this'

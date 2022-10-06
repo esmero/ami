@@ -4,6 +4,7 @@ namespace Drupal\ami\Plugin\QueueWorker;
 
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
+use Drupal\file\FileInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
@@ -75,9 +76,20 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected $strawberryfilepersister;
 
   /**
-   * @var \Drupal\user\PrivateTempStore
+   * @var \Drupal\Core\TempStore\PrivateTempStore
    */
   protected $store;
+
+  /**
+   * Human language past tense for operations.
+   *
+   * @var array
+   */
+  private CONST OP_HUMAN = [
+    'create' => 'created',
+    'update' => 'updated',
+    'patch' => 'patched',
+  ];
 
   /**
    * Constructor.
@@ -165,7 +177,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'ops_safefiles' => Boolean, True if we will not allow files/mappings to be removed/we will keep them warm and safe
         'log_jsonpatch' => If for Update operations we will generate a single PER ADO Log with a full JSON Patch,
         'attempt' => The number of attempts to process. We always start with a 1
-        'zip_file' => File ID of a zip file if a any
+        'zip_file' => Zip File/File Entity
         'waiting_for_files' => will only exist and TRUE if we re-enqueued this ADO after figuring out we had too many Files.
         'queue_name' => because well ... we use Hydroponics too
         'force_file_queue' => defaults to false, will always treat files as separate queue items.
@@ -180,9 +192,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
         'uuid' => The uuid of the ADO that needs this file
+        'attempt' => The number of attempts to process. We always start with a 1
         'filename' => The File name
         'file_column' => The File column where the file needs to be saved.
-        'zip_file' => File ID of a zip file if a any,
+        'zip_file' => Zip File/File Entity,
         'processed_row' => Full metadata of the ADO holding the file processed and ready as an array
         'queue_name' => because well ... we use Hydroponics too
         'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
@@ -195,6 +208,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // Just for files.
     if (!empty($data->info['filename']) && !empty($data->info['file_column']) && !empty($data->info['processed_row'])) {
       $this->processFile($data);
+      return;
+    }
+
+    if (!$this->canProcess($data)) {
       return;
     }
 
@@ -344,6 +361,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $process_files_via_queue = FALSE;
 
     // Now do heavy file lifting
+    $allfiles = TRUE;
     foreach($file_columns as $file_column) {
       // Why 5? one character + one dot + 3 for the extension
       if (isset($data->info['row']['data'][$file_column]) && strlen(trim($data->info['row']['data'][$file_column])) >= 5) {
@@ -380,6 +398,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'processed_row' => $processed_metadata,
               'file_column' => $file_column,
               'filename' => $filename,
+              'attempt' => 1,
               'queue_name' => $data->info['queue_name'],
               'uuid' => $data->info['row']['uuid'],
               'force_file_process' => $data->info['force_file_process'],
@@ -397,8 +416,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             }
           }
           // If we were waiting for files OR never asked to process via queue do the same
+
           if (!empty($data->info['waiting_for_files']) || !$process_files_via_queue) {
-            $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
+            $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
+            // Matches same logic as in \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processFile
+            $private_temp_key = md5($file_column . '-' . $filename . '-' . $zip_file_id);
+
+            $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . $private_temp_key);
             if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
               // Last sanity check and make file temporary
               // TODO: remove on SBF 1.0.0 since we are going to also persist files where the source is
@@ -413,6 +437,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   (array) $processed_file_data['as_data']);
               }
               else {
+                $allfiles = FALSE;
                 $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn could not be processed. Skipping. Please check your CSV for set @setid.',
                   [
                     '@uuid' => $data->info['row']['uuid'],
@@ -423,16 +448,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               }
             }
             else {
+              $allfiles = FALSE;
               // Delete Cache if this if processed_file_data['as_data'] and file_id are empty.
               // Means something failed at \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processFile
-              $this->store->delete('set_' . $data->info['set_id'] . '-' . md5($filename));
-              $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was processed but something failed. Skipping. Please check your File Sources and CSV for set @setid.',
-                [
-                  '@uuid' => $data->info['row']['uuid'],
-                  '@setid' => $data->info['set_id'],
-                  '@filename' => $filename,
-                  '@filecolumn' => $file_column,
-                ]));
+              // NO need to report again since that was already reported.
+              $this->store->delete('set_' . $data->info['set_id'] . '-' . $private_temp_key);
             }
           }
         }
@@ -448,9 +468,17 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         ->createItem($data);
       return;
     }
-
-    // Decode the JSON that was captured.
+    if (!empty($data->info['ops_skip_onmissing_file'] && $data->info['ops_skip_onmissing_file'] == TRUE  && !$allfiles)) {
+      $this->messenger->addWarning($this->t('Skipping ADO with UUID:@uuid because one or more files could not be processed and <em>Skip ADO processing on missing File</em> is enabled',
+        [
+          '@uuid' => $data->info['row']['uuid'],
+          '@setid' => $data->info['set_id'],
+        ]));
+      return;
+    }
+    // Only persist if we passed this.
     $this->persistEntity($data, $processed_metadata);
+
   }
 
 
@@ -485,7 +513,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   private function persistEntity(\stdClass $data, array $processed_metadata) {
 
-    //OP can be one of
+    if (!$this->canProcess($data)) {
+      return;
+    }
+
+    //OP can be one of:
     /*
     'create' => 'Create New ADOs',
     'update' => 'Update existing ADOs',
@@ -494,49 +526,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     */
     $op = $data->pluginconfig->op;
     $op_secondary =  $data->info['op_secondary'] ?? NULL;
-    /* OP Secondary for Update/Patch operations can be
-    'update', 'replace' , 'append'
-    */
-
-    $ophuman = [
-      'create' => 'created',
-      'update' => 'updated',
-      'patch' => 'patched',
-    ];
-
-    /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
-    $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
-      ['uuid' => $data->info['row']['uuid']]
-    );
-
-    if (count($existing) && $op == 'create') {
-      $this->messenger->addError($this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
-        '@uuid' => $data->info['row']['uuid'],
-        '@setid' => $data->info['set_id']
-      ]));
-      return;
-    }
-    elseif (!count($existing) && $op !== 'create') {
-      $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
-        '@uuid' => $data->info['row']['uuid'],
-        '@setid' => $data->info['set_id'],
-        '@ophuman' => $ophuman[$op],
-      ]));
-      return;
-    }
-    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
-
-    if ($op !== 'create' && $account && $existing && count($existing) == 1) {
-      $existing_object = reset($existing);
-      if (!$existing_object->access('update', $account)) {
-        $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
-          '@uuid' => $data->info['row']['uuid'],
-          '@setid' => $data->info['set_id'],
-          '@ophuman' => $ophuman[$op],
-        ]));
-        return;
-      }
-    }
 
     if ($data->mapping->globalmapping == "custom") {
       $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
@@ -601,6 +590,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             ->create($nodeValues);
         }
         else {
+          // This is duplication. We already load existing to check
+          // If we can proceed in \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::canProcess
+          // But it is cleaner to make that function boolean
+          // And re useable than return existing from there.
+          /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
+          $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
+            ['uuid' => $data->info['row']['uuid']]
+          );
+          $existing_object = reset($existing);
+
           $vid = $this->entityTypeManager
             ->getStorage('node')
             ->getLatestRevisionId($existing_object->id());
@@ -697,7 +696,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   }
                   $contract_keys = array_filter($processed_metadata_keys, function ($value) {
                     return (str_starts_with($value, "as:") || str_starts_with($value, "ap:"));
-                    }
+                  }
                   );
                   $processed_metadata_keys = array_diff($processed_metadata_keys, $contract_keys);
                   foreach ($processed_metadata_keys as $processed_metadata_key) {
@@ -779,14 +778,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@setid' => $data->info['set_id'],
           ':link' => $link,
           '%title' => $label,
-          '@ophuman' => $ophuman[$op]
+          '@ophuman' => static::OP_HUMAN[$op]
         ]));
       }
       catch (\Exception $exception) {
         $this->messenger->addError($this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => $ophuman[$op],
+          '@ophuman' => static::OP_HUMAN[$op],
         ]));
         return;
       }
@@ -795,9 +794,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $this->messenger->addError($this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => $ophuman[$op],
+        '@ophuman' => static::OP_HUMAN[$op],
       ]));
-      return;
     }
   }
 
@@ -841,7 +839,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     catch (\Swaggest\JsonDiff\Exception $exception) {
       // We do not want to make ingesting slower. Just return [];
-      return [];
+      return '{}';
     }
     return json_encode($patch ?? []);
   }
@@ -852,12 +850,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param mixed $data
    */
   protected function processFile($data) {
-
-    // First check if we already have the info here, if so do nothing.
-    $current_data_hash = md5(serialize($data));
-
-
-    if (($data->info['force_file_process'] ?? FALSE) || empty($this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename'])))) {
+    // What makes a Processed File Cache reusable?
+    // If the filename (source) for this Set is the same
+    // If the ZIP file has not changed (if any)
+    // If the source Key IS the same (will affect the dr:for)
+    // @NOTE: we could add tons of more logic here to avoid over processing but
+    // given how many combinations of data might affect the output
+    // plus the fact that extra logic will duplicate (and require maintenance)
+    // at this level makes no sense. Safer to regenerate.
+    $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
+    $private_temp_key = md5(($data->info['file_column'] ?? '') . '-' . ($data->info['filename'] ?? '') . '-' . $zip_file_id);
+    // First check if we already have the info here and not forced to recreate, if so do nothing.
+    if (($data->info['force_file_process'] ?? FALSE) || empty($this->store->get('set_' . $data->info['set_id'] . '-' . $private_temp_key))) {
       $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
         $data->info['zip_file']);
       if ($file) {
@@ -873,7 +877,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           );
         $data_to_store['as_data'] = $processedAsValuesForKey;
         $data_to_store['file_id'] = $file->id();
-        $this->store->set('set_' . $data->info['set_id'] . '-' . md5($data->info['filename']),
+        $this->store->set('set_' . $data->info['set_id'] . '-' . $private_temp_key,
           $data_to_store);
       }
       else {
@@ -884,5 +888,61 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           ]));
       }
     }
+  }
+
+
+  /**
+   * Checks if processing can be done so we can bail out sooner.
+   *
+   * @param $data
+   *
+   * @return bool
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  private function canProcess($data): bool {
+
+    //OP can be one of
+    /*
+    'create' => 'Create New ADOs',
+    'update' => 'Update existing ADOs',
+    'patch' => 'Patch existing ADOs',
+    'delete' => 'Delete existing ADOs',
+    */
+
+    /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
+    $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
+      ['uuid' => $data->info['row']['uuid']]
+    );
+
+    if (count($existing) && $data->pluginconfig->op == 'create') {
+      $this->messenger->addError($this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
+        '@uuid' => $data->info['row']['uuid'],
+        '@setid' => $data->info['set_id']
+      ]));
+      return FALSE;
+    }
+    elseif (!count($existing) && $data->pluginconfig->op !== 'create') {
+      $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
+        '@uuid' => $data->info['row']['uuid'],
+        '@setid' => $data->info['set_id'],
+        '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+      ]));
+      return FALSE;
+    }
+    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+
+    if ($data->pluginconfig->op !== 'create' && $account && $existing && count($existing) == 1) {
+      $existing_object = reset($existing);
+      if (!$existing_object->access('update', $account)) {
+        $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
+          '@uuid' => $data->info['row']['uuid'],
+          '@setid' => $data->info['set_id'],
+          '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+        ]));
+        return FALSE;
+      }
+    }
+    return TRUE;
   }
 }
