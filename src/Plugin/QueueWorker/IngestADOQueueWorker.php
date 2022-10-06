@@ -180,7 +180,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
         'uuid' => The uuid of the ADO that needs this file
-        'attempt' => The number of attempts to process. We always start with a 1
         'filename' => The File name
         'file_column' => The File column where the file needs to be saved.
         'zip_file' => File ID of a zip file if a any,
@@ -366,7 +365,39 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
         foreach ($filenames as $filename) {
           $filename = trim($filename);
-          if (!empty($data->info['waiting_for_files'])) {
+          if (empty($data->info['waiting_for_files'])) {
+            // Always produce now the data structure so we can call processFile either via a queue or
+            // via process file.
+            $reduced = (count($filenames) + $processed_files >= $file_limit) && ($file_limit != 0);
+            $data_file = new \stdClass();
+            // Any changed data from a previous run, like SET ID, ZIP FILE, processed ROW
+            // Should force us to regenerate the private storage. That is key here.
+            // Why? We could have changed our processing strategy, the file column, etc!
+            $data_file->info = [
+              'zip_file' => $data->info['zip_file'],
+              'set_id' => $data->info['set_id'],
+              'uid' => $data->info['uid'],
+              'processed_row' => $processed_metadata,
+              'file_column' => $file_column,
+              'filename' => $filename,
+              'queue_name' => $data->info['queue_name'],
+              'uuid' => $data->info['row']['uuid'],
+              'force_file_process' => $data->info['force_file_process'],
+              'reduced' => $reduced,
+              'ops_forcemanaged_destination_file' => isset($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE,
+            ];
+            if ($process_files_via_queue) {
+              // Enqueue file separately
+              \Drupal::queue($data->info['queue_name'])
+                ->createItem($data_file);
+            }
+            else {
+              // Do the file processing syncroneusly
+              $this->processFile($data_file);
+            }
+          }
+          // If we were waiting for files OR never asked to process via queue do the same
+          if (!empty($data->info['waiting_for_files']) || !$process_files_via_queue) {
             $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . md5($filename));
             if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
               // Last sanity check and make file temporary
@@ -391,50 +422,17 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   ]));
               }
             }
-          }
-          else {
-            if ($process_files_via_queue) {
-              $reduced = (count($filenames) + $processed_files >= $file_limit) && ($file_limit != 0);
-              $data_file = new \stdClass();
-              $data_file->info = [
-                'zip_file' => $data->info['zip_file'],
-                'set_id' => $data->info['set_id'],
-                'uid' => $data->info['uid'],
-                'processed_row' => $processed_metadata,
-                'file_column' => $file_column,
-                'filename' => $filename,
-                'attempt' => 1,
-                'queue_name' => $data->info['queue_name'],
-                'uuid' => $data->info['row']['uuid'],
-                'force_file_process' => $data->info['force_file_process'],
-                'reduced' => $reduced,
-                'ops_forcemanaged_destination_file' => isset($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE,
-              ];
-              \Drupal::queue($data->info['queue_name'])
-                ->createItem($data_file);
-            }
             else {
-              $file = $this->AmiUtilityService->file_get($filename,
-                $data->info['zip_file']);
-
-              if ($file) {
-                // IN this case and ONLY for files that match the same final destination
-                // we can short circuit the Filename/destination taking over by making the file permanent.
-                // @TODO compare here.
-                $file->setTemporary();
-                $file->save();
-                $processed_files++;
-                $processed_metadata[$file_column][] = (int) $file->id();
-              }
-              else {
-                $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was not found. Skipping. Please check your CSV for set @setid.',
-                  [
-                    '@uuid' => $data->info['row']['uuid'],
-                    '@setid' => $data->info['set_id'],
-                    '@filename' => $filename,
-                    '@filecolumn' => $file_column,
-                  ]));
-              }
+              // Delete Cache if this if processed_file_data['as_data'] and file_id are empty.
+              // Means something failed at \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processFile
+              $this->store->delete('set_' . $data->info['set_id'] . '-' . md5($filename));
+              $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn was processed but something failed. Skipping. Please check your File Sources and CSV for set @setid.',
+                [
+                  '@uuid' => $data->info['row']['uuid'],
+                  '@setid' => $data->info['set_id'],
+                  '@filename' => $filename,
+                  '@filecolumn' => $file_column,
+                ]));
             }
           }
         }
@@ -856,11 +854,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected function processFile($data) {
 
     // First check if we already have the info here, if so do nothing.
+    $current_data_hash = md5(serialize($data));
+
+
     if (($data->info['force_file_process'] ?? FALSE) || empty($this->store->get('set_' . $data->info['set_id'] . '-' . md5($data->info['filename'])))) {
       $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
         $data->info['zip_file']);
       if ($file) {
-        $force_destination = isset($data->info['ops_forcemanaged_destination_file']) && is_bool($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE;
+        $force_destination = isset($data->info['ops_forcemanaged_destination_file']) ? (bool) $data->info['ops_forcemanaged_destination_file'] : TRUE;
         $reduced = $data->info['reduced'] ?? FALSE;
         $processedAsValuesForKey = $this->strawberryfilepersister
           ->generateAsFileStructure(
