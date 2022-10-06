@@ -296,13 +296,21 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         '#description' => $this->t("If enabled a referenced missed file or one that can not be processed from the source, remote or local will make AMI skip the affected ROW. Enabled by default for better QA during processing."),
         '#default_value' => TRUE,
       ];
-      $form['take_control_file'] = [
-        '#type' => 'checkbox',
-        '#title' => $this->t("Let Archipelago organize my files"),
-        '#description' => $this->t("If enabled all files referenced in this AMI set that share with this repositories configured <em>Storage Scheme for Persisting Files</em> will be copied into an Archipelago managed location and sanitized.<br> If disabled those files will maintain its original location and it will be up to the manager to ensure they are not removed from there."),
-        '#default_value' => TRUE,
-        '#access' =>  $this->currentUser()->hasPermission('override file destination ami entity') || $this->currentUser()->hasRole('administrator'),
-      ];
+      $config = \Drupal::config('strawberryfield.general');
+      if ($config->get('override_persistent_storage') === TRUE) {
+        $form['take_control_file'] = [
+          '#type'          => 'checkbox',
+          '#title'         => $this->t("Let Archipelago organize my files"),
+          '#description'   => $this->t(
+            "Enabled by default. All files referenced in this AMI set will be copied into an Archipelago managed location and sanitized.<br> Danger: If disabled files that share source location with this repositories configured <em>Storage Scheme for Persisting Files</em> will maintain its original location and it will be up to the manager to ensure they are not removed from there."
+          ),
+          '#default_value' => TRUE,
+          '#access'        => $this->currentUser()->hasPermission(
+              'override file destination ami entity'
+            )
+            || $this->currentUser()->hasRole('administrator'),
+        ];
+      }
 
       $form['status'] = [
         '#tree' => TRUE,
@@ -371,7 +379,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'Re download and reprocess every file'
         ),
         '#description' => $this->t(
-          'Check this to force every file attached to an ADO to be downloaded and characterized again, even if on a previous Batch run that data was already generated for reuse. Needed if e.g the URL of a file is the same but the remote source changed.'
+          'Check this to force every file attached to an ADO to be downloaded and characterized again, even if on a previous Batch run that data was already generated for reuse. IMPORTANT: Needed if e.g the URL of a file is the same but the remote source changed, if you have custom code that modifies the backend naming strategy of files.'
         ),
         '#required' => FALSE,
         '#default_value' => FALSE,
