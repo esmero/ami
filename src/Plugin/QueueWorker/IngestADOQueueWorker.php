@@ -860,8 +860,26 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // at this level makes no sense. Safer to regenerate.
     $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
     $private_temp_key = md5(($data->info['file_column'] ?? '') . '-' . ($data->info['filename'] ?? '') . '-' . $zip_file_id);
+    $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . $private_temp_key);
+    // even if the cache is there, the file might have been gone because of a previous cron
+    // run after someone deleted the Ingested, waited too long.
+    // If that is the case reprocessing will be needed.
+    if (!empty($processed_file_data['as_data']) && !empty($processed_file_data['file_id'])) {
+      /* @var \Drupal\file\FileInterface $file */
+      $file = $this->entityTypeManager->getStorage('file')->load(
+        $processed_file_data['file_id']
+      );
+      if (!$file) {
+        $data->info['force_file_process'] = TRUE;
+        // OK still there and alive. If not we have to force reprocessing!
+      }
+    }
+    else {
+      $data->info['force_file_process'] = TRUE;
+    }
+
     // First check if we already have the info here and not forced to recreate, if so do nothing.
-    if (($data->info['force_file_process'] ?? FALSE) || empty($this->store->get('set_' . $data->info['set_id'] . '-' . $private_temp_key))) {
+    if (($data->info['force_file_process'] ?? FALSE)) {
       $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
         $data->info['zip_file']);
       if ($file) {
