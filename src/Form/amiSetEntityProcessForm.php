@@ -130,6 +130,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
+      $run_timestamp = $this->time->getCurrentTime();
+
+
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = 'ami_ingest_ado';
       if (!$notprocessnow) {
@@ -173,6 +176,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'manyfiles' => $manyfiles,
           'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
           'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
+          'time_submitted' => $run_timestamp
         ];
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
