@@ -102,6 +102,14 @@ entity.ami_set_entity.reconcileedit_form:
   requirements:
     _entity_access: 'ami_set_entity.process'
 
+entity.ami_set_entity.reports_form:
+  path: '/amiset/{ami_set_entity}/report'
+  defaults:
+    _entity_form: ami_set_entity.report
+    _title: 'Reports'
+  requirements:
+    _entity_access: 'ami_set_entity.process'
+
 ami.rowsbylabel.autocomplete:
   path: '/admin/amiset/autocomplete/{ami_set_entity}/rowsbylabel'
   options:

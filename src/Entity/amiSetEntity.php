@@ -84,7 +84,8 @@ use Drupal\Component\Utility\Environment;
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteprocessed" = "Drupal\ami\Form\amiSetEntityDeleteProcessedForm",
  *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm",
- *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm"
+ *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm",
+ *       "report" = "Drupal\ami\Form\amiSetEntityReportForm"
  *     },
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
@@ -105,6 +106,7 @@ use Drupal\Component\Utility\Environment;
  *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
  *     "edit-reconcile-form" = "/amiset/{ami_set_entity}/editreconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
+ *     "report" = "/amiset/{ami_set_entity}/report",
  *     "collection" = "/amiset/list"
  *   },
  *   field_ui_base_route = "ami.amisetentity_settings",

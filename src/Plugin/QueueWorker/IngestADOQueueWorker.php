@@ -13,6 +13,9 @@ use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
+use Monolog\Handler\StreamHandler;
+use Monolog\Logger;
+use Monolog\Formatter\JsonFormatter;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
@@ -79,6 +82,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @var \Drupal\Core\TempStore\PrivateTempStore
    */
   protected $store;
+
+  /**
+   * The AMI specific logger
+   *
+   * @var \Psr\Log\LoggerInterface
+   */
+  protected $logger;
 
   /**
    * Human language past tense for operations.
@@ -166,6 +176,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
+    $log = new Logger('ami');
+    $private_path = \Drupal::service('stream_wrapper_manager')->getViaUri('private://')->getDirectoryPath();
+    $handler = new StreamHandler($private_path.'/ami/logs/set'.$data->info['set_id'].'.log', Logger::DEBUG);
+    $handler->setFormatter( new JsonFormatter() );
+    $log->pushHandler($handler);
+    // This will add the File logger not replace the DB
+    // IF we want to only use the file logger we should use setLogger([$log]);
+    $this->loggerFactory->get('ami')->addLogger($log);
+    $this->loggerFactory->get('ami')->info($this->t('Ingesting %setid',['%setid' => $data->info['set_id']]) ,[
+      'setid' => $data->info['set_id'] ?? NULL,
+      'time_submitted' => $data->info['time_submitted'] ?? '',
+    ]);
     /* Data info for an ADO has this structure
       $data->info = [
         'row' => The actual data
@@ -185,6 +207,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'manyfiles' => Number of files (passed by \Drupal\ami\Form\amiSetEntityProcessForm::submitForm) that will trigger queue processing for files,
         'ops_skip_onmissing_file' => Skips ADO operations if a passed/mapped file is not present,
         'ops_forcemanaged_destination_file' => Forces Archipelago to manage a files destination when the source matches the destination Schema (e.g S3),
+        'time_submitted' => Timestamp on when the queue was send. All Entries will share the same
       ];
     */
     /* Data info for a File has this structure
@@ -201,6 +224,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
         'reduced' => If reduced EXIF or not should be generated,
         'ops_forcemanaged_destination_file' => Forces Archipelago to manage a files destination when the source matches the destination Schema (e.g S3),
+        'time_submitted' => Timestamp on when the queue was send. All Entries will share the same
       ];
     */
 
@@ -225,11 +249,22 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $parent_uuids = (array) $parent_uuid;
         $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $parent_uuids]);
         if (count($existing) != count($parent_uuids)) {
-          $this->messenger->addWarning($this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
+          $message = $this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
             '@uuid' => $data->info['row']['uuid'],
             '@setid' => $data->info['set_id'],
             '@parent_uuids' => implode(',', $parent_uuids)
-          ]));
+          ]);
+          $this->loggerFactory->get('ami')->warning($message ,[
+            'setid' => $data->info['set_id'] ?? NULL,
+            'time_submitted' => $data->info['time_submitted'] ?? '',
+          ]);
+
+
+          /*  $this->messenger->addWarning($this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
+              '@uuid' => $data->info['row']['uuid'],
+              '@setid' => $data->info['set_id'],
+              '@parent_uuids' => implode(',', $parent_uuids)
+            ]));*/
           // Pushing to the end of the queue.
           $data->info['attempt']++;
           if ($data->info['attempt'] < 3) {
@@ -238,12 +273,24 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             return;
           }
           else {
-            $this->messenger->addWarning($this->t('Sorry, We tried twice to process ADO with @uuid from Set @setid yet, but you have missing parents. Please check your CSV file and make sure parents with an UUID are in your REPO first and that no other parent generated by the set itself is failing',[
+            $message = $this->t('Sorry, We tried twice to process ADO with @uuid from Set @setid yet, but you have missing parents. Please check your CSV file and make sure parents with an UUID are in your REPO first and that no other parent generated by the set itself is failing',[
               '@uuid' => $data->info['row']['uuid'],
               '@setid' => $data->info['set_id']
-            ]));
+            ]);
+            $this->loggerFactory->get('ami')->error($message ,[
+              'setid' => $data->info['set_id'] ?? NULL,
+              'time_submitted' => $data->info['time_submitted'] ?? '',
+            ]);
+
             return;
             // We could enqueue in a "failed" queue?
+            // @TODO for 0.6.0: Or better. We could keep track of the dependency
+            // and then afterwards update one and then the other
+            // Why? Because if we have one object pointing to X
+            // and the other pointing back the graph is not acyclic
+            // but we could still via an update operation
+            // Ingest without the relations both. Then update both once the
+            // Ingest is ready IF both have IDs.
           }
         }
         else {
@@ -264,26 +311,39 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     if ($method == 'template') {
       $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
       if (!$processed_metadata) {
-        $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
+        $message = $this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id']
-        ]));
+        ]);
+        $this->loggerFactory->get('ami')->error($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
         return;
       }
     }
     if ($method == "direct") {
       if (isset($data->info['row']['data']) && !is_array($data->info['row']['data'])) {
-        $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',[
+        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',[
           '@uuid' => $data->info['row']['uuid'] ?? "MISSING UUID",
           '@setid' => $data->info['set_id']
-        ]));
+        ]);
+
+        $this->loggerFactory->get('ami')->error($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
         return;
       }
       elseif (!isset($data->info['row']['data'])) {
-        $this->messenger->addWarning($this->t('Sorry, we can not cast an ADO directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',
+        $message = $this->t('Sorry, we can not cast an ADO directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',
           [
             '@setid' => $data->info['set_id'],
-          ]));
+          ]);
+        $this->loggerFactory->get('ami')->error($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
         return;
       }
 
@@ -291,10 +351,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $processed_metadata = !empty($processed_metadata) ? json_encode($processed_metadata) : NULL;
       $json_error = json_last_error();
       if ($json_error !== JSON_ERROR_NONE || !$processed_metadata) {
-        $this->messenger->addWarning($this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
+        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id']
-        ]));
+        ]);
+        $this->loggerFactory->get('ami')->error($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
         return;
       }
     }
@@ -310,8 +374,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]);
-      $this->messenger->addWarning($message);
-      $this->loggerFactory->get('ami')->error($message);
+      $this->loggerFactory->get('ami')->error($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
       return;
     }
 
@@ -404,6 +470,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'force_file_process' => $data->info['force_file_process'],
               'reduced' => $reduced,
               'ops_forcemanaged_destination_file' => isset($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE,
+              'time_submitted' =>  $data->info['time_submitted'],
             ];
             if ($process_files_via_queue) {
               // Enqueue file separately
@@ -438,13 +505,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               }
               else {
                 $allfiles = FALSE;
-                $this->messenger->addWarning($this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn could not be processed. Skipping. Please check your CSV for set @setid.',
+                $message = $this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn could not be processed. Skipping. Please check your CSV for set @setid.',
                   [
                     '@uuid' => $data->info['row']['uuid'],
                     '@setid' => $data->info['set_id'],
                     '@filename' => $filename,
                     '@filecolumn' => $file_column,
-                  ]));
+                  ]);
+                $this->loggerFactory->get('ami')->warning($message ,[
+                  'setid' => $data->info['set_id'] ?? NULL,
+                  'time_submitted' => $data->info['time_submitted'] ?? '',
+                ]);
+
               }
             }
             else {
@@ -469,16 +541,19 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       return;
     }
     if (!empty($data->info['ops_skip_onmissing_file'] && $data->info['ops_skip_onmissing_file'] == TRUE  && !$allfiles)) {
-      $this->messenger->addWarning($this->t('Skipping ADO with UUID:@uuid because one or more files could not be processed and <em>Skip ADO processing on missing File</em> is enabled',
+      $message = $this->t('Skipping ADO with UUID:@uuid because one or more files could not be processed and <em>Skip ADO processing on missing File</em> is enabled',
         [
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-        ]));
+        ]);
+      $this->loggerFactory->get('ami')->warning($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
       return;
     }
     // Only persist if we passed this.
     $this->persistEntity($data, $processed_metadata);
-
   }
 
 
@@ -540,10 +615,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $property_path_split = explode(':', $property_path);
 
     if (!$property_path_split || count($property_path_split) < 2 ) {
-      $this->messenger->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
+      $message = $this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
-      ]));
+      ]);
+      $this->loggerFactory->get('ami')->error($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+
       return;
     }
 
@@ -773,29 +853,41 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $node->save();
 
         $link = $node->toUrl()->toString();
-        $this->messenger->addStatus($this->t('ADO <a href=":link" target="_blank">%title</a> with UUID:@uuid on Set @setid was @ophuman!',[
+        $message = $this->t('ADO <a href=":link" target="_blank">%title</a> with UUID:@uuid on Set @setid was @ophuman!',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
           ':link' => $link,
           '%title' => $label,
           '@ophuman' => static::OP_HUMAN[$op]
-        ]));
+        ]);
+        $this->loggerFactory->get('ami')->info($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
       }
       catch (\Exception $exception) {
-        $this->messenger->addError($this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
+        $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
           '@ophuman' => static::OP_HUMAN[$op],
-        ]));
+        ]);
+        $this->loggerFactory->get('ami')->error($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
         return;
       }
     }
     else {
-      $this->messenger->addError($this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
+      $message = $this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
         '@ophuman' => static::OP_HUMAN[$op],
-      ]));
+      ]);
+      $this->loggerFactory->get('ami')->info($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
     }
   }
 
@@ -899,11 +991,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           $data_to_store);
       }
       else {
-        $this->messenger->addWarning($this->t('Sorry, we really tried to process File @filename from Set @setid yet. Giving up',
+        $message = $this->t('Sorry, we really tried to process File @filename from Set @setid yet. Giving up',
           [
             '@setid' => $data->info['set_id'],
             '@filename' => $data->info['filename']
-          ]));
+          ]);
+        $this->loggerFactory->get('ami')->warning($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
       }
     }
   }
@@ -934,18 +1030,27 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     );
 
     if (count($existing) && $data->pluginconfig->op == 'create') {
-      $this->messenger->addError($this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
+      $message = $this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
-      ]));
+      ]);
+
+      $this->loggerFactory->get('ami')->warning($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
       return FALSE;
     }
     elseif (!count($existing) && $data->pluginconfig->op !== 'create') {
-      $this->messenger->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
+      $message = $this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
         '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
-      ]));
+      ]);
+      $this->loggerFactory->get('ami')->warning($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
       return FALSE;
     }
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
@@ -953,14 +1058,24 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     if ($data->pluginconfig->op !== 'create' && $account && $existing && count($existing) == 1) {
       $existing_object = reset($existing);
       if (!$existing_object->access('update', $account)) {
-        $this->messenger->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
+        $message = $this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
           '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
-        ]));
+        ]);
+        $this->loggerFactory->get('ami')->error($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
         return FALSE;
       }
     }
     return TRUE;
   }
+
+  private function log($type, $data) {
+
+  }
+
+
 }
