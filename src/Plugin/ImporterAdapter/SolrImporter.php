@@ -50,6 +50,7 @@ class SolrImporter extends SpreadsheetImporter {
     'videos',
     'audios',
     'models',
+    'applications',
   ];
 
   const BATCH_INCREMENTS = 500;
@@ -260,9 +261,14 @@ class SolrImporter extends SpreadsheetImporter {
     $cmodels_children = $form_state->get('facet_cmodel_children') ?? $form_state->getValue(array_merge($parents,
         ['solarium_mapping', 'cmodel_children'], []));
 
-    if (empty($cmodels)) {
+    // New. Give the user choices for fetching more than just OBJ.
+    $datastreams = $form_state->get('facet_datastreams') ?? $form_state->getValue(array_merge($parents,
+        ['solarium_mapping', 'datastreams_mapping'], []));
+
+    if (empty($cmodels) || empty($datastreams)) {
       $form_state->setValue(['pluginconfig','ready'], FALSE);
     }
+
 
     if (empty($cmodels_children) && $form_state->getValue(array_merge($parents,
         ['solarium_mapping', 'collapse']), FALSE)) {
@@ -289,6 +295,12 @@ class SolrImporter extends SpreadsheetImporter {
     $cmodels_source_children = $cmodels_children ? array_combine(array_keys($cmodels_children),
       array_keys($cmodels_children)) : [];
 
+
+    $datastreams_source = $datastreams ? array_combine(array_keys($datastreams),
+      array_keys($datastreams)) : [];
+    unset($datastreams_source['OBJ']);
+
+
     $cmodel_values = $form_state->getValue(array_merge($parents,
       ['solarium_mapping', 'cmodel_mapping'], []));
     $cmodel_values_children = $form_state->getValue(array_merge($parents,
@@ -296,6 +308,10 @@ class SolrImporter extends SpreadsheetImporter {
     /* Doing this for Alliomeria, so mapping is passed from children/tops/back */
     $cmodel_values_combined = $cmodel_values + $cmodel_values_children;
 
+    $datastreams_values_combined =  $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'datastreams_mapping'], []));
+    $datastreams_how =  $form_state->getValue(array_merge($parents,
+      ['solarium_mapping', 'datastreams_how'], []));
 
 
     $form['solarium_mapping'] = [
@@ -308,7 +324,7 @@ class SolrImporter extends SpreadsheetImporter {
       'collapse' => [
         '#type' => 'checkbox',
         '#title' => $this->t('Collapse Multi Children Objects'),
-        '#description' => $this->t('This will collapse Children Datastreams into a single ADO with many attached files. Book Pages will be fetched but also the Top Level PDF.'),
+        '#description' => $this->t('This will collapse Children Datastreams into a single ADO with many attached files. e.g Book Pages will be fetched but also the Top Level PDF if present.'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_mapping', 'collapse'])),
       ],
@@ -320,6 +336,35 @@ class SolrImporter extends SpreadsheetImporter {
         '#maxlength' => 1024,
         '#default_value' => $default_parent,
         '#selection_handler' => 'default:nodewithstrawberry',
+      ],
+      'datastreams_mapping' => [
+        '#access' => !empty($cmodels),
+        '#type' => 'checkboxes',
+        '#title' => $this->t('Additional Datastreams to fetch'),
+        '#required' => FALSE,
+        '#description_display' => 'before',
+        '#description' => $this->t('Additional Datastreams to fetch. <em>OBJ</em> datastream will always be fetched. Not all datastreams listed here might be present once your data is fetched.'),
+        '#default_value' => $datastreams_values_combined,
+        '#options' => $datastreams_source,
+      ],
+      'datastreams_how' => [
+        '#access' => !empty($cmodels),
+        '#type' => 'select',
+        '#title' => $this->t('Where extra datastreams should go'),
+        '#required' => FALSE,
+        '#description_display' => 'before',
+        '#description' => $this->t('Datastreams to fetch. <em>OBJ</em> datastream will always be fetched. Not all datastreams listed here might be present once your data is fetched.'),
+        '#default_value' => 'standard',
+        '#default_value' => $datastreams_how,
+        '#options' => [
+          'standard' => $this->t('organize by mime type. e.g TRANSCRIPT will go into the "texts" column'),
+          'islandora' => $this->t('Each in a separate column based on the datastream name, TRANSCRIPT will go into the "transcripts" column')
+          ],
+        '#states' => [
+          'visible' => [
+            ':input[name^="pluginconfig[solarium_mapping][datastreams_mapping]"]' => [['checked' => TRUE]],
+          ]
+        ],
       ],
       'cmodel_mapping' => [
         '#access' => !empty($cmodels),
@@ -336,6 +381,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#source__title' => $this->t('CMODELs found'),
         '#destination__title' => $this->t('ADO Types'),
         '#destination' => $types,
+        '#destination__type' => 'webform_select_other',
       ],
       'cmodel_children' => [
         '#type' => 'webform_mapping',
@@ -349,6 +395,7 @@ class SolrImporter extends SpreadsheetImporter {
         '#source__title' => $this->t('Other CMODELs'),
         '#destination__title' => $this->t('ADO Types'),
         '#destination' => $types,
+        '#destination__type' => 'webform_select_other',
         '#states' => [
           'visible' => [
             ':input[name="pluginconfig[solarium_mapping][collapse]"]' => ['checked' => FALSE],
@@ -431,6 +478,19 @@ class SolrImporter extends SpreadsheetImporter {
    * {@inheritdoc}
    */
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
+    $filename_columns = [];
+    $datastreams_how = $config['solarium_mapping']['datastreams_how'] ?? 'standard';
+    $datastreams_additional = $config['solarium_mapping']['datastreams_mapping'] ?? [];
+    $datastreams_additional = array_filter($datastreams_additional);
+    if ($datastreams_how !== 'standard' && !empty($datastreams_additional)) {
+      foreach ($datastreams_additional as $datastreams_additional) {
+        $filename_columns[] = strtolower($datastreams_additional).'s';
+      }
+    }
+    $filename_columns = array_unique(array_merge(static::FILE_COLUMNS,$filename_columns));
+
+
+
     $solr_config = [
       'endpoint' => [
         'amiremote' => [
@@ -543,9 +603,16 @@ class SolrImporter extends SpreadsheetImporter {
             $cmodel_children[$value] = $value;
           }
         }
-        // Set extracted CMODELS in a temp value
+
+        $facet2 = $resultset->getFacetSet()->getFacet('dsid');
+        foreach ($facet2 as $value => $count) {
+          $datastreams[$value] = $value;
+        }
+
+        // Set extracted Facets in a temp value
         $form_state->set('facet_cmodel', $cmodel);
         $form_state->set('facet_cmodel_children', $cmodel_children);
+        $form_state->set('facet_datastreams', $datastreams);
         // Unset the passed ones so we do not carry those over
 
         $resultset_iterator = $resultset->getIterator();
@@ -599,7 +666,7 @@ class SolrImporter extends SpreadsheetImporter {
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
-          foreach (static::FILE_COLUMNS as $column) {
+          foreach ($filename_columns as $column) {
             $sp_data[$resultset_iterator->key()][$column] = '';
           }
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
@@ -610,7 +677,7 @@ class SolrImporter extends SpreadsheetImporter {
       }
       // $headers = $allheaders_array;
       // Also add these base ones to the headers
-      foreach (static::FILE_COLUMNS as $column) {
+      foreach ($filename_columns as $column) {
         $headers[$column] = $column;
       }
 
@@ -697,6 +764,16 @@ class SolrImporter extends SpreadsheetImporter {
    * {@inheritdoc}
    */
   public function getData(array $config, $page = 0, $per_page = 20): array {
+
+    $filename_columns = [];
+    $datastreams_how = $config['solarium_mapping']['datastreams_how'] ?? 'standard';
+    $datastreams_additional = $config['solarium_mapping']['datastreams_mapping'] ?? [];
+    if ($datastreams_how !== 'standard' && !empty($datastreams_additional)) {
+      foreach ($datastreams_additional as $datastreams_additional) {
+        $filename_columns[strtolower($datastreams_additional).'s'] = '';
+      }
+    }
+    $filename_columns = static::FILE_COLUMNS + $filename_columns;
     // IN this case $page really means $offset.
     $solr_config = [
       'endpoint' => [
@@ -810,7 +887,7 @@ class SolrImporter extends SpreadsheetImporter {
         return $tabdata;
       }
       $table = [];
-      foreach (static::FILE_COLUMNS as $column) {
+      foreach ($filename_columns as $column) {
         $headers[$column] = $headersWithData[$column] = $column;
       }
       // Ensure the basic fields for this data
@@ -839,7 +916,7 @@ class SolrImporter extends SpreadsheetImporter {
             $sp_data[$resultset_iterator->key()][$fieldname] = $value;
           }
           // Let's add generic all columns needed for files.
-          foreach (static::FILE_COLUMNS as $column) {
+          foreach ($filename_columns as $column) {
             $sp_data[$resultset_iterator->key()][$column] = '';
           }
           if ($parent_ado) {
@@ -847,10 +924,13 @@ class SolrImporter extends SpreadsheetImporter {
           }
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
 
-          $datastream = $this->buildDatastreamURL($config, $document);
-          if (count($datastream)) {
-            $first_datastream = reset($datastream);
-            $sp_data[$resultset_iterator->key()][key($datastream)] = $first_datastream;
+          $datastreams = $this->buildDatastreamURL($config, $document);
+          if (is_array($datastreams) && count($datastreams)) {
+            foreach ($datastreams as $datastream_key => $datastream_urls) {
+              $sp_data[$resultset_iterator->key()][$datastream_key] = implode(
+                ";", $datastream_urls
+              );
+            }
           }
           // Fetch Children
           if (in_array($sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri'], static::MULTICHILDREN_CMODELS)) {
@@ -913,7 +993,7 @@ class SolrImporter extends SpreadsheetImporter {
                   // Take the Children Datastreams and add them to the parent's respective Columns
                   // Easiest route is to iterate over all columns and join then with current column using a ';'
                   foreach ($headers as $field) {
-                    if (in_array($field, static::FILE_COLUMNS)) {
+                    if (in_array($field, $filename_columns)) {
                       // For each File source Column, take all datastreams in children
                       // And glue them to the existing ones via an ';'
                       if (!empty($children_data[$childrenindex][$field])) {
@@ -973,6 +1053,22 @@ class SolrImporter extends SpreadsheetImporter {
    * @return array
    */
   protected function getDataChildren(array $config, SolariumClient $client, string $input):array {
+
+
+    // FILENAME COLUMNS
+    // if $config['solarium_mapping']['datastreams_how'] is not 'standard'
+    // we need to add the ones selected
+    $filename_columns = [];
+    $datastreams_how = $config['solarium_mapping']['datastreams_how'] ?? 'standard';
+    $datastreams_additional = $config['solarium_mapping']['datastreams_mapping'] ?? [];
+    $datastreams_additional = array_filter($datastreams_additional);
+    if ($datastreams_how !== 'standard' && !empty($datastreams_additional)) {
+      foreach ($datastreams_additional as $datastreams_additional) {
+        $filename_columns[] = strtolower($datastreams_additional).'s';
+      }
+    }
+    $filename_columns = array_unique(array_merge(static::FILE_COLUMNS,$filename_columns));
+
     $sp_data = [];
     $query = $client->createSelect();
     $helper = $query->getHelper();
@@ -1033,18 +1129,33 @@ class SolrImporter extends SpreadsheetImporter {
         }
         // Let's add generic all columns needed for files.
         // Let's add generic all columns needed for files.
-        foreach (static::FILE_COLUMNS as $column) {
+        foreach ($filename_columns as $column) {
           $sp_data[$resultset_iterator->key()][$column] = '';
         }
+        // if $config['solarium_mapping']['datastreams_how'] is not 'standard'
+        // we need to add the ones selected
+        $datastreams_how = $config['solarium_mapping']['datastreams_how'] ?? 'standard';
+        $datastreams_additional = $config['solarium_mapping']['datastreams_mapping'] ?? [];
+        if ($datastreams_how !== 'standard' && !empty($datastreams_additional)) {
+            foreach ($datastreams_additional as $datastreams_additional) {
+              $sp_data[$resultset_iterator->key()][strtolower($datastreams_additional).'s'] = '';
+            }
+        }
+
+
+
         // Try with both main mapping and children mapping
         $type = $config['solarium_mapping']['cmodel_children'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? NULL;
         $type2 = $type ?? ($config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? NULL);
         $sp_data[$resultset_iterator->key()]['type'] = $type2 ?? 'Thing';
         // Get me the datastream
-        $datastream = $this->buildDatastreamURL($config, $document);
-        if (count($datastream)) {
-          $first_datastream = reset($datastream);
-          $sp_data[$resultset_iterator->key()][key($datastream)] = $first_datastream;
+        $datastreams = $this->buildDatastreamURL($config, $document);
+        if (is_array($datastreams) && count($datastreams)) {
+          foreach ($datastreams as $datastream_key => $datastream_urls) {
+            $sp_data[$resultset_iterator->key()][$datastream_key] = implode(
+              ";", $datastream_urls
+            );
+          }
         }
       } catch (\Exception $exception) {
         // @TODO log the error here.
@@ -1061,26 +1172,77 @@ class SolrImporter extends SpreadsheetImporter {
    * @return array|string[]
    */
   protected function buildDatastreamURL(array $config, \Solarium\QueryType\Select\Result\Document $document):array {
+    $datastreams = [];
+    $additional_datastreams = $config['solarium_mapping']['datastreams_mapping'] ?? [];
+    $additional_datastreams = array_filter($additional_datastreams);
+    $how = $config['solarium_mapping']['datastreams_how'] ?? 'standard';
+
+    // First OBJ
+    $pdf_fetched = FALSE;
     if (!empty($document->fedora_datastream_latest_OBJ_MIMETYPE_ms)) {
       // Calculate the destination json key
       $dsid = 'OBJ';
       $mime = $document->fedora_datastream_latest_OBJ_MIMETYPE_ms[0];
+      $as_file_type = explode('/', $mime);
+      $as_file_type = count($as_file_type) == 2 ? $as_file_type[0] : 'document';
+      $as_file_type = ($as_file_type != 'application') ? $as_file_type
+        : 'document';
+      $url = rtrim($config['solarium_mapping']['server_domain'], '/')
+        . '/islandora/object/' . urlencode($document->PID)
+        . "/datastream/{$dsid}/download";
+      // We add an 's' at the end to match our typical file bearing CSV header naming.
+      $datastreams[$as_file_type . 's'][] = $url;
     }
     elseif (!empty($document->fedora_datastream_latest_PDF_MIMETYPE_ms)) {
+      $pdf_fetched = TRUE;
       $dsid = 'PDF';
       $mime = $document->fedora_datastream_latest_PDF_MIMETYPE_ms[0];
+      $as_file_type = 'document';
+      $url = rtrim($config['solarium_mapping']['server_domain'], '/')
+        . '/islandora/object/' . urlencode($document->PID)
+        . "/datastream/{$dsid}/download";
+      // We add an 's' at the end to match our typical file bearing CSV header naming.
+      $datastreams[$as_file_type . 's'][] = $url;
     }
-    else {
-      return [];
+
+    if ($pdf_fetched) {
+      // If we already fetched the PDF no need to get it again if added as part of
+      // the extras.
+      unset($additional_datastreams['PDF']);
     }
-    $as_file_type = explode('/', $mime);
-    $as_file_type = count($as_file_type) == 2 ? $as_file_type[0] : 'document';
-    $as_file_type = ($as_file_type != 'application') ? $as_file_type : 'document';
-    $url = rtrim($config['solarium_mapping']['server_domain'], '/') . '/islandora/object/' . urlencode($document->PID) . "/datastream/{$dsid}/download";
-    // We add an 's' at the end to match our typical file bearing CSV header naming.
-    return [
-      $as_file_type . 's' => $url
-    ];
+
+    foreach ($additional_datastreams as $additional_datastream) {
+      $property = "fedora_datastream_latest_{$additional_datastream}_MIMETYPE_ms";
+      if (!empty($document->{$property} && is_array($document->{$property}))) {
+        // Calculate the destination json key
+        $dsid = $additional_datastream;
+        // Allow here things to go into application, e.g XMLs.
+        $url = rtrim($config['solarium_mapping']['server_domain'], '/')
+          . '/islandora/object/' . urlencode($document->PID)
+          . "/datastream/{$dsid}/download";
+        if ($how == 'standard') {
+          $mime = $document->{$property}[0];
+          if ($mime == 'application/pdf' ) {
+            $as_file_type = 'document';
+          }
+          elseif ($mime == 'text/xml') {
+            $as_file_type = 'application';
+          }
+          else {
+            $as_file_type = explode('/', $mime);
+            $as_file_type = count($as_file_type) == 2 ? $as_file_type[0]
+              : 'document';
+          }
+
+          // We add an 's' at the end to match our typical file bearing CSV header naming.
+          $datastreams[$as_file_type . 's'][] = $url;
+        }
+        else {
+          $datastreams[strtolower($additional_datastream) . 's'][] = $url;
+        }
+      }
+    }
+    return $datastreams;
   }
 
   /**
@@ -1291,9 +1453,19 @@ class SolrImporter extends SpreadsheetImporter {
     $data['headers'] = array_values($allheaders);
     $data['total_rows'] = $results['processed']['total_rows'] ?? 0;
     // Clean the CSV removing empty headers!
-    $file = \Drupal::service('entity.repository')->loadEntityByUuid('file', $results['processed']['fileuuid']);
-    if ($file) {
-      \Drupal::service('ami.utility')->csv_clean($file, $results['processed']['headerswithdata']);
+    $file_uuid = $results['processed']['fileuuid'] ?? NULL;
+    if ($file_uuid) {
+      $file = \Drupal::service('entity.repository')->loadEntityByUuid(
+        'file', $file_uuid
+      );
+      if ($file) {
+        \Drupal::service('ami.utility')->csv_clean(
+          $file, $results['processed']['headerswithdata']
+        );
+      }
+    }
+    else {
+      $data['results']['errors'][] = t('Error. We could not save your remote data to CSV!');
     }
     \Drupal::service('tempstore.private')->get('ami_multistep_data')->set('batch_finished', $data);
   }
@@ -1313,8 +1485,19 @@ class SolrImporter extends SpreadsheetImporter {
   }
 
   public function provideKeys(array $config, array $data): array {
+
     if (count($data) > 0) {
-      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleinfo_title'], static::FILE_COLUMNS);
+      $filename_columns = [];
+      $datastreams_how = $config['solarium_mapping']['datastreams_how'] ?? 'standard';
+      $datastreams_additional = $config['solarium_mapping']['datastreams_mapping'] ?? [];
+      $datastreams_additional = array_filter($datastreams_additional);
+      if ($datastreams_how !== 'standard' && !empty($datastreams_additional)) {
+        foreach ($datastreams_additional as $datastreams_additional) {
+          $filename_columns[] = strtolower($datastreams_additional).'s';
+        }
+      }
+      $filename_columns = array_unique(array_merge(static::FILE_COLUMNS,$filename_columns));
+      $columns = array_merge(['type','node_uuid','ismemberof','ispartof','fgs_label','mods_titleinfo_title'], $filename_columns);
       return $columns;
     }
     return [];
