@@ -34,6 +34,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
    * @var
    */
   private CONST LOG_LEVELS = [
+    'all'       => 'All Levels',
     'INFO'      => 'INFO',
     'WARNING'   => 'WARN',
     'ERROR'   => 'ERROR',
@@ -136,16 +137,19 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     // This removes from the request those urls so we can
     // return the updated pager VIA AJAX
     // But still retain the added filter
-    foreach ([
-      AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
+
+
+
+    /*foreach ([
+      //AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
       FormBuilderInterface::AJAX_FORM_REQUEST,
       MainContentViewSubscriber::WRAPPER_FORMAT,
     ] as $key) {
-      if ($this->getRequest()) {
+      if (!$this->getRequest()) {
         $this->getRequest()->query->remove($key);
         $this->getRequest()->request->remove($key);
       }
-    }
+    }*/
 
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
@@ -160,6 +164,9 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $file = new \SplFileObject($logfilename, 'r');
       $file->seek(PHP_INT_MAX);
       $total_lines = $file->key(); // last line number
+      $level = $this->getRequest()->query->get('level', 'all');
+      $level = $form_state->getValue(['logs','level']) ?? $level;
+      $level =  in_array($level,array_keys(static::LOG_LEVELS)) ? $level : 'all';
       $pager = \Drupal::service('pager.manager')->createPager(
         $total_lines, $num_per_page
       );
@@ -169,7 +176,6 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $page = $page + 1;
       $offset = $total_lines - ($num_per_page * $page);
       $num_per_page = $offset < 0 ? $num_per_page + $offset : $num_per_page;
-
       $offset = $offset < 0 ? 0 : $offset;
       $reader = new LimitIterator($file, $offset, $num_per_page);
       $rows = [];
@@ -198,12 +204,12 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           'Info'
         ),
         '#markup' => $this->t(
-          'Your last Process logs'
+          'Your last logs'
         ),
         'level'   => [
           '#type'          => 'select',
           '#options'       => static::LOG_LEVELS,
-          '#default_value' => $form_state->getValue(['logs', 'level']),
+          '#default_value' => $level ,
           '#title' => $this->t('Filter by'),
           '#submit' => ['::submitForm'],
           '#ajax' => [
@@ -235,11 +241,11 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
 
       // @NOTE no docs for the #parameter argument! Good i can read docs,
       // @see https://www.drupal.org/project/drupal/issues/2504709#comment-13795142
-      $form['pager'] = [
+      $form['logs']['pager'] = [
         '#type' => 'pager',
         '#prefix' => '<div id="edit-log-pager">',
         '#suffix' => '</div>',
-        '#parameters' => ['level' => $form_state->getValue(['logs','level'],'all')]
+        '#parameters' => ['level' => $level]
       ];
     }
     else {
@@ -263,16 +269,17 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
   }
 
   public function myAjaxCallback(array &$form, FormStateInterface $form_state) {
-    $response = new AjaxResponse();
-    $response->addCommand(
-      new ReplaceCommand("#edit-log-pager", $form['pager'])
-    );
-    $response->addCommand(
-      new ReplaceCommand("#edit-log", $form['logs'])
-    );
-    $form_state->set('ajax', FALSE);
-    $response->addCommand(new InvokeCommand('.page_link', 'addClass', ['use-ajax']));
-    return $response;
+    foreach ([
+      AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
+      FormBuilderInterface::AJAX_FORM_REQUEST,
+      MainContentViewSubscriber::WRAPPER_FORMAT,
+    ] as $key) {
+      if ($this->getRequest()) {
+        $this->getRequest()->query->remove($key);
+        $this->getRequest()->request->remove($key);
+      }
+    }
+    return $form['logs'];
   }
 
   /**
