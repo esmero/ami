@@ -5,6 +5,10 @@ namespace Drupal\ami\Form;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\Component\Datetime\TimeInterface;
+use Drupal\Core\Ajax\AjaxResponse;
+use Drupal\Core\Ajax\InvokeCommand;
+use Drupal\Core\Ajax\RemoveCommand;
+use Drupal\Core\Ajax\ReplaceCommand;
 use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\ContentEntityForm;
 use Drupal\Core\Entity\EntityRepositoryInterface;
@@ -12,15 +16,29 @@ use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
+use Monolog\Logger;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use LimitIterator;
+use Drupal\Core\Form\FormBuilderInterface;
+use Drupal\Core\EventSubscriber\AjaxResponseSubscriber;
+use Drupal\Core\EventSubscriber\MainContentViewSubscriber;
 
 /**
  * Form controller for the MetadataDisplayEntity entity delete form.
  *
  * @ingroup ami
  */
-class amiSetEntityReportForm extends ContentEntityForm {
+class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
+
+  /**
+   * @var
+   */
+  private CONST LOG_LEVELS = [
+    'INFO'      => 'INFO',
+    'WARNING'   => 'WARN',
+    'ERROR'   => 'ERROR',
+  ];
+
 
   /**
    * @var \Drupal\ami\AmiUtilityService
@@ -70,13 +88,14 @@ class amiSetEntityReportForm extends ContentEntityForm {
   }
 
   public function getConfirmText() {
-    return $this->t('Save Current LoD Page');
+    return $this->t('Download');
   }
 
 
   public function getQuestion() {
+    // Not really a question but a statement! :)
     return $this->t(
-      'Are you sure you want to Save Modified Reconcile Lod for %name?',
+      'Processing logs for %name',
       ['%name' => $this->entity->label()]
     );
   }
@@ -111,6 +130,23 @@ class amiSetEntityReportForm extends ContentEntityForm {
     // type selected. Based on that we can set Moderation Options here
 
     $data = new \stdClass();
+    // HACK!
+    // Drupal is stupid. It adds arguments that aren't supposed to
+    // Go into the pager, ending with broken URLs
+    // This removes from the request those urls so we can
+    // return the updated pager VIA AJAX
+    // But still retain the added filter
+    foreach ([
+      AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
+      FormBuilderInterface::AJAX_FORM_REQUEST,
+      MainContentViewSubscriber::WRAPPER_FORMAT,
+    ] as $key) {
+      if ($this->getRequest()) {
+        $this->getRequest()->query->remove($key);
+        $this->getRequest()->request->remove($key);
+      }
+    }
+
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
@@ -124,8 +160,12 @@ class amiSetEntityReportForm extends ContentEntityForm {
       $file = new \SplFileObject($logfilename, 'r');
       $file->seek(PHP_INT_MAX);
       $total_lines = $file->key(); // last line number
-      $pager = \Drupal::service('pager.manager')->createPager($total_lines, $num_per_page);
+      $pager = \Drupal::service('pager.manager')->createPager(
+        $total_lines, $num_per_page
+      );
+      /* @var $pager \Drupal\Core\Pager\Pager */
       $page = $pager->getCurrentPage();
+
       $page = $page + 1;
       $offset = $total_lines - ($num_per_page * $page);
       $num_per_page = $offset < 0 ? $num_per_page + $offset : $num_per_page;
@@ -140,40 +180,70 @@ class amiSetEntityReportForm extends ContentEntityForm {
           $row['datetime'] = $currentLineExpanded['datetime'];
           $row['level'] = $currentLineExpanded['level_name'];
           $row['message'] = $this->t($currentLineExpanded['message'], []);
-          $row['details']  = json_encode($currentLineExpanded['context']);
+          $row['details'] = json_encode($currentLineExpanded['context']);
         }
         else {
-          $row = ['Wrong Format for this entry','','', $line];
+          $row = ['Wrong Format for this entry', '', '', $line];
         }
         array_unshift($rows, $row);
       }
-      $file = null;
+      $file = NULL;
 
       $form['logs'] = [
         '#tree'   => TRUE,
         '#type'   => 'fieldset',
+        '#prefix' => '<div id="edit-log">',
+        '#suffix' => '</div>',
         '#title'  => $this->t(
           'Info'
         ),
         '#markup' => $this->t(
           'Your last Process logs'
         ),
-        'logs' => [
-          '#type' => 'table',
+        'level'   => [
+          '#type'          => 'select',
+          '#options'       => static::LOG_LEVELS,
+          '#default_value' => $form_state->getValue(['logs', 'level']),
+          '#title' => $this->t('Filter by'),
+          '#submit' => ['::submitForm'],
+          '#ajax' => [
+            'callback' => '::myAjaxCallback', // don't forget :: when calling a class method.
+            //'callback' => [$this, 'myAjaxCallback'], //alternative notation
+            'disable-refocus' => FALSE, // Or TRUE to prevent re-focusing on the triggering element.
+            'event' => 'change',
+            'wrapper' => 'edit-log', // This element is updated with this AJAX callback.
+            'progress' => [
+              'type' => 'throbber',
+              'message' => $this->t('Filtering Logs...'),
+            ],
+          ],
+          //'#limit_validation_errors' => [],
+        ],
+        'logs'    => [
+          '#type'   => 'table',
           '#header' => [
             $this->t('datetime'),
             $this->t('level'),
             $this->t('message'),
             $this->t('details'),
           ],
-          '#rows' => $rows,
+          '#rows'   => $rows,
           '#sticky' => TRUE,
         ]
       ];
-      $form['logs']['pager'] = ['#type' => 'pager'];
+
+
+      // @NOTE no docs for the #parameter argument! Good i can read docs,
+      // @see https://www.drupal.org/project/drupal/issues/2504709#comment-13795142
+      $form['pager'] = [
+        '#type' => 'pager',
+        '#prefix' => '<div id="edit-log-pager">',
+        '#suffix' => '</div>',
+        '#parameters' => ['level' => $form_state->getValue(['logs','level'],'all')]
+      ];
     }
     else {
-      $form['status'] = [
+      $form['logs'] = [
         '#tree'   => TRUE,
         '#type'   => 'fieldset',
         '#title'  => $this->t(
@@ -184,7 +254,33 @@ class amiSetEntityReportForm extends ContentEntityForm {
         ),
       ];
     }
-    return $form;
+    // Add a submit button that handles the submission of the form.
+    $form['actions']['submit'] = array(
+      '#type' => 'submit',
+      '#value' => $this->t('Submit'),
+    );
+    return $form + parent::buildForm($form, $form_state);
   }
+
+  public function myAjaxCallback(array &$form, FormStateInterface $form_state) {
+    $response = new AjaxResponse();
+    $response->addCommand(
+      new ReplaceCommand("#edit-log-pager", $form['pager'])
+    );
+    $response->addCommand(
+      new ReplaceCommand("#edit-log", $form['logs'])
+    );
+    $form_state->set('ajax', FALSE);
+    $response->addCommand(new InvokeCommand('.page_link', 'addClass', ['use-ajax']));
+    return $response;
+  }
+
+  /**
+   * {@inheritdoc}
+   */
+  public function submitForm(array &$form, FormStateInterface $form_state) {
+    $form_state->setRebuild(TRUE);
+  }
+
 }
 
