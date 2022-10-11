@@ -184,7 +184,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // This will add the File logger not replace the DB
     // IF we want to only use the file logger we should use setLogger([$log]);
     $this->loggerFactory->get('ami')->addLogger($log);
-   
+
     /* Data info for an ADO has this structure
       $data->info = [
         'row' => The actual data
@@ -961,6 +961,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       if (!$file) {
         $data->info['force_file_process'] = TRUE;
         // OK still there and alive. If not we have to force reprocessing!
+      }
+      elseif (file_exists($file->getFileUri()) == FALSE) {
+        $data->info['force_file_process'] = TRUE;
       }
     }
     else {

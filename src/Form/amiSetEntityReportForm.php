@@ -13,6 +13,7 @@ use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use LimitIterator;
 
 /**
  * Form controller for the MetadataDisplayEntity entity delete form.
@@ -114,49 +115,41 @@ class amiSetEntityReportForm extends ContentEntityForm {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
     }
+    $num_per_page = 50;
     $logfilename = "private://ami/logs/set{$this->entity->id()}.log";
     $logfilename = $this->fileSystem->realpath($logfilename);
     $last_op = NULL;
     if ($logfilename !== FALSE && file_exists($logfilename)) {
-      $fp = fopen($this->fileSystem->realpath($logfilename), 'r');
-      $pos = -2; // Skip final new line character (Set to -1 if not present)
+      // How many lines?
+      $file = new \SplFileObject($logfilename, 'r');
+      $file->seek(PHP_INT_MAX);
+      $total_lines = $file->key(); // last line number
+      $pager = \Drupal::service('pager.manager')->createPager($total_lines, $num_per_page);
+      $page = $pager->getCurrentPage();
+      $page = $page + 1;
+      $offset = $total_lines - ($num_per_page * $page);
+      $num_per_page = $offset < 0 ? $num_per_page + $offset : $num_per_page;
+
+      $offset = $offset < 0 ? 0 : $offset;
+      $reader = new LimitIterator($file, $offset, $num_per_page);
       $rows = [];
-      $currentLine = '';
-      $line_count = 0;
-      while (-1 !== fseek($fp, $pos, SEEK_END)) {
-        $char = fgetc($fp);
-        if (PHP_EOL == $char) {
-          $line_count++;
-          $currentLineExpanded = json_decode($currentLine, TRUE);
-          if (json_last_error() == JSON_ERROR_NONE) {
-            $row = [];
-            $row['datetime'] = $currentLineExpanded['datetime'];
-            $row['level'] = $currentLineExpanded['level_name'];
-            $row['message'] = $this->t($currentLineExpanded['message'], []);
-            $row['details']  = json_encode($currentLineExpanded['context']);
-            $rows[] = $row;
-          }
-          $currentLine = '';
+      foreach ($reader as $line) {
+        $currentLineExpanded = json_decode($line, TRUE);
+        if (json_last_error() == JSON_ERROR_NONE) {
+          $row = [];
+          $row['datetime'] = $currentLineExpanded['datetime'];
+          $row['level'] = $currentLineExpanded['level_name'];
+          $row['message'] = $this->t($currentLineExpanded['message'], []);
+          $row['details']  = json_encode($currentLineExpanded['context']);
         }
         else {
-          $currentLine = $char . $currentLine;
+          $row = ['Wrong Format for this entry','','', $line];
         }
-        $pos--;
-        if ($line_count == 50) {
-          break;
-        }
+        array_unshift($rows, $row);
       }
+      $file = null;
 
-     $currentLineExpanded = json_decode($currentLine, TRUE);
-      if (json_last_error() == JSON_ERROR_NONE) {
-        $row = [];
-        $row['datetime'] = $currentLineExpanded['datetime'];
-        $row['level'] = $currentLineExpanded['level_name'];
-        $row['message'] = $this->t($currentLineExpanded['message'], []);
-        $row['details']  = json_encode($currentLineExpanded['context']);
-        $rows[] = $row;
-      }
-      $form['status'] = [
+      $form['logs'] = [
         '#tree'   => TRUE,
         '#type'   => 'fieldset',
         '#title'  => $this->t(
@@ -177,6 +170,7 @@ class amiSetEntityReportForm extends ContentEntityForm {
           '#sticky' => TRUE,
         ]
       ];
+      $form['logs']['pager'] = ['#type' => 'pager'];
     }
     else {
       $form['status'] = [
@@ -186,191 +180,11 @@ class amiSetEntityReportForm extends ContentEntityForm {
           'Info'
         ),
         '#markup' => $this->t(
-          'Sorry. No Logs have been generated yet.'
+          'No Logs Found'
         ),
       ];
     }
     return $form;
-
-
-
-
-    $csv_file_processed = $this->entity->get('processed_data')->getValue();
-    if (isset($csv_file_processed[0]['target_id'])) {
-      /** @var \Drupal\file\Entity\File $file_lod */
-      $file_lod = $this->entityTypeManager->getStorage('file')->load(
-        $csv_file_processed[0]['target_id']);
-
-      if ($data !== new \stdClass()) {
-        // Only Show this form if we got data from the SBF field.
-        // we can't assume the user did not mess with the AMI set data?
-        $op = $data->pluginconfig->op ?? NULL;
-        $ops = [
-          'create',
-          'update',
-          'patch',
-        ];
-        if (!in_array($op, $ops)) {
-          $form['status'] = [
-            '#tree' => TRUE,
-            '#type' => 'fieldset',
-            '#title' => $this->t(
-              'Error'
-            ),
-            '#markup' => $this->t(
-              'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
-            ),
-          ];
-          return $form;
-        }
-        $form['lod_cleanup'] = [
-          '#tree' => TRUE,
-          '#type' => 'fieldset',
-          '#title' => $this->t('LoD reconciled Clean Up'),
-        ];
-
-        if ($file_lod) {
-          $num_per_page = 10;
-          $total_rows =  $this->AmiUtilityService->csv_count($file_lod, FALSE);
-          // Remove the header in the calculations.
-          $total_rows = $total_rows - 1;
-          $pager = \Drupal::service('pager.manager')->createPager($total_rows, $num_per_page);
-          $page = $pager->getCurrentPage();
-          $offset = $num_per_page * $page;
-          if (PHP_VERSION_ID > 80000) {
-            // @TODO fgetcsv has a bug when called after a seek, offsets on 1 always.
-            // We are trying to skip the header too (but get it)
-            //$offset  = $offset + 2;
-            // @TODO CHECK IF THIS WILL WORK ON PHP 8.x when we get there.
-          }
-          $file_data_all = $this->AmiUtilityService->csv_read($file_lod, $offset, $num_per_page, TRUE, FALSE);
-
-          $column_keys = $file_data_all['headers'] ?? [];
-          $form['lod_cleanup']['pager_top'] = ['#type' => 'pager'];
-          $form['lod_cleanup']['table-row'] = [
-            '#type' => 'table',
-            '#tree' => TRUE,
-            '#prefix' => '<div id="table-fieldset-wrapper">',
-            '#suffix' => '</div>',
-            '#header' => $column_keys,
-            '#empty' => $this->t('Sorry, There are LoD no items or you have not a header column. Check your CSV for errors.'),
-          ];
-          $elements = [];
-          $form['lod_cleanup']['offset'] = [
-            '#type' => 'value',
-            '#value' => $offset,
-          ];
-          $form['lod_cleanup']['num_per_page'] = [
-            '#type' => 'value',
-            '#value' => $num_per_page,
-          ];
-          $form['lod_cleanup']['column_keys'] = [
-            '#type' => 'value',
-            '#value' => $column_keys,
-          ];
-          $form['lod_cleanup']['total_rows'] = [
-            '#type' => 'value',
-            '#value' => $total_rows,
-          ];
-
-
-          foreach ($column_keys as $column) {
-            if ($column !== 'original' && $column != 'csv_columns' && $column !='checked') {
-              $argument_string = $this->AmiLoDService::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
-              if ($argument_string) {
-                $arguments = explode(';', $argument_string);
-                $elements[$column] = [
-                  '#type' => 'webform_metadata_' . $arguments[0],
-                  '#title' => implode(' ', $arguments),
-                ];
-
-                if ($arguments[1] == 'rdftype') {
-                  $elements[$column]['#rdftype'] = $arguments[2] ?? '';
-                  $elements[$column]['#vocab'] = 'rdftype';
-                }
-                else {
-                  $elements[$column]['#vocab'] = $arguments[1] ?? '';
-                }
-
-              }
-              else {
-                // Fallback to WIKIDATA
-                $elements[$column] = ['#type' => 'webform_metadata_wikidata'];
-              }
-            }
-          }
-          $original_index = array_search('original', $column_keys);
-          foreach ($file_data_all['data'] as $index => $row) {
-            // Find the label first
-            $label = $row[$original_index];
-            $persisted_lod_reconciliation = $this->AmiLoDService->getKeyValuePerAmiSet($label, $this->entity->id());
-            foreach($file_data_all['headers'] as $key => $header) {
-              if ($header == 'original' || $header == 'csv_columns') {
-                $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
-                  '#type' => 'markup',
-                  '#markup' => $row[$key],
-                  $header.'-'.($index-1) => [
-                    '#tree' => true,
-                    '#type' => 'hidden',
-                    '#value' => $row[$key],
-                  ]
-                ];
-              }
-              elseif ($header == 'checked') {
-                $checked = $persisted_lod_reconciliation[$header] ?? $row[$key];
-                $checked = (bool) $checked;
-                $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
-                  '#type' => 'checkbox',
-                  '#default_value' => $checked,
-                  '#title' => $this->t('revisioned'),
-                ];
-              }
-              else {
-                // Given the incremental save option we have now
-                // We need to load check first if there is
-                // A Key Value equivalent of the row
-
-                $form['lod_cleanup']['table-row'][($index - 1)][$header.'-'.($index-1)] = [
-                    '#multiple' => 5,
-                    '#multiple__header' => FALSE,
-                    '#multiple__no_items_message' => '',
-                    '#multiple__min_items' => 1,
-                    '#multiple__empty_items' => 0,
-                    '#multiple__sorting' => FALSE,
-                    '#multiple__add_more' => FALSE,
-                    '#multiple__add_more_input' => FALSE,
-                    '#label__title' => 'Label',
-                    '#default_value' => $persisted_lod_reconciliation[$header]['lod'] ?? json_decode($row[$key], TRUE),
-                  ] +  $elements[$header];
-              }
-            }
-          }
-          \Drupal::service('plugin.manager.webform.element')->processElements($form);
-          // Attach the webform library.
-          $form['#attached']['library'][] = 'webform/webform.form';
-          $form['lod_cleanup']['pager'] = ['#type' => 'pager'];
-        }
-      }
-      $form = $form + parent::buildForm($form, $form_state);
-      return $form;
-    }
-    else {
-      $form['status'] = [
-        '#tree' => TRUE,
-        '#type' => 'fieldset',
-        '#title' =>  $this->t(
-          'No Reconciled LoD Found.'
-        ),
-        '#markup' => $this->t(
-          'Start by visiting the <em>LoD Reconcile</em> tab and running a reconciliation. Once done you can come back here.'
-        ),
-      ];
-      return $form;
-    }
   }
-
-
-
-
 }
 
