@@ -164,9 +164,13 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $file = new \SplFileObject($logfilename, 'r');
       $file->seek(PHP_INT_MAX);
       $total_lines = $file->key(); // last line number
+
       $level = $this->getRequest()->query->get('level', 'all');
       $level = $form_state->getValue(['logs','level']) ?? $level;
       $level =  in_array($level,array_keys(static::LOG_LEVELS)) ? $level : 'all';
+
+
+
       $pager = \Drupal::service('pager.manager')->createPager(
         $total_lines, $num_per_page
       );
@@ -177,22 +181,34 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $offset = $total_lines - ($num_per_page * $page);
       $num_per_page = $offset < 0 ? $num_per_page + $offset : $num_per_page;
       $offset = $offset < 0 ? 0 : $offset;
+      $fetch = TRUE;
       $reader = new LimitIterator($file, $offset, $num_per_page);
       $rows = [];
       foreach ($reader as $line) {
         $currentLineExpanded = json_decode($line, TRUE);
+        $row = [];
+        $fetch = TRUE;
         if (json_last_error() == JSON_ERROR_NONE) {
-          $row = [];
-          $row['datetime'] = $currentLineExpanded['datetime'];
-          $row['level'] = $currentLineExpanded['level_name'];
-          $row['message'] = $this->t($currentLineExpanded['message'], []);
-          $row['details'] = json_encode($currentLineExpanded['context']);
+          if ($level !== 'all') {
+            if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] != $level) {
+              $fetch = FALSE;
+            }
+          }
+          if ($fetch) {
+            $row['datetime'] = $currentLineExpanded['datetime'];
+            $row['level'] = $currentLineExpanded['level_name'];
+            $row['message'] = $this->t($currentLineExpanded['message'], []);
+            $row['details'] = json_encode($currentLineExpanded['context']);
+            array_unshift($rows, $row);
+          }
         }
-        else {
+        elseif($level == 'all') {
+          // Only show wrongly formatter if no filter present.
           $row = ['Wrong Format for this entry', '', '', $line];
+          array_unshift($rows, $row);
         }
-        array_unshift($rows, $row);
       }
+
       $file = NULL;
 
       $form['logs'] = [
