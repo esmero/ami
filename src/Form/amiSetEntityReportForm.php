@@ -34,10 +34,10 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
    * @var
    */
   private CONST LOG_LEVELS = [
-    'all'       => 'All Levels',
-    'INFO'      => 'INFO',
-    'WARNING'   => 'WARN',
-    'ERROR'   => 'ERROR',
+    'all'       => 'All Levels (all time)',
+    'INFO'      => 'INFO (Last time processed)',
+    'WARNING'   => 'WARNING (Last time processed)',
+    'ERROR'   => 'ERRORS (Last time processed)',
   ];
 
 
@@ -164,15 +164,49 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $file = new \SplFileObject($logfilename, 'r');
       $file->seek(PHP_INT_MAX);
       $total_lines = $file->key(); // last line number
-
+      // Won't override $total_lines because i still need this for the offset
+      // Independently of the level selection.
+      $total_lines_for_pager = $total_lines;
       $level = $this->getRequest()->query->get('level', 'all');
       $level = $form_state->getValue(['logs','level']) ?? $level;
       $level =  in_array($level,array_keys(static::LOG_LEVELS)) ? $level : 'all';
-
+      $total_lines_current = 0;
+      $prev_time_stamp = NULL;
+      $endcurrent = FALSE;
+      if ($level !== 'all') {
+        $current_offset = $total_lines - $num_per_page;
+        // Means we will count only until current process records and filter
+        while ($current_offset > 0 && !$endcurrent) {
+          $reader = new LimitIterator($file, $current_offset, $num_per_page);
+          foreach ($reader as $line) {
+            $currentLineExpanded = json_decode($line, TRUE);
+            if (json_last_error() == JSON_ERROR_NONE) {
+              $current_time_stamp = isset($currentLineExpanded['context']['time_submitted']) ? $currentLineExpanded['context']['time_submitted'] : $prev_time_stamp;
+              if ($prev_time_stamp != NULL && $current_time_stamp != $prev_time_stamp) {
+                error_log($current_time_stamp);
+                $endcurrent = TRUE; // Double safety? I'm already bailing ...
+                break 2;
+              }
+              else {
+                if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] == $level) {
+                  $total_lines_current++;
+                }
+                error_log($prev_time_stamp);
+                error_log($current_time_stamp);
+                $prev_time_stamp = $current_time_stamp;
+              }
+            }
+          }
+          $current_offset = $current_offset - $num_per_page;
+          $current_offset = $current_offset > 0 ? $current_offset: 0;
+        }
+        $total_lines_for_pager = $total_lines_current;
+      }
+      error_log($total_lines_for_pager);
 
 
       $pager = \Drupal::service('pager.manager')->createPager(
-        $total_lines, $num_per_page
+        $total_lines_for_pager, $num_per_page
       );
       /* @var $pager \Drupal\Core\Pager\Pager */
       $page = $pager->getCurrentPage();
@@ -182,33 +216,44 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $num_per_page = $offset < 0 ? $num_per_page + $offset : $num_per_page;
       $offset = $offset < 0 ? 0 : $offset;
       $fetch = TRUE;
-      $reader = new LimitIterator($file, $offset, $num_per_page);
       $rows = [];
-      foreach ($reader as $line) {
-        $currentLineExpanded = json_decode($line, TRUE);
-        $row = [];
-        $fetch = TRUE;
-        if (json_last_error() == JSON_ERROR_NONE) {
-          if ($level !== 'all') {
-            if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] != $level) {
-              $fetch = FALSE;
+
+      while ($offset > 0 && count($rows) < $num_per_page) {
+        $reader = new LimitIterator($file, $offset, $num_per_page);
+        foreach ($reader as $line) {
+          $currentLineExpanded = json_decode($line, TRUE);
+          $row = [];
+          $fetch = TRUE;
+          if (json_last_error() == JSON_ERROR_NONE) {
+            if ($level !== 'all') {
+              if (isset($currentLineExpanded['level_name'])
+                && $currentLineExpanded['level_name'] != $level
+              ) {
+                $fetch = FALSE;
+              }
+            }
+            if ($fetch) {
+              $row['datetime'] = $currentLineExpanded['datetime'];
+              $row['level'] = $currentLineExpanded['level_name'];
+              $row['message'] = $this->t($currentLineExpanded['message'], []);
+              $row['details'] = json_encode($currentLineExpanded['context']);
+              array_unshift($rows, $row);
             }
           }
-          if ($fetch) {
-            $row['datetime'] = $currentLineExpanded['datetime'];
-            $row['level'] = $currentLineExpanded['level_name'];
-            $row['message'] = $this->t($currentLineExpanded['message'], []);
-            $row['details'] = json_encode($currentLineExpanded['context']);
+          elseif ($level == 'all') {
+            // Only show wrongly formatter if no filter present.
+            $row = ['Wrong Format for this entry', '', '', $line];
             array_unshift($rows, $row);
           }
+        if (count($rows) ==  $num_per_page) { break;}
         }
-        elseif($level == 'all') {
-          // Only show wrongly formatter if no filter present.
-          $row = ['Wrong Format for this entry', '', '', $line];
-          array_unshift($rows, $row);
-        }
+      // Now check if we have less than $num_per_page
+      // And $offset > 0;
+      if (count($rows) <  $num_per_page) {
+        $offset = $offset - $num_per_page;
+        $offset = $offset < 0 ? 0 : $offset;
+       }
       }
-
       $file = NULL;
 
       $form['logs'] = [
@@ -220,26 +265,27 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           'Info'
         ),
         '#markup' => $this->t(
-          'Your last logs'
+          'You have @count entries for your current Filter and last Processed time of this set was @date', [
+            '@count' => $total_lines_for_pager,
+            '@date' => !empty($prev_time_stamp) ? date('D, d M Y \a\t H:i:s', $prev_time_stamp) : " Unknown "
+      ]
         ),
         'level'   => [
           '#type'          => 'select',
           '#options'       => static::LOG_LEVELS,
           '#default_value' => $level ,
-          '#title' => $this->t('Filter by'),
+          '#title' => $this->t('Filter by log level:'),
           '#submit' => ['::submitForm'],
           '#ajax' => [
-            'callback' => '::myAjaxCallback', // don't forget :: when calling a class method.
-            //'callback' => [$this, 'myAjaxCallback'], //alternative notation
-            'disable-refocus' => FALSE, // Or TRUE to prevent re-focusing on the triggering element.
+            'callback' => '::myAjaxCallback',
+            'disable-refocus' => FALSE,
             'event' => 'change',
-            'wrapper' => 'edit-log', // This element is updated with this AJAX callback.
+            'wrapper' => 'edit-log',
             'progress' => [
               'type' => 'throbber',
               'message' => $this->t('Filtering Logs...'),
             ],
           ],
-          //'#limit_validation_errors' => [],
         ],
         'logs'    => [
           '#type'   => 'table',
