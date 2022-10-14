@@ -183,7 +183,6 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             if (json_last_error() == JSON_ERROR_NONE) {
               $current_time_stamp = isset($currentLineExpanded['context']['time_submitted']) ? $currentLineExpanded['context']['time_submitted'] : $prev_time_stamp;
               if ($prev_time_stamp != NULL && $current_time_stamp != $prev_time_stamp) {
-                error_log($current_time_stamp);
                 $endcurrent = TRUE; // Double safety? I'm already bailing ...
                 break 2;
               }
@@ -191,8 +190,6 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
                 if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] == $level) {
                   $total_lines_current++;
                 }
-                error_log($prev_time_stamp);
-                error_log($current_time_stamp);
                 $prev_time_stamp = $current_time_stamp;
               }
             }
@@ -245,14 +242,14 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             $row = ['Wrong Format for this entry', '', '', $line];
             array_unshift($rows, $row);
           }
-        if (count($rows) ==  $num_per_page) { break;}
+          if (count($rows) ==  $num_per_page) { break;}
         }
-      // Now check if we have less than $num_per_page
-      // And $offset > 0;
-      if (count($rows) <  $num_per_page) {
-        $offset = $offset - $num_per_page;
-        $offset = $offset < 0 ? 0 : $offset;
-       }
+        // Now check if we have less than $num_per_page
+        // And $offset > 0;
+        if (count($rows) <  $num_per_page) {
+          $offset = $offset - $num_per_page;
+          $offset = $offset < 0 ? 0 : $offset;
+        }
       }
       $file = NULL;
 
@@ -265,10 +262,10 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           'Info'
         ),
         '#markup' => $this->t(
-          'You have @count entries for your current Filter and last Processed time of this set was @date', [
+          'You have @count entries for your current Filter and last Processed time of this set was <em>@date</em>', [
             '@count' => $total_lines_for_pager,
             '@date' => !empty($prev_time_stamp) ? date('D, d M Y \a\t H:i:s', $prev_time_stamp) : " Unknown "
-      ]
+          ]
         ),
         'level'   => [
           '#type'          => 'select',

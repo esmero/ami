@@ -141,6 +141,29 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
   // Implements methods defined by EntityChangedInterface.
   use EntityChangedTrait;
 
+
+  public const STATUS_READY = 'READY';
+  public const STATUS_NOT_READY = 'NOT_READY';
+  public const STATUS_PROCESSING = 'PROCESSING';
+  public const STATUS_PROCESSED = 'PROCESSED';
+  public const STATUS_ENQUEUED = 'ENQUEUED';
+  public const STATUS_PROCESSING_WITH_ERRORS = 'PROCESSING_WITH_ERRORS';
+  public const STATUS_PROCESSED_WITH_ERRORS = 'PROCESSED_WITH_ERRORS';
+  public const STATUS_FAILED = 'FAILED';
+  public const STATUS_ENTITIES_DELETED = 'ENTITIES_DELETED';
+
+  public const STATUS = [
+    amiSetEntity::STATUS_READY => 'Ready to process',
+    amiSetEntity::STATUS_NOT_READY  => 'Not ready to process',
+    amiSetEntity::STATUS_PROCESSING => 'Sent to processing',
+    amiSetEntity::STATUS_PROCESSED => 'Processed',
+    amiSetEntity::STATUS_ENQUEUED => 'Enqueued',
+    amiSetEntity::STATUS_PROCESSING_WITH_ERRORS => 'Processing with some errors',
+    amiSetEntity::STATUS_PROCESSED_WITH_ERRORS => 'Processed with errors',
+    amiSetEntity::STATUS_FAILED => 'Failed',
+    amiSetEntity::STATUS_ENTITIES_DELETED => 'ADOs Deleted',
+  ];
+
   /**
    * {@inheritdoc}
    *
@@ -318,18 +341,13 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDescription(t('The time that the Ami Set was last edited.'));
 
     $fields['status'] = BaseFieldDefinition::create('list_string')
-      ->setLabel(t('This Set last known status'))
+      ->setLabel(t("This Set's last known status"))
       ->setDescription(t('Current Status of this Set'))
       ->setSettings([
-        'default_value' => 'ready',
+        'default_value' => 'READY',
         'max_length' => 64,
         'cardinality' => 1,
-        'allowed_values' => [
-          'ready' => 'ready',
-          'not ready' => 'notready',
-          'processed' => 'processed',
-          'enqueued' => 'enqueued',
-        ],
+        'allowed_values' => static::STATUS,
       ])
       ->setRequired(TRUE)
       ->setDisplayOptions('view', [
