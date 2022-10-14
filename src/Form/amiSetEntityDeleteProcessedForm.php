@@ -103,6 +103,9 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         'operations' => $operations,
         'finished' => '\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchFinished',
       );
+      $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_ENTITIES_DELETED);
+      $this->entity->save();
+      $form_state->setRedirectUrl($this->getCancelUrl());
       batch_set($batch);
     } else {
       $this->messenger()->addError(
@@ -176,10 +179,12 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
 
   // What to do after batch ran. Display success or error message.
   public static function batchFinished($success, $results, $operations) {
-    if ($success)
-      $message = count($results). ' batches processed.';
-    else
+    if ($success) {
+      $message = count($results) . ' batches processed.';
+    }
+    else {
       $message = 'Finished with an error.';
+    }
 
     $messenger = \Drupal::messenger();
     if (isset($message)) {

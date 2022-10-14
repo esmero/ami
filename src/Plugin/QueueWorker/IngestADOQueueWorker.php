@@ -620,7 +620,27 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
-
+      try {
+        $set_id = $data->info['set_id'];
+        if (empty($set_id)) {
+          $ami_set = $this->entityTypeManager->getStorage('ami_set_entity')->load($set_id);
+          if ($ami_set->getStatus() != \Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSED_WITH_ERRORS) {
+            $ami_set->setStatus(
+              \Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSING_WITH_ERRORS
+            );
+            $ami_set->save();
+          }
+        }
+      }
+      catch (\Exception $exception)  {
+        $message = $this->t('The original AMI Set ID @setid does not longer exist.',[
+          '@setid' => $data->info['set_id']
+        ]);
+        $this->loggerFactory->get('ami')->warning($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
+      }
       return;
     }
 

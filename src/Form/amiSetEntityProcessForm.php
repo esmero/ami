@@ -191,6 +191,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             ]
           )
         );
+        $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_ENQUEUED);
+        $this->entity->save();
         $form_state->setRedirectUrl($this->getCancelUrl());
       }
       else {
@@ -409,6 +411,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       '\Drupal\ami\AmiBatchQueue::takeOne',
       [$queue_name, $this->entity->id()],
     ];
+    $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSING);
+    $this->entity->save();
     batch_set($batch);
   }
 
