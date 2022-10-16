@@ -59,7 +59,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     $row['id'] = $entity->id();
     $row['name'] = $entity->toLink();
     $row['last update'] = \Drupal::service('date.formatter')->format($entity->changed->value, 'custom', 'd/m/Y');
-    $row['status'] = $entity->getStatus()->getValue();
+    $row['status'] = !empty($entity->getStatus()->getValue()) ? $entity->getStatus()->first()->getValue()['value'] : 'Undefined';
     return $row + parent::buildRow($entity);
   }
 
@@ -73,7 +73,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
       ];
 
       // If applicable to the AMI Set, add the delete processed ADOs operation.
-      if(AmiUtilityService::checkAmiSetDeleteAdosAccess($entity)) {
+      if (AmiUtilityService::checkAmiSetDeleteAdosAccess($entity)) {
         $operations['delete_processed'] = [
           'title' => $this->t('Delete Processed ADOs'),
           'weight' => 12,
