@@ -25,7 +25,8 @@
         "phpoffice/phpspreadsheet": "^1.15.0",
         "maennchen/zipstream-php": "^1.2 || ^2.1",
         "drupal/google_api_client": "^3.0 || ^4.0",
-        "ramsey/uuid": "^4.1"
+        "ramsey/uuid": "^4.1",
+        "monolog/monolog": "^2.8"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
