@@ -59,7 +59,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     $row['id'] = $entity->id();
     $row['name'] = $entity->toLink();
     $row['last update'] = \Drupal::service('date.formatter')->format($entity->changed->value, 'custom', 'd/m/Y');
-    $row['status'] = !empty($entity->getStatus()->getValue()) ? $entity->getStatus()->first()->getValue()['value'] : 'Undefined';
+    $row['status'] = !empty($entity->getStatus()->first()->getValue()) ? $entity->getStatus()->first()->getValue()['value'] : 'Undefined';
     return $row + parent::buildRow($entity);
   }
 
