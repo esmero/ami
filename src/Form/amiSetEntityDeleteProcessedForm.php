@@ -2,6 +2,7 @@
 namespace Drupal\ami\Form;
 
 use Drupal\ami\AmiUtilityService;
+use Drupal\ami\Entity\amiSetEntity;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
@@ -103,7 +104,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         'operations' => $operations,
         'finished' => '\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchFinished',
       );
-      $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_ENTITIES_DELETED);
+      $this->entity->setStatus(amiSetEntity::STATUS_ENTITIES_DELETED);
       $this->entity->save();
       $form_state->setRedirectUrl($this->getCancelUrl());
       batch_set($batch);

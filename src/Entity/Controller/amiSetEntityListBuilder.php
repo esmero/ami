@@ -2,6 +2,7 @@
 namespace Drupal\ami\Entity\Controller;
 
 use Drupal\ami\amiSetEntityInterface;
+use Drupal\ami\Entity\amiSetEntity;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityListBuilder;
 use Drupal\ami\AmiUtilityService;
@@ -59,7 +60,8 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     $row['id'] = $entity->id();
     $row['name'] = $entity->toLink();
     $row['last update'] = \Drupal::service('date.formatter')->format($entity->changed->value, 'custom', 'd/m/Y');
-    $row['status'] = !empty($entity->getStatus()->first()->getValue()) ? $entity->getStatus()->first()->getValue()['value'] : 'Undefined';
+    $status_code = !empty($entity->getStatus()->first()->getValue()) ? $entity->getStatus()->first()->getValue()['value'] : amiSetEntity::STATUS_NOT_READY;
+    $row['status'] = amiSetEntity::STATUS[$status_code];
     return $row + parent::buildRow($entity);
   }
 
