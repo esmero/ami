@@ -8,7 +8,9 @@ use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Drupal\Core\Url;
+use Drupal\ami\Entity\amiSetEntity;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -24,6 +26,13 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   protected $AmiUtilityService;
 
   /**
+   * Private Store used to keep the Set Processing Status/count
+   *
+   * @var \Drupal\Core\TempStore\PrivateTempStore
+   */
+  protected $statusStore;
+
+  /**
    * Constructs a ContentEntityForm object.
    *
    * @param \Drupal\Core\Entity\EntityRepositoryInterface $entity_repository
@@ -33,13 +42,15 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    * @param \Drupal\Component\Datetime\TimeInterface|null $time
    *   The time service.
    * @param \Drupal\ami\AmiUtilityService $ami_utility
+   * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
    */
   public function __construct(
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, AmiUtilityService $ami_utility) {
+    TimeInterface $time = NULL, AmiUtilityService $ami_utility, PrivateTempStoreFactory $temp_store_factory) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
+    $this->statusStore = $temp_store_factory->get('ami_queue_status');
   }
 
   /**
@@ -50,7 +61,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity.repository'),
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
-      $container->get('ami.utility')
+      $container->get('ami.utility'),
+      $container->get('tempstore.private')
     );
   }
 
@@ -181,8 +193,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
       }
+      $count = count(array_filter($added));
 
-      if ($notprocessnow) {
+      if ($notprocessnow && $count) {
         $this->messenger()->addMessage(
           $this->t(
             'Set @label enqueued and processed .',
@@ -191,15 +204,32 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             ]
           )
         );
-        $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_ENQUEUED);
+
+        $processed_set_status['processed'] =  0;
+        $processed_set_status['errored'] =  0;
+        $processed_set_status['total'] = $count;
+        $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
+        $this->entity->setStatus(amiSetEntity::STATUS_ENQUEUED);
         $this->entity->save();
         $form_state->setRedirectUrl($this->getCancelUrl());
       }
-      else {
-        $count = count(array_filter($added));
-        if ($count) {
+      elseif ($count) {
+          $processed_set_status['processed'] =  0;
+          $processed_set_status['errored'] =  0;
+          $processed_set_status['total'] = $count;
+          $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
           $this->submitBatch($form_state, $queue_name, $count);
-        }
+      }
+      else {
+        $this->messenger()->addError(
+          $this->t(
+            'So Sorry. Ami Set @label has issues, is either empty or could not be sent to processing. Please check your CSV, correct or delete and generate a new AMI set.',
+            [
+              '@label' => $this->entity->label(),
+            ]
+          )
+        );
+        $form_state->setRebuild();
       }
     }
     else {

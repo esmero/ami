@@ -4,6 +4,7 @@ namespace Drupal\ami\Plugin\QueueWorker;
 
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
+use Drupal\ami\Entity\amiSetEntity;
 use Drupal\file\FileInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -84,6 +85,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected $store;
 
   /**
+   * Private Store used to keep the Set Processing Status/count
+   *
+   * @var \Drupal\Core\TempStore\PrivateTempStore
+   */
+  protected $statusStore;
+
+  /**
    * The AMI specific logger
    *
    * @var \Psr\Log\LoggerInterface
@@ -128,7 +136,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     MessengerInterface $messenger,
     StrawberryfieldFilePersisterService $strawberry_filepersister,
     PrivateTempStoreFactory $temp_store_factory
-
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -139,6 +146,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->AmiLoDService = $ami_lod;
     $this->strawberryfilepersister = $strawberry_filepersister;
     $this->store = $temp_store_factory->get('ami_queue_worker_file');
+    $this->statusStore = $temp_store_factory->get('ami_queue_status');
   }
 
   /**
@@ -179,7 +187,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $log = new Logger('ami');
     $private_path = \Drupal::service('stream_wrapper_manager')->getViaUri('private://')->getDirectoryPath();
     $handler = new StreamHandler($private_path.'/ami/logs/set'.$data->info['set_id'].'.log', Logger::DEBUG);
-    $handler->setFormatter( new JsonFormatter() );
+    $handler->setFormatter(new JsonFormatter());
     $log->pushHandler($handler);
     // This will add the File logger not replace the DB
     // IF we want to only use the file logger we should use setLogger([$log]);
@@ -256,12 +264,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             'time_submitted' => $data->info['time_submitted'] ?? '',
           ]);
 
-
-          /*  $this->messenger->addWarning($this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
-              '@uuid' => $data->info['row']['uuid'],
-              '@setid' => $data->info['set_id'],
-              '@parent_uuids' => implode(',', $parent_uuids)
-            ]));*/
           // Pushing to the end of the queue.
           $data->info['attempt']++;
           if ($data->info['attempt'] < 3) {
@@ -278,7 +280,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'setid' => $data->info['set_id'] ?? NULL,
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
-
+            $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
             return;
             // We could enqueue in a "failed" queue?
             // @TODO for 0.6.0: Or better. We could keep track of the dependency
@@ -316,6 +318,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return;
       }
     }
@@ -330,6 +333,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return;
       }
       elseif (!isset($data->info['row']['data'])) {
@@ -341,6 +345,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return;
       }
 
@@ -356,6 +361,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return;
       }
     }
@@ -375,6 +381,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
+      $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return;
     }
 
@@ -513,7 +520,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   'setid' => $data->info['set_id'] ?? NULL,
                   'time_submitted' => $data->info['time_submitted'] ?? '',
                 ]);
-
               }
             }
             else {
@@ -547,6 +553,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
+      $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return;
     }
     // Only persist if we passed this.
@@ -620,27 +627,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
-      try {
-        $set_id = $data->info['set_id'];
-        if (empty($set_id)) {
-          $ami_set = $this->entityTypeManager->getStorage('ami_set_entity')->load($set_id);
-          if ($ami_set->getStatus() != \Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSED_WITH_ERRORS) {
-            $ami_set->setStatus(
-              \Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSING_WITH_ERRORS
-            );
-            $ami_set->save();
-          }
-        }
-      }
-      catch (\Exception $exception)  {
-        $message = $this->t('The original AMI Set ID @setid does not longer exist.',[
-          '@setid' => $data->info['set_id']
-        ]);
-        $this->loggerFactory->get('ami')->warning($message ,[
-          'setid' => $data->info['set_id'] ?? NULL,
-          'time_submitted' => $data->info['time_submitted'] ?? '',
-        ]);
-      }
+      $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return;
     }
 
@@ -881,6 +868,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING, $data);
       }
       catch (\Exception $exception) {
         $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
@@ -892,6 +880,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return;
       }
     }
@@ -905,6 +894,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
+      $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
     }
   }
 
@@ -1093,9 +1083,69 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     return TRUE;
   }
 
-  private function log($type, $data) {
+  /**
+   * Sets AMI set processing status
+   *
+   * @param string    $status
+   * @param \stdClass $data
+   */
+  private function setStatus(string $status, \stdClass $data) {
 
+    try {
+      $set_id = $data->info['set_id'];
+      if (empty($set_id)) {
+        $processed_set_status = $this->statusStore->get('set_' . $set_id);
+        $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
+        $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
+        $processed_set_status['total'] = $processed_set_status['total'] ?? 0;
+        if ($status != amiSetEntity::STATUS_PROCESSING) {
+          $processed_set_status['errored'] = $processed_set_status['errored']
+            + 1;
+        }
+        else {
+          $processed_set_status['processed'] = $processed_set_status['processed'] + 1;
+        }
+        $this->statusStore->set('set_' . $set_id, $processed_set_status);
+
+        $sofar = $processed_set_status['processed'] + $processed_set_status['errored'];
+        $finished = $sofar >= $processed_set_status['total'];
+
+        $ami_set = $this->entityTypeManager->getStorage('ami_set_entity')
+          ->load($set_id);
+        if ($ami_set->getStatus() != $status && $status!= amiSetEntity::STATUS_PROCESSING && !$finished) {
+          $ami_set->setStatus(
+            $status
+          );
+          $ami_set->save();
+        }
+        elseif ($finished) {
+          if ($processed_set_status['errored'] == 0) {
+            $ami_set->setStatus(
+              amiSetEntity::STATUS_PROCESSED
+            );
+          }
+          elseif ($processed_set_status['errored'] == $processed_set_status['total']) {
+            $ami_set->setStatus(
+              amiSetEntity::STATUS_FAILED
+            );
+          }
+          else {
+            $ami_set->setStatus(
+              amiSetEntity::STATUS_PROCESSED_WITH_ERRORS
+            );
+          }
+          $ami_set->save();
+        }
+      }
+    }
+    catch (\Exception $exception)  {
+      $message = $this->t('The original AMI Set ID @setid does not longer exist.',[
+        '@setid' => $data->info['set_id']
+      ]);
+      $this->loggerFactory->get('ami')->warning($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+    }
   }
-
-
 }
