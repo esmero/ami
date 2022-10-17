@@ -92,6 +92,10 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     return $this->t('Download');
   }
 
+  public function getDescription() {
+    return $this->t('Download Log File');
+  }
+
 
   public function getQuestion() {
     // Not really a question but a statement! :)
@@ -164,6 +168,16 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $file = new \SplFileObject($logfilename, 'r');
       $file->seek(PHP_INT_MAX);
       $total_lines = $file->key(); // last line number
+
+      // Initialize Pager based on the total here
+      // We might re-do it afterwards, but we need the current page
+      $pager = \Drupal::service('pager.manager')->createPager(
+        $total_lines, $num_per_page
+      );
+      /* @var $pager \Drupal\Core\Pager\Pager */
+      $page = $pager->getCurrentPage();
+      $page = $page + 1;
+
       // Won't override $total_lines because i still need this for the offset
       // Independently of the level selection.
       $total_lines_for_pager = $total_lines;
@@ -173,12 +187,15 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $total_lines_current = 0;
       $prev_time_stamp = NULL;
       $endcurrent = FALSE;
+      $rows = [];
+      // Find based on the level what we need.
       if ($level !== 'all') {
         $current_offset = $total_lines - $num_per_page;
         // Means we will count only until current process records and filter
         while ($current_offset > 0 && !$endcurrent) {
           $reader = new LimitIterator($file, $current_offset, $num_per_page);
           foreach ($reader as $line) {
+            $row = [];
             $currentLineExpanded = json_decode($line, TRUE);
             if (json_last_error() == JSON_ERROR_NONE) {
               $current_time_stamp = isset($currentLineExpanded['context']['time_submitted']) ? $currentLineExpanded['context']['time_submitted'] : $prev_time_stamp;
@@ -189,6 +206,18 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
               else {
                 if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] == $level) {
                   $total_lines_current++;
+                  $row['datetime'] = $currentLineExpanded['datetime'];
+                  $row['level'] = $currentLineExpanded['level_name'];
+                  $row['message'] = $this->t($currentLineExpanded['message'], []);
+                  $row['details'] = json_encode($currentLineExpanded['context']);
+
+                  $now = new \DateTime($row['datetime'], new \DateTimeZone('UTC'));
+
+                  $now = \DateTime::createFromFormat('U.u', number_format(microtime(true), 6, '.', ''), new \DateTimeZone('UTC'));
+                  // we need microseconds
+                  // Could also use the actual offset/current key? Cheaper?
+                  $now_us = (int)$now->format('Uu');
+                  $rows[$now_us] = $row;
                 }
                 $prev_time_stamp = $current_time_stamp;
               }
@@ -198,10 +227,14 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           $current_offset = $current_offset > 0 ? $current_offset: 0;
         }
         $total_lines_for_pager = $total_lines_current;
+        // resorts the array based on the actual timestamp with microseconds
+        ksort($rows);
+        $rows = array_slice($rows, $total_lines_current - ($page * $num_per_page), $num_per_page);
       }
-      error_log($total_lines_for_pager);
 
 
+
+      $timestamp = $prev_time_stamp;
       $pager = \Drupal::service('pager.manager')->createPager(
         $total_lines_for_pager, $num_per_page
       );
@@ -213,42 +246,27 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $num_per_page = $offset < 0 ? $num_per_page + $offset : $num_per_page;
       $offset = $offset < 0 ? 0 : $offset;
       $fetch = TRUE;
-      $rows = [];
-
-      while ($offset > 0 && count($rows) < $num_per_page) {
+      // This only RUNS if all is selected.
+      // ROWS have been already fetched for the other levels before.
+      while ($offset > 0 && count($rows) < $num_per_page && $level == 'all') {
         $reader = new LimitIterator($file, $offset, $num_per_page);
         foreach ($reader as $line) {
           $currentLineExpanded = json_decode($line, TRUE);
           $row = [];
           $fetch = TRUE;
           if (json_last_error() == JSON_ERROR_NONE) {
-            if ($level !== 'all') {
-              if (isset($currentLineExpanded['level_name'])
-                && $currentLineExpanded['level_name'] != $level
-              ) {
-                $fetch = FALSE;
-              }
-            }
-            if ($fetch) {
               $row['datetime'] = $currentLineExpanded['datetime'];
               $row['level'] = $currentLineExpanded['level_name'];
               $row['message'] = $this->t($currentLineExpanded['message'], []);
               $row['details'] = json_encode($currentLineExpanded['context']);
-              array_unshift($rows, $row);
-            }
+              $rows[] = $row;
           }
-          elseif ($level == 'all') {
+          else {
             // Only show wrongly formatter if no filter present.
             $row = ['Wrong Format for this entry', '', '', $line];
-            array_unshift($rows, $row);
+            $rows[] = $row;
           }
           if (count($rows) ==  $num_per_page) { break;}
-        }
-        // Now check if we have less than $num_per_page
-        // And $offset > 0;
-        if (count($rows) <  $num_per_page) {
-          $offset = $offset - $num_per_page;
-          $offset = $offset < 0 ? 0 : $offset;
         }
       }
       $file = NULL;
@@ -292,7 +310,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             $this->t('message'),
             $this->t('details'),
           ],
-          '#rows'   => $rows,
+          '#rows'   => array_reverse($rows),
           '#sticky' => TRUE,
         ]
       ];
