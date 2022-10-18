@@ -2131,7 +2131,6 @@ class AmiUtilityService {
       }
     }
 
-
     $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
@@ -2322,7 +2321,8 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $all_notJson = array_filter($all,  array($this, 'isNotJson'));
+    $all_isstring= array_filter($all, 'is_string');
+    $all_notJson = array_filter($all_isstring,  array($this, 'isNotJson'));
     $all_entries = [];
     // The difficulty. In case of multiple delimiters we need to see which one
     // works/works better. But if none, assume it may be also right since a single
