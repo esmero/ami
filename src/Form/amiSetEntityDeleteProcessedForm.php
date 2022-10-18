@@ -94,7 +94,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         return;
       }
       $operations = [];
-      foreach (array_chunk($uuids, 10) as $batch_data_uuid) {
+      foreach (array_chunk($uuids, 50) as $batch_data_uuid) {
         $operations[] = ['\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchDelete'
           , [$batch_data_uuid]];
       }

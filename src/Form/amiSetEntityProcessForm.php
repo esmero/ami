@@ -142,6 +142,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
+
       $run_timestamp = $this->time->getCurrentTime();
 
 

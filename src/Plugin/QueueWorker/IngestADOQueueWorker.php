@@ -1049,6 +1049,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
+      $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return FALSE;
     }
     elseif (!count($existing) && $data->pluginconfig->op !== 'create') {
@@ -1061,6 +1062,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
+      $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return FALSE;
     }
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
@@ -1077,6 +1079,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
+        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return FALSE;
       }
     }
@@ -1090,10 +1093,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param \stdClass $data
    */
   private function setStatus(string $status, \stdClass $data) {
-
     try {
       $set_id = $data->info['set_id'];
-      if (empty($set_id)) {
+      if (!empty($set_id)) {
         $processed_set_status = $this->statusStore->get('set_' . $set_id);
         $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
         $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
@@ -1108,7 +1110,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $this->statusStore->set('set_' . $set_id, $processed_set_status);
 
         $sofar = $processed_set_status['processed'] + $processed_set_status['errored'];
-        $finished = $sofar >= $processed_set_status['total'];
+        $finished = ($sofar >= $processed_set_status['total']);
 
         $ami_set = $this->entityTypeManager->getStorage('ami_set_entity')
           ->load($set_id);

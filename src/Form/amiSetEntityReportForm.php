@@ -135,25 +135,11 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     // type selected. Based on that we can set Moderation Options here
 
     $data = new \stdClass();
-    // HACK!
-    // Drupal is stupid. It adds arguments that aren't supposed to
-    // Go into the pager, ending with broken URLs
-    // This removes from the request those urls so we can
-    // return the updated pager VIA AJAX
-    // But still retain the added filter
 
+    /* Fetch the status from the private store also: */
+    $store = \Drupal::service('tempstore.private')->get('ami_queue_status');
+    $last_status = $store->get('set_'.$this->entity->id());
 
-
-    /*foreach ([
-      //AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
-      FormBuilderInterface::AJAX_FORM_REQUEST,
-      MainContentViewSubscriber::WRAPPER_FORMAT,
-    ] as $key) {
-      if (!$this->getRequest()) {
-        $this->getRequest()->query->remove($key);
-        $this->getRequest()->request->remove($key);
-      }
-    }*/
 
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
@@ -186,10 +172,10 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $level =  in_array($level,array_keys(static::LOG_LEVELS)) ? $level : 'all';
       $total_lines_current = 0;
       $prev_time_stamp = NULL;
+      $our_time_stamp = NULL;
       $endcurrent = FALSE;
       $rows = [];
       // Find based on the level what we need.
-      if ($level !== 'all') {
         $current_offset = $total_lines - $num_per_page;
         // Means we will count only until current process records and filter
         while ($current_offset > 0 && !$endcurrent) {
@@ -199,42 +185,53 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             $currentLineExpanded = json_decode($line, TRUE);
             if (json_last_error() == JSON_ERROR_NONE) {
               $current_time_stamp = isset($currentLineExpanded['context']['time_submitted']) ? $currentLineExpanded['context']['time_submitted'] : $prev_time_stamp;
-              if ($prev_time_stamp != NULL && $current_time_stamp != $prev_time_stamp) {
-                $endcurrent = TRUE; // Double safety? I'm already bailing ...
-                break 2;
-              }
-              else {
-                if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] == $level) {
-                  $total_lines_current++;
-                  $row['datetime'] = $currentLineExpanded['datetime'];
-                  $row['level'] = $currentLineExpanded['level_name'];
-                  $row['message'] = $this->t($currentLineExpanded['message'], []);
-                  $row['details'] = json_encode($currentLineExpanded['context']);
+              // But we can not bail yet here! We are reading from older to newer so this could be a page (still) where the
+              // First records are not of this set but later on they are! Damn Diego
+              if ($prev_time_stamp == NULL) {
 
-                  $now = new \DateTime($row['datetime'], new \DateTimeZone('UTC'));
-
-                  $now = \DateTime::createFromFormat('U.u', number_format(microtime(true), 6, '.', ''), new \DateTimeZone('UTC'));
-                  // we need microseconds
-                  // Could also use the actual offset/current key? Cheaper?
-                  $now_us = (int)$now->format('Uu');
-                  $rows[$now_us] = $row;
+                //means our first iteration
+                $our_time_stamp = $current_time_stamp;
+                if ($level === 'all') {
+                  $endcurrent = TRUE;
+                  // In this case we just want the last timestamp, nothing else.
+                  break 2;
                 }
-                $prev_time_stamp = $current_time_stamp;
               }
+
+              if ($prev_time_stamp != NULL && ($current_time_stamp != $prev_time_stamp)) {
+                $endcurrent = TRUE; // Double safety? I'm already bailing ...
+                //break 2;
+              }
+              if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] == $level && $our_time_stamp == $current_time_stamp) {
+                $total_lines_current++;
+                $row['datetime'] = $currentLineExpanded['datetime'];
+                $row['level'] = $currentLineExpanded['level_name'];
+                $row['message'] = $this->t($currentLineExpanded['message'], []);
+                $row['details'] = json_encode($currentLineExpanded['context']);
+                $rows[$reader->getPosition()] = $row;
+              }
+              $prev_time_stamp = $current_time_stamp;
             }
           }
           $current_offset = $current_offset - $num_per_page;
           $current_offset = $current_offset > 0 ? $current_offset: 0;
         }
+      if ($level != 'all') {
         $total_lines_for_pager = $total_lines_current;
         // resorts the array based on the actual timestamp with microseconds
-        ksort($rows);
-        $rows = array_slice($rows, $total_lines_current - ($page * $num_per_page), $num_per_page);
+        ksort($rows, SORT_NUMERIC);
+        $slice_offset = ($page * $num_per_page <= $total_lines_current)
+          ? $total_lines_current - ($page * $num_per_page) : 0;
+        $slice_amount = ($page * $num_per_page <= $total_lines_current)
+          ? $num_per_page
+          : $total_lines_current - (($page - 1) * $num_per_page);
+        $rows = array_slice($rows, $slice_offset, $slice_amount);
+        $rows = array_reverse($rows);
       }
 
 
 
-      $timestamp = $prev_time_stamp;
+      $timestamp = $our_time_stamp;
       $pager = \Drupal::service('pager.manager')->createPager(
         $total_lines_for_pager, $num_per_page
       );
@@ -255,11 +252,11 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           $row = [];
           $fetch = TRUE;
           if (json_last_error() == JSON_ERROR_NONE) {
-              $row['datetime'] = $currentLineExpanded['datetime'];
-              $row['level'] = $currentLineExpanded['level_name'];
-              $row['message'] = $this->t($currentLineExpanded['message'], []);
-              $row['details'] = json_encode($currentLineExpanded['context']);
-              $rows[] = $row;
+            $row['datetime'] = $currentLineExpanded['datetime'];
+            $row['level'] = $currentLineExpanded['level_name'];
+            $row['message'] = $this->t($currentLineExpanded['message'], []);
+            $row['details'] = json_encode($currentLineExpanded['context']);
+            $rows[] = $row;
           }
           else {
             // Only show wrongly formatter if no filter present.
@@ -268,9 +265,30 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           }
           if (count($rows) ==  $num_per_page) { break;}
         }
+        $rows = array_reverse($rows);
       }
       $file = NULL;
-
+      if (count($last_status)) {
+        $message = $this->t(
+          'You have @count entries for your current Filter, last time this set was sent to processing was: <em>@date</em>.<br>Successfully processed: <em>@processed</em>, Errors: <em>@errors</em> of a total of <em>@total</em>', [
+          '@count' => $total_lines_for_pager,
+          '@date' => !empty($timestamp) ? date('D, d M Y \a\t H:i:s', $timestamp) : " Unknown ",
+          '@errors' => $last_status['errored'] ?? 0,
+          '@processed' => $last_status['processed'] ?? 0,
+          '@total' =>  $last_status['total'] ?? 0
+        ]);
+      }
+      else {
+        $message = $this->t(
+          'You have @count entries for your current Filter, last time this set was sent to processing was: <em>@date</em>',
+          [
+            '@count' => $total_lines_for_pager,
+            '@date'  => !empty($timestamp) ? date(
+              'D, d M Y \a\t H:i:s', $timestamp
+            ) : " Unknown ",
+          ]
+        );
+      }
       $form['logs'] = [
         '#tree'   => TRUE,
         '#type'   => 'fieldset',
@@ -279,12 +297,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
         '#title'  => $this->t(
           'Info'
         ),
-        '#markup' => $this->t(
-          'You have @count entries for your current Filter and last Processed time of this set was <em>@date</em>', [
-            '@count' => $total_lines_for_pager,
-            '@date' => !empty($prev_time_stamp) ? date('D, d M Y \a\t H:i:s', $prev_time_stamp) : " Unknown "
-          ]
-        ),
+        '#markup' => $message,
         'level'   => [
           '#type'          => 'select',
           '#options'       => static::LOG_LEVELS,
@@ -310,7 +323,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             $this->t('message'),
             $this->t('details'),
           ],
-          '#rows'   => array_reverse($rows),
+          '#rows'   => $rows,
           '#sticky' => TRUE,
         ]
       ];
