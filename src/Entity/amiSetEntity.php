@@ -106,7 +106,7 @@ use Drupal\Component\Utility\Environment;
  *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
  *     "edit-reconcile-form" = "/amiset/{ami_set_entity}/editreconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
- *     "report" = "/amiset/{ami_set_entity}/report",
+ *     "report-form" = "/amiset/{ami_set_entity}/report",
  *     "collection" = "/amiset/list"
  *   },
  *   field_ui_base_route = "ami.amisetentity_settings",

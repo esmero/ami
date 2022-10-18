@@ -61,7 +61,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     $row['name'] = $entity->toLink();
     $row['last update'] = \Drupal::service('date.formatter')->format($entity->changed->value, 'custom', 'd/m/Y');
     $status_code = !empty($entity->getStatus()->first()->getValue()) ? $entity->getStatus()->first()->getValue()['value'] : amiSetEntity::STATUS_NOT_READY;
-    $row['status'] = amiSetEntity::STATUS[$status_code];
+    $row['status'] = amiSetEntity::STATUS[strtoupper($status_code)] ?? amiSetEntity::STATUS[amiSetEntity::STATUS_NOT_READY];
     return $row + parent::buildRow($entity);
   }
 
@@ -73,7 +73,13 @@ class amiSetEntityListBuilder extends EntityListBuilder {
         'weight' => 11,
         'url' => $this->ensureDestination($entity->toUrl('process-form')),
       ];
-
+      if ($entity->access('update') && $entity->hasLinkTemplate('report-form')) {
+        $operations['reports'] = [
+          'title'  => $this->t('Report'),
+          'weight' => 11,
+          'url'    => $this->ensureDestination($entity->toUrl('report-form')),
+        ];
+      }
       // If applicable to the AMI Set, add the delete processed ADOs operation.
       if (AmiUtilityService::checkAmiSetDeleteAdosAccess($entity)) {
         $operations['delete_processed'] = [
@@ -82,7 +88,6 @@ class amiSetEntityListBuilder extends EntityListBuilder {
           'url' => $this->ensureDestination($entity->toUrl('delete-process-form')),
         ];
       }
-
     }
     return $operations;
   }
