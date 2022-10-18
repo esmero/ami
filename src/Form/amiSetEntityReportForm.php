@@ -175,34 +175,55 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $our_time_stamp = NULL;
       $endcurrent = FALSE;
       $rows = [];
+
+      $timestamp_offset = $total_lines - 1 >= 0 ? $total_lines - 1 : 0;
+
+      while ($timestamp_offset >= 0 && !$endcurrent) {
+        $reader_end = new LimitIterator($file, $timestamp_offset, 1);
+        foreach ($reader_end as $line) {
+          $currentLineExpanded = json_decode($line, TRUE);
+          if (json_last_error() == JSON_ERROR_NONE) {
+            $our_time_stamp
+              = isset($currentLineExpanded['context']['time_submitted'])
+              ? $currentLineExpanded['context']['time_submitted']
+              : NULL;
+          }
+          if ($our_time_stamp == NULL) {
+            $timestamp_offset--;
+          } else {
+            $endcurrent = TRUE;
+            break;
+          }
+        }
+      }
+
+      $endcurrent = FALSE;
       // Find based on the level what we need.
-        $current_offset = $total_lines - $num_per_page;
-        // Means we will count only until current process records and filter
-        while ($current_offset > 0 && !$endcurrent) {
+      $current_offset = ($total_lines - $num_per_page) >= 0 ? ($total_lines - $num_per_page) : 0;
+      // Means we will count only until current process records and filter
+      if ($level !== 'all' && $our_time_stamp !== NULL) {
+        while ($current_offset >= 0 && !$endcurrent) {
           $reader = new LimitIterator($file, $current_offset, $num_per_page);
           foreach ($reader as $line) {
             $row = [];
             $currentLineExpanded = json_decode($line, TRUE);
             if (json_last_error() == JSON_ERROR_NONE) {
-              $current_time_stamp = isset($currentLineExpanded['context']['time_submitted']) ? $currentLineExpanded['context']['time_submitted'] : $prev_time_stamp;
+              $current_time_stamp
+                = isset($currentLineExpanded['context']['time_submitted'])
+                ? $currentLineExpanded['context']['time_submitted']
+                : $prev_time_stamp;
               // But we can not bail yet here! We are reading from older to newer so this could be a page (still) where the
               // First records are not of this set but later on they are! Damn Diego
-              if ($prev_time_stamp == NULL) {
-
-                //means our first iteration
-                $our_time_stamp = $current_time_stamp;
-                if ($level === 'all') {
-                  $endcurrent = TRUE;
-                  // In this case we just want the last timestamp, nothing else.
-                  break 2;
-                }
-              }
-
-              if ($prev_time_stamp != NULL && ($current_time_stamp != $prev_time_stamp)) {
+              if ($prev_time_stamp != NULL
+                && ($our_time_stamp != $prev_time_stamp)
+              ) {
                 $endcurrent = TRUE; // Double safety? I'm already bailing ...
                 //break 2;
               }
-              if (isset($currentLineExpanded['level_name']) && $currentLineExpanded['level_name'] == $level && $our_time_stamp == $current_time_stamp) {
+              if (isset($currentLineExpanded['level_name'])
+                && $currentLineExpanded['level_name'] == $level
+                && $our_time_stamp == $current_time_stamp
+              ) {
                 $total_lines_current++;
                 $row['datetime'] = $currentLineExpanded['datetime'];
                 $row['level'] = $currentLineExpanded['level_name'];
@@ -214,9 +235,11 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             }
           }
           $current_offset = $current_offset - $num_per_page;
-          $current_offset = $current_offset > 0 ? $current_offset: 0;
+          $current_offset = $current_offset > 0 ? $current_offset : 0;
+          if ($current_offset == 0) {
+            $endcurrent = TRUE;
+          }
         }
-      if ($level != 'all') {
         $total_lines_for_pager = $total_lines_current;
         // resorts the array based on the actual timestamp with microseconds
         ksort($rows, SORT_NUMERIC);
@@ -245,7 +268,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $fetch = TRUE;
       // This only RUNS if all is selected.
       // ROWS have been already fetched for the other levels before.
-      while ($offset > 0 && count($rows) < $num_per_page && $level == 'all') {
+      while ($offset >= 0 && count($rows) < $num_per_page && $level == 'all') {
         $reader = new LimitIterator($file, $offset, $num_per_page);
         foreach ($reader as $line) {
           $currentLineExpanded = json_decode($line, TRUE);
@@ -270,7 +293,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       $file = NULL;
       if (count($last_status)) {
         $message = $this->t(
-          'You have @count entries for your current Filter, last time this set was sent to processing was: <em>@date</em>.<br>Successfully processed: <em>@processed</em>, Errors: <em>@errors</em> of a total of <em>@total</em>', [
+          'You have @count entries for your current Filter, last time this set was sent to processing was: <em>@date</em>.<br>Successfully processed: <em>@processed</em>, Errors/Warnings: <em>@errors</em> of a total of <em>@total</em>', [
           '@count' => $total_lines_for_pager,
           '@date' => !empty($timestamp) ? date('D, d M Y \a\t H:i:s', $timestamp) : " Unknown ",
           '@errors' => $last_status['errored'] ?? 0,
