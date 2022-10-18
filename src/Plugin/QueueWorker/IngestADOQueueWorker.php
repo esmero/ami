@@ -184,14 +184,17 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * {@inheritdoc}
    */
   public function processItem($data) {
-    $log = new Logger('ami');
+    $log = new Logger('ami_file');
     $private_path = \Drupal::service('stream_wrapper_manager')->getViaUri('private://')->getDirectoryPath();
     $handler = new StreamHandler($private_path.'/ami/logs/set'.$data->info['set_id'].'.log', Logger::DEBUG);
     $handler->setFormatter(new JsonFormatter());
     $log->pushHandler($handler);
     // This will add the File logger not replace the DB
-    // IF we want to only use the file logger we should use setLogger([$log]);
-    $this->loggerFactory->get('ami')->addLogger($log);
+    // We can not use addLogger because in a single PHP process multiple Queue items might be invoked
+    // And loggers are additive. Means i can end with a few duplicated entries!
+    // @TODO: i should inject this into the Containers but i wanted to keep
+    // it simple for now.
+    $this->loggerFactory->get('ami_file')->setLoggers([[$log]]);
 
     /* Data info for an ADO has this structure
       $data->info = [
@@ -259,7 +262,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             '@setid' => $data->info['set_id'],
             '@parent_uuids' => implode(',', $parent_uuids)
           ]);
-          $this->loggerFactory->get('ami')->warning($message ,[
+          $this->loggerFactory->get('ami_file')->warning($message ,[
             'setid' => $data->info['set_id'] ?? NULL,
             'time_submitted' => $data->info['time_submitted'] ?? '',
           ]);
@@ -276,7 +279,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               '@uuid' => $data->info['row']['uuid'],
               '@setid' => $data->info['set_id']
             ]);
-            $this->loggerFactory->get('ami')->error($message ,[
+            $this->loggerFactory->get('ami_file')->error($message ,[
               'setid' => $data->info['set_id'] ?? NULL,
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
@@ -314,7 +317,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id']
         ]);
-        $this->loggerFactory->get('ami')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -329,7 +332,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@setid' => $data->info['set_id']
         ]);
 
-        $this->loggerFactory->get('ami')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -341,7 +344,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           [
             '@setid' => $data->info['set_id'],
           ]);
-        $this->loggerFactory->get('ami')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -357,7 +360,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id']
         ]);
-        $this->loggerFactory->get('ami')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -377,7 +380,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]);
-      $this->loggerFactory->get('ami')->error($message ,[
+      $this->loggerFactory->get('ami_file')->error($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -516,7 +519,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     '@filename' => $filename,
                     '@filecolumn' => $file_column,
                   ]);
-                $this->loggerFactory->get('ami')->warning($message ,[
+                $this->loggerFactory->get('ami_file')->warning($message ,[
                   'setid' => $data->info['set_id'] ?? NULL,
                   'time_submitted' => $data->info['time_submitted'] ?? '',
                 ]);
@@ -549,7 +552,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
         ]);
-      $this->loggerFactory->get('ami')->warning($message ,[
+      $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -623,7 +626,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]);
-      $this->loggerFactory->get('ami')->error($message ,[
+      $this->loggerFactory->get('ami_file')->error($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -864,7 +867,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '%title' => $label,
           '@ophuman' => static::OP_HUMAN[$op]
         ]);
-        $this->loggerFactory->get('ami')->info($message ,[
+        $this->loggerFactory->get('ami_file')->info($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -876,7 +879,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@setid' => $data->info['set_id'],
           '@ophuman' => static::OP_HUMAN[$op],
         ]);
-        $this->loggerFactory->get('ami')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -890,7 +893,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         '@setid' => $data->info['set_id'],
         '@ophuman' => static::OP_HUMAN[$op],
       ]);
-      $this->loggerFactory->get('ami')->info($message ,[
+      $this->loggerFactory->get('ami_file')->info($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -1006,7 +1009,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             '@setid' => $data->info['set_id'],
             '@filename' => $data->info['filename']
           ]);
-        $this->loggerFactory->get('ami')->warning($message ,[
+        $this->loggerFactory->get('ami_file')->warning($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -1045,7 +1048,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         '@setid' => $data->info['set_id']
       ]);
 
-      $this->loggerFactory->get('ami')->warning($message ,[
+      $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -1058,7 +1061,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         '@setid' => $data->info['set_id'],
         '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
       ]);
-      $this->loggerFactory->get('ami')->warning($message ,[
+      $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -1075,7 +1078,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@setid' => $data->info['set_id'],
           '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
         ]);
-        $this->loggerFactory->get('ami')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -1144,7 +1147,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $message = $this->t('The original AMI Set ID @setid does not longer exist.',[
         '@setid' => $data->info['set_id']
       ]);
-      $this->loggerFactory->get('ami')->warning($message ,[
+      $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
