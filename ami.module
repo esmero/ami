@@ -151,6 +151,15 @@ function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
     AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
     // Remove any AMI LoD Key Values.
     \Drupal::service('ami.lod')->cleanKeyValuesPerAmiSet($entity->id());
+    // Remove any left over logs
+    try {
+      $log_location = "private://ami/logs/set{$entity->id()}.log";
+      $filePath = \Drupal::service('file_system')->realpath($log_location);
+      \Drupal::service('file_system')->delete($filePath);
+    }
+    catch (\Exception $exception) {
+      watchdog_exception('ami', $exception);
+    }
   }
 }
 
