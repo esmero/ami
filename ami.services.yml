@@ -32,3 +32,8 @@ services:
     arguments: [ '@views_bulk_operations.data' ,'@current_user', '@tempstore.private' ]
     tags:
       - { name: event_subscriber }
+  ami.breadcrumb.amiset:
+    class: Drupal\ami\Breadcrumb\AmiSetBreadcrumbBuilder
+    #arguments: [ '@entity_type.manager', '@config.factory', '@forum_manager', '@string_translation' ]
+    tags:
+      - { name: breadcrumb_builder, priority: 1001 }
