@@ -19,7 +19,7 @@
         "drupal/views_bulk_operations": "^3.9 || ^4.1",
         "strawberryfield/strawberryfield":"1.0.0.x-dev",
         "strawberryfield/webform_strawberryfield":"1.0.0.x-dev",
-        "strawberryfield/format_strawberryfield":"1.0.0.x-dev",
+        "strawberryfield/format_strawberryfield":"dev-ISSUE-227",
         "swaggest/json-schema": "^0.12.29",
         "swaggest/json-diff": "^3.7.5",
         "phpoffice/phpspreadsheet": "^1.15.0",
