@@ -298,13 +298,18 @@ class AmiRowAutocompleteHandler extends ControllerBase {
               switch ($mimetype) {
                 case 'application/ld+json':
                 case 'application/json':
-                  json_decode((string) $render);
+                  $json_decoded = json_decode((string) $render);
                   if (JSON_ERROR_NONE !== json_last_error()) {
                     throw new \Exception(
                       'Error parsing JSON: ' . json_last_error_msg(),
                       0,
                       NULL
                     );
+                  }
+                  else {
+                    // If the test passed show it pretty printed so Allison
+                    // has a better experience.
+                    $render = json_encode($json_decoded, JSON_PRETTY_PRINT);
                   }
                   break;
                 case 'text/html':
