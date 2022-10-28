@@ -63,7 +63,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function getCancelUrl() {
-    return new Url('entity.ami_set_entity.collection');
+    return new Url('entity.ami_set_entity.process_form',['ami_set_entity' => $this->entity->id()]);
   }
 
 
