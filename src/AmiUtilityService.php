@@ -491,9 +491,8 @@ class AmiUtilityService {
       }
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
       $filename_from_remote = $basename;
-      $filename_from_remote_parts = explode(".", $basename, 2);
-      $filename_from_remote_without_extension = $filename_from_remote_parts[0] ?? NULL;
-      $extensions_from_remote = $filename_from_remote_parts[1] ?? NULL;
+      $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
+      $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
       $extension_from_mime = NULL;
       $extension = NULL;
       $content_disposition = $response->getHeader('Content-Disposition');
@@ -503,11 +502,12 @@ class AmiUtilityService {
         if ($filename_from_remote) {
           // we want the name without extension, we do not trust the extension
           // See remote sources with double extension!
-          $filename_from_remote_parts = explode(".", $filename_from_remote, 2);
-          $filename_from_remote_without_extension = $filename_from_remote_parts[0] ?? NULL;
-          $extensions_from_remote = $filename_from_remote_parts[1] ?? NULL;
+          $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
+          $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
         }
       }
+      $extensions_from_remote = !empty($extensions_from_remote) ? $extensions_from_remote :NULL;
+      $filename_from_remote_without_extension = !empty($filename_from_remote_without_extension) ? $filename_from_remote_without_extension :NULL;
     }
     catch (\Exception $exception) {
       $message_vars = [
@@ -697,6 +697,8 @@ class AmiUtilityService {
    */
   public function create_file_from_uri($localpath) {
     try {
+
+      /** @var File $file */
       $file = $this->entityTypeManager->getStorage('file')->create(
         [
           'uri' => $localpath,

@@ -962,6 +962,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // at this level makes no sense. Safer to regenerate.
     $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
     $private_temp_key = md5(($data->info['file_column'] ?? '') . '-' . ($data->info['filename'] ?? '') . '-' . $zip_file_id);
+
     $processed_file_data = $this->store->get('set_' . $data->info['set_id'] . '-' . $private_temp_key);
     // even if the cache is there, the file might have been gone because of a previous cron
     // run after someone deleted the Ingested, waited too long.
@@ -998,6 +999,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             $force_destination,
             $reduced
           );
+
         $data_to_store['as_data'] = $processedAsValuesForKey;
         $data_to_store['file_id'] = $file->id();
         $this->store->set('set_' . $data->info['set_id'] . '-' . $private_temp_key,
