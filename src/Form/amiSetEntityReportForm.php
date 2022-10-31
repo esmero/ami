@@ -139,7 +139,8 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     /* Fetch the status from the private store also: */
     $store = \Drupal::service('tempstore.private')->get('ami_queue_status');
     $last_status = $store->get('set_'.$this->entity->id());
-
+    // $last_status needs to be countable always
+    $last_status = $last_status ?? [];
 
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
