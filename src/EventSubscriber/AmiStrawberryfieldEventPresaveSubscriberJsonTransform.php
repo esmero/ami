@@ -11,7 +11,6 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Render\RenderContext;
 use Drupal\Core\Render\RendererInterface;
-use Drupal\migrate_drupal\Plugin\migrate\source\ContentEntity;
 use Drupal\strawberryfield\Event\StrawberryfieldCrudEvent;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
@@ -33,9 +32,9 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
    * @var int
    *
    *  This needs to run before any other Subscriber since it might affect the
-   *  The complete output.
+   *  The complete output. Large numbers means sooner, small (negative) at the end.
    */
-  protected static $priority = -1200;
+  protected static $priority = 1200;
 
   /**
    * The messenger.
@@ -125,8 +124,7 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
     $this->renderer = $renderer;
     $this->configFactory = $config_factory;
   }
-
-
+  
   /**
    * @param \Drupal\strawberryfield\Event\StrawberryfieldCrudEvent $event
    *
