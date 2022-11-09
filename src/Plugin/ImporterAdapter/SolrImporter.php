@@ -560,6 +560,8 @@ class SolrImporter extends SpreadsheetImporter {
           ->setField('RELS_EXT_hasModel_uri_s');
         $facet2 = $facetSet->createFacetField('dsid')
           ->setField('fedora_datastreams_ms');
+        /* Work around only needed for a few very strange custom islandoras */
+        $facetSet->setLimit(500);
         $rows = (int) $config['solarium_config']['rows'] > 0 && (int) $config['solarium_config']['rows'] <= 100  ? $config['solarium_config']['rows'] : 100;
 
         $query->setResponseWriter('csv');
