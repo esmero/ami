@@ -247,6 +247,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $output['json'] = [
             '#type' => 'details',
             '#title' => t('JSON Data'),
+            '#description_display' => 'before',
             '#open' => FALSE,
           ];
           $output['json']['data'] = [
@@ -366,6 +367,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                 '#type' => 'details',
                 '#open' => TRUE,
                 '#title' => 'HTML Output',
+                '#description_display' => 'before',
                 'messages' => [
                   '#markup' => $message,
                   '#attributes' => [
@@ -388,6 +390,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             $output['preview'] = [
               '#type' => 'details',
               '#open' => TRUE,
+              '#description_display' => 'before',
               '#title' => t('Syntax error'),
               'error' => [
                 '#markup' => $message,
@@ -401,6 +404,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $output['preview'] = [
             '#type' => 'details',
             '#open' => TRUE,
+            '#description_display' => 'before',
             '#title' => !$file ? t('AMI Set has no CSV File'): t('AMI Set has no data for chosen row.'),
             'error' => [
               '#markup' => t('The AMI set is empty.'),
