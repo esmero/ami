@@ -697,9 +697,8 @@ class AmiUtilityService {
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
   public function create_file_from_uri($localpath) {
-    try { /** @var File $file */
-
-      // Sadly File URI can not be longer than 255 characters. We have no other way
+    try {
+      // Sadly File URIs can not be longer than 255 characters. We have no other way
       // Because of Drupal's DB Fixed schema and a Override on this might
       // Not be great/sustainable.
       // Because this is not a very common thing
@@ -744,7 +743,7 @@ class AmiUtilityService {
       else {
         $filename = $this->fileSystem->basename($localpath);
       }
-
+      /** @var File $file */
       $file = $this->entityTypeManager->getStorage('file')->create(
         [
           'uri' => $localpath,
