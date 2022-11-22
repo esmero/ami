@@ -17,6 +17,7 @@ use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
+use Drupal\Core\File\Exception\FileWriteException;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
@@ -697,15 +698,61 @@ class AmiUtilityService {
    */
   public function create_file_from_uri($localpath) {
     try {
-
+      // Sadly File URIs can not be longer than 255 characters. We have no other way
+      // Because of Drupal's DB Fixed schema and a Override on this might
+      // Not be great/sustainable.
+      // Because this is not a very common thing
+      // I will incur in the penalty of moving a file here
+      // Just to keep code isolated but also to have the chance to preserve
+      // the original name!
+      if (strlen($localpath) > 255) {
+        $path_length = strlen($localpath);
+        $filename = $this->fileSystem->basename($localpath);
+        $prefix_and_wrapper_length = ($path_length - strlen($filename));
+        $max_file_length = 255 - $prefix_and_wrapper_length;
+        $max_part_length = floor($max_file_length / 2);
+        $first_part = substr($localpath, $prefix_and_wrapper_length, $max_part_length);
+        // -4 because 'we' are cute and will add this in between " -_- "
+        $second_part = substr($localpath, -1 * ($max_part_length - 4));
+        $new_uri = substr($localpath, 0, $prefix_and_wrapper_length) . $first_part .' -_- '.$second_part;
+        if (strlen($filename > 255)) {
+          // For consistency i cut again.
+          $filename  = substr($filename, 0, 127) .' -_- '. substr($filename, -1 * (123));
+        }
+        try {
+          $moved_file = $this->fileSystem->move(
+            $localpath, $new_uri, FileSystemInterface::EXISTS_REPLACE
+          );
+          $message = 'File generated during Ami Set Processing with temporary URI @longuri was longer than 255 characters (Drupal field limit) so had to be renamed to shorter @path';
+          $this->loggerFactory->get('ami')->warning($message, [
+            '@longuri' =>$localpath,
+            '@path' => $new_uri,
+          ]);
+        }
+        catch (FileWriteException $writeException) {
+          $message = 'Unable to move file from longer than 255 characters @longuri to shorter @path with error: @error.';
+          $this->loggerFactory->get('ami')->error($message, [
+            '@error' => $writeException->getMessage(),
+            '@longuri' =>$localpath,
+            '@path' => $new_uri,
+          ]);
+          return FALSE;
+        }
+        $localpath = $new_uri;
+      }
+      else {
+        $filename = $this->fileSystem->basename($localpath);
+      }
       /** @var File $file */
       $file = $this->entityTypeManager->getStorage('file')->create(
         [
           'uri' => $localpath,
           'uid' => $this->currentUser->id(),
           'status' => FileInterface::STATUS_PERMANENT,
+          'filename' => $filename,
         ]
       );
+
       // If we are replacing an existing file re-use its database record.
       // @todo Do not create a new entity in order to update it. See
       //   https://www.drupal.org/node/2241865.
