@@ -698,13 +698,7 @@ class AmiUtilityService {
    */
   public function create_file_from_uri($localpath) {
     try { /** @var File $file */
-      $file = $this->entityTypeManager->getStorage('file')->create(
-        [
-          'uri' => $localpath,
-          'uid' => $this->currentUser->id(),
-          'status' => FileInterface::STATUS_PERMANENT,
-        ]
-      );
+
       // Sadly File URI can not be longer than 255 characters. We have no other way
       // Because of Drupal's DB Fixed schema and a Override on this might
       // Not be great/sustainable.
@@ -722,6 +716,10 @@ class AmiUtilityService {
         // -4 because 'we' are cute and will add this in between " -_- "
         $second_part = substr($localpath, -1 * ($max_part_length - 4));
         $new_uri = substr($localpath, 0, $prefix_and_wrapper_length) . $first_part .' -_- '.$second_part;
+        if (strlen($filename > 255)) {
+          // For consistency i cut again.
+          $filename  = substr($filename, 0, 127) .' -_- '. substr($filename, -1 * (123));
+        }
         try {
           $moved_file = $this->fileSystem->move(
             $localpath, $new_uri, FileSystemInterface::EXISTS_REPLACE
@@ -731,7 +729,6 @@ class AmiUtilityService {
             '@longuri' =>$localpath,
             '@path' => $new_uri,
           ]);
-          $file->setFilename($filename);
         }
         catch (FileWriteException $writeException) {
           $message = 'Unable to move file from longer than 255 characters @longuri to shorter @path with error: @error.';
@@ -744,7 +741,18 @@ class AmiUtilityService {
         }
         $localpath = $new_uri;
       }
+      else {
+        $filename = $this->fileSystem->basename($localpath);
+      }
 
+      $file = $this->entityTypeManager->getStorage('file')->create(
+        [
+          'uri' => $localpath,
+          'uid' => $this->currentUser->id(),
+          'status' => FileInterface::STATUS_PERMANENT,
+          'filename' => $filename,
+        ]
+      );
 
       // If we are replacing an existing file re-use its database record.
       // @todo Do not create a new entity in order to update it. See
