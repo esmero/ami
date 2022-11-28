@@ -123,7 +123,11 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
     // Only act when we are on Core System Batch
     // Because the action processor submit will clear the internal VBO
     // Private Storage, we need to act before, fetch it, keep it around
-    if (\Drupal::routeMatch()->getRouteName() == "system.batch_page.json") {
+    // Also. Anonymous users do not have Private Store
+    // So any query made in a batch as anonymous (e.g in Twig template) or
+    // A subquery aggregating content will throw a Runtime exception
+    // Here we avoid that.
+    if (\Drupal::routeMatch()->getRouteName() == "system.batch_page.json" && $this->currentUser->isAuthenticated()) {
       /** @var \Drupal\facets\FacetInterface $facet */
       $facet = $this->configuration['facet'];
       // ONLY ACT ON NOT RENDERED?
@@ -181,9 +185,6 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
       $container->get('current_user'),
       $container->get('entity_type.manager'),
     );
-
-
-
 
     return new static(
       $configuration,
