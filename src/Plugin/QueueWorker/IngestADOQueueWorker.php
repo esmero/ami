@@ -255,6 +255,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $parents = array_filter($parents);
       foreach($parents as $parent_property => $parent_uuid) {
         $parent_uuids = (array) $parent_uuid;
+        // We should validate each member to be an UUID here (again). Just in case.
         $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $parent_uuids]);
         if (count($existing) != count($parent_uuids)) {
           $message = $this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
@@ -425,8 +426,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
     $processed_metadata  = $processed_metadata + $cleanvalues;
     // Assign parents as NODE Ids.
-    // @TODO if we decide to allow multiple parents this is a place that
-    // Needs change.
     foreach ($parent_nodes as $parent_property => $node_ids) {
       $processed_metadata[$parent_property] = $node_ids;
     }
@@ -439,10 +438,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       // Why 5? one character + one dot + 3 for the extension
       if (isset($data->info['row']['data'][$file_column]) && strlen(trim($data->info['row']['data'][$file_column])) >= 5) {
         $filenames = trim($data->info['row']['data'][$file_column]);
-        $filenames = explode(';', $filenames);
+        $filenames = array_map('trim', explode(';', $filenames));
+        // Someone can just pass a ; and we end with an empty wich means a while folder, remove the thing!
+        $filenames = array_filter($filenames);
         // Clear first. Who knows whats in there. May be a file string that will eventually fail. We should not allow anything coming
         // From the template neither.
-        // @TODO ask users.
+        // @TODO ask users. But this also means Templates can not PROVIDE FIXTURES/PREEXISTING FILES
         $processed_metadata[$file_column] = [];
 
         // Now the hard part. Do we have too many files?
@@ -622,7 +623,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $property_path_split = explode(':', $property_path);
 
     if (!$property_path_split || count($property_path_split) < 2 ) {
-      $message = $this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',[
+      $message = $this->t('Sorry, your Bundle/Fields to Type mapping for the requested an ADO with @uuid on Set @setid are wrong. You might have an unmapped type, or might have made a larger change in your repo and deleted a Content Type. Aborting.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]);
