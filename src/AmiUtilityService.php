@@ -338,6 +338,10 @@ class AmiUtilityService {
           return FALSE;
         }
         elseif ($localfile) {
+          // We can not allow DIRS. C'mon
+          if (is_dir($localfile)) {
+            return FALSE;
+          }
           // Means the file is there already locally. Just assign.
           $finaluri = $localfile;
         }
@@ -347,7 +351,7 @@ class AmiUtilityService {
           // Use the Zip file uuid to prefix the destination.
           // @TODO file_build_uri is deprecated replace before Drupal 10.0.0
           $localfile = $this->streamWrapperManager->normalizeUri(
-           $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
+            $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
           );
           if (!file_exists($localfile)) {
             $destination_zip = $destination . $zip_file->uuid() . '/';
@@ -1742,10 +1746,22 @@ class AmiUtilityService {
           $parent_key, $config['data']['headers']
         );
 
-        $ado['parent'][$parent_key] = trim(
+        $parent_ados_toexpand = (array) trim(
           $row[$parent_key]
         );
-        $ado['anyparent'][] = $row[$parent_key];
+        $parent_ados_array = [];
+        $parent_ados_expanded = $this->expandJson($parent_ados_toexpand);
+        $parent_ados_expanded = $parent_ados_expanded[0] ?? NULL;
+        if (is_array($parent_ados_expanded)) {
+          $parent_ados_array = $parent_ados_expanded;
+        }
+        elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
+          // This allows single value and or ; and trims. Neat?
+          $parent_ados_array = array_map('trim', explode(';', $parent_ados_expanded));
+        }
+
+        $ado['parent'][$parent_key] = $parent_ados_array;
+        $ado['anyparent'] = array_unique(array_merge($ado['anyparent'], $ado['parent'][$parent_key]));
       }
 
       $ado['data'] = $row;
@@ -1777,73 +1793,101 @@ class AmiUtilityService {
 
       if (isset($ado)) {
         // CHECK. Different to IMI. we have multiple relationships
-        foreach ($ado['parent'] as $parent_key => $parent_ado) {
-          // Discard further processing of empty parents
-          if (strlen(trim($parent_ado)) == 0) {
-            // Empty parent;
-            continue;
-          }
-
-          if (!Uuid::isValid($parent_ado) && (intval(trim($parent_ado)) > 1)) {
-            // Its a row
-            // Means our parent object is a ROW index
-            // (referencing another row in the spreadsheet)
-            // So a different strategy is needed. We will need recurse
-            // until we find a non numeric parent or none! Because
-            // in Archipelago we allow the none option for sure!
-            $rootfound = FALSE;
-            // SUPER IMPORTANT. SINCE PEOPLE ARE LOOKING AT A SPREADSHEET THEIR PARENT NUMBER WILL INCLUDE THE HEADER
-            // SO WE ARE OFFSET by 1, substract 1
-            $parent_numeric = intval(trim($parent_ado));
-            $parent_hash[$parent_key][$parent_numeric][$index] = $index;
-
-            // Lets check if the index actually exists before going crazy.
-
-            // If parent is empty that is OK here. WE are Ok with no membership!
-            if (!isset($file_data_all['data'][$parent_numeric])) {
-              // Parent row does not exist
-              $invalid[$parent_numeric] = $parent_numeric;
-              $invalid[$index] = $index;
+        foreach ($ado['parent'] as $parent_key => &$parent_ados) {
+          foreach ($parent_ados as $parent_ado) {
+            if (strlen($parent_ado) == 0) {
+              // Empty parent;
+              continue;
             }
+            if (!Uuid::isValid($parent_ado)
+                && is_scalar($parent_ado)
+              && (intval($parent_ado) > 1)
+            ) {
+              // Its a row
+              // Means our parent object is a ROW index
+              // (referencing another row in the spreadsheet)
+              // So a different strategy is needed. We will need recurse
+              // until we find a non numeric parent or none! Because
+              // in Archipelago we allow the none option for sure!
+              $rootfound = FALSE;
+              // SUPER IMPORTANT. SINCE PEOPLE ARE LOOKING AT A SPREADSHEET THEIR PARENT NUMBER WILL INCLUDE THE HEADER
+              // SO WE ARE OFFSET by 1, substract 1
+              $parent_numeric = intval(trim($parent_ado));
+              $parent_hash[$parent_key][$parent_numeric][$index] = $index;
 
-            if ((!isset($invalid[$index])) && (!isset($invalid[$parent_numeric]))) {
-              // Only traverse if we don't have this index or the parent one
-              // in the invalid register.
-              $parentchilds = [];
-              while (!$rootfound) {
-                $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
-                if ($this->isRootParent($parentup)) {
-                  $rootfound = TRUE;
-                  break;
-                }
-                // If $parentup
-                // The Simplest approach for breaking a knot /infinite loop,
-                // is invalidating the whole parentship chain for good.
-                $inaloop = isset($parentchilds[$parentup]);
-                // If $inaloop === true means we already traversed this branch
-                // so we are in a loop and all our original child and it's
-                // parent objects are invalid.
-                if ($inaloop) {
-                  // In a loop
-                  $invalid = $invalid + $parentchilds;
-                  unset($ado);
-                  $rootfound = TRUE;
-                  // Means this object is already doomed. We break any attempt
-                  // to get relationships for this one.
-                  break 2;
-                }
+              // Lets check if the index actually exists before going crazy.
 
-                $parentchilds[$parentup] = $parentup;
-                // If this parent is either a UUID or empty means we reached the root
-
-                // This a simple accumulator, means all is well,
-                // parent is still an index.
-                $parent_hash[$parent_key][$parentup][$parent_numeric] = $parent_numeric;
-                $parent_numeric = $parentup;
+              // If parent is empty that is OK here. WE are Ok with no membership!
+              if (!isset($file_data_all['data'][$parent_numeric])) {
+                // Parent row does not exist
+                $invalid[$parent_numeric] = $parent_numeric;
+                $invalid[$index] = $index;
               }
-            }
-            else {
-              unset($ado);
+
+              if ((!isset($invalid[$index]))
+                && (!isset($invalid[$parent_numeric]))
+              ) {
+                // Only traverse if we don't have this index or the parent one
+                // in the invalid register.
+                $parentchilds = [];
+                while (!$rootfound) {
+                  // $parentup gets the same treatment as $ado['parent']
+                  $parentup_toexpand = [trim(
+                    $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]]
+                  )];
+                  $parentup_array = [];
+                  $parentup_expanded = $this->expandJson($parentup_toexpand);
+                  $parentup_expanded = $parentup_expanded[0] ?? NULL;
+                  if (is_array($parentup_expanded)) {
+                    $parentup_array = $parent_ados_expanded;
+                  }
+                  elseif (is_string($parentup_expanded)
+                    || is_integer(
+                      $parentup_expanded
+                    )
+                  ) {
+                    // This allows single value and or ; and trims. Neat?
+                    $parentup_array = array_map(
+                      'trim', explode(';', $parentup_expanded)
+                    );
+                  }
+
+                  foreach ($parentup_array as $parentup) {
+                    if ($this->isRootParent($parentup)) {
+                      $rootfound = TRUE;
+                      break;
+                    }
+                    // If $parentup
+                    // The Simplest approach for breaking a knot /infinite loop,
+                    // is invalidating the whole parentship chain for good.
+                    $inaloop = isset($parentchilds[$parentup]);
+                    // If $inaloop === true means we already traversed this branch
+                    // so we are in a loop and all our original child and it's
+                    // parent objects are invalid.
+                    if ($inaloop) {
+                      // In a loop
+                      $invalid = $invalid + $parentchilds;
+                      unset($ado);
+                      $rootfound = TRUE;
+                      // Means this object is already doomed. We break any attempt
+                      // to get relationships for this one.
+                      break 2;
+                    }
+
+                    $parentchilds[$parentup] = $parentup;
+                    // If this parent is either a UUID or empty means we reached the root
+
+                    // This a simple accumulator, means all is well,
+                    // parent is still an index.
+                    $parent_hash[$parent_key][$parentup][$parent_numeric]
+                      = $parent_numeric;
+                    $parent_numeric = $parentup;
+                  }
+                }
+              }
+              else {
+                unset($ado);
+              }
             }
           }
         }
@@ -1855,12 +1899,17 @@ class AmiUtilityService {
 
 
     // Now the real pass, iterate over every row.
-
     foreach ($info as $index => &$ado) {
       foreach ($data->adomapping->parents as $parent_key) {
         // Is this object parent of someone?
-        if (isset($parent_hash[$parent_key][$ado['parent'][$parent_key]])) {
-          $ado['parent'][$parent_key] = $info[$ado['parent'][$parent_key]]['uuid'];
+        // at this stage $ado['parent'][$parent_key] SHOULD BE AN ARRAY IF VALID
+        if (is_array($ado['parent'][$parent_key])) {
+          foreach ($ado['parent'][$parent_key] ?? [] as $index_rel => $parentnumeric) {
+            if (!empty($parentnumeric) && isset($parent_hash[$parent_key][$parentnumeric])) {
+              $ado['parent'][$parent_key][$index_rel] = $info[$parentnumeric]['uuid'];
+            }
+          }
+          $ado['parent'][$parent_key] = array_filter(array_unique($ado['parent'][$parent_key]));
         }
       }
       // Since we are reodering we may want to keep the original row_id around
@@ -1895,22 +1944,44 @@ class AmiUtilityService {
     ]
      */
     // This way the move parent Objects first and leave children to the end.
+    // With multi parentship this gets more messy. We could have a parent
+    // That also depends on another parent.
+    // Idea. We keep track of all parents added in an accumulator
+    // Everytime we will want to add a new one
+    // we check if a child of this one was added already as parent and if so, we unshift
+    // instead of appending.
+    $added = [];
     foreach ($parent_hash as $parent_tree) {
       foreach ($parent_tree as $row_id => $children) {
         // There could be a reference to a non existing index.
         if (isset($info[$row_id])) {
-          $newinfo[] = $info[$row_id];
+          $unshift = FALSE;
+          foreach($children as $child) {
+            if (isset($added[$child])) {
+              $unshift = TRUE;
+              break;
+            }
+          }
+          if ($unshift) {
+            array_unshift($newinfo, $info[$row_id]);
+          }
+          else {
+            $newinfo[] = $info[$row_id];
+          }
           unset($info[$row_id]);
+          $added[$row_id] = $row_id;
         }
         else {
           // Unset Invalid index if the row never existed
+          // TODO revisit this. Makes no sense in 2022?
           unset($invalid[$row_id]);
         }
       }
     }
     $newinfo = array_merge($newinfo, $info);
     unset($info);
-    // @TODO Should we do a final check here? Alert the user the rows are less/equal to the desired?
+    unset($added);
+    // @TODO Should we do a final check here? Alert the user the rows are less/equal/more to the desired?
     return $newinfo;
   }
 
