@@ -164,7 +164,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         if ($file) {
           $file_data_all = $this->AmiUtilityService->csv_read($file);
           $column_keys = $file_data_all['headers'] ?? [];
-
+          sort($column_keys, SORT_NATURAL);
           $reconcile_column_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->columns ?? []);
           $reconcile_column_settings = (array) $reconcile_column_settings;
           //@ TODO we should remove from settings columns not present in the Source Data.
