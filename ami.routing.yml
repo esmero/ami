@@ -37,7 +37,7 @@ entity.ami_set_entity.collection:
     _entity_list: 'ami_set_entity'
     _title: 'AMI Set List'
   requirements:
-    _permission: 'administer amiset entity'
+    _permission: 'view amiset entity'
 
 entity.ami_set_entity.canonical:
   path: '/amiset/{ami_set_entity}'
