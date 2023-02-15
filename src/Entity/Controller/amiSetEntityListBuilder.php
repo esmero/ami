@@ -73,7 +73,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
         'weight' => 11,
         'url' => $this->ensureDestination($entity->toUrl('process-form')),
       ];
-      if ($entity->access('update') && $entity->hasLinkTemplate('report-form')) {
+      if ($entity->access('process') && $entity->hasLinkTemplate('report-form')) {
         $operations['reports'] = [
           'title'  => $this->t('Report'),
           'weight' => 11,
@@ -81,7 +81,7 @@ class amiSetEntityListBuilder extends EntityListBuilder {
         ];
       }
       // If applicable to the AMI Set, add the delete processed ADOs operation.
-      if (AmiUtilityService::checkAmiSetDeleteAdosAccess($entity)) {
+      if (AmiUtilityService::checkAmiSetDeleteAdosAccess($entity) && $entity->access('deleteados') && $entity->hasLinkTemplate('delete-process-form')) {
         $operations['delete_processed'] = [
           'title' => $this->t('Delete Processed ADOs'),
           'weight' => 12,
@@ -91,7 +91,6 @@ class amiSetEntityListBuilder extends EntityListBuilder {
     }
     return $operations;
   }
-
 
 }
 
