@@ -42,8 +42,8 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
             ->cachePerPermissions()
             ->addCacheableDependency($entity);
         }
-        case 'edit':
-        case 'update':
+      case 'edit':
+      case 'update':
         if ($account->hasPermission('edit amiset entity')) {
           return AccessResult::allowed()->cachePerPermissions();
         }
