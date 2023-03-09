@@ -542,7 +542,16 @@ class AmiUtilityService {
               ->guess($filename_from_remote ?? $path);
 
           }
-          if (($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
+
+
+          if (count($mimetype_array) && ($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
+            //Exceptions for some remote sources
+            if ($mimetype_array[0] == 'image/jpg') {
+              $mimetype_array[0] = 'image/jpeg';
+            }
+            if ($mimetype_array[0] == 'image/tif') {
+              $mimetype_array[0] = 'image/tiff';
+            }
             $extension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
@@ -1800,7 +1809,7 @@ class AmiUtilityService {
               continue;
             }
             if (!Uuid::isValid($parent_ado)
-                && is_scalar($parent_ado)
+              && is_scalar($parent_ado)
               && (intval($parent_ado) > 1)
             ) {
               // Its a row
@@ -1833,8 +1842,8 @@ class AmiUtilityService {
                 while (!$rootfound) {
                   // $parentup gets the same treatment as $ado['parent']
                   $parentup_toexpand = [trim(
-                    $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]]
-                  )];
+                                          $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]]
+                                        )];
                   $parentup_array = [];
                   $parentup_expanded = $this->expandJson($parentup_toexpand);
                   $parentup_expanded = $parentup_expanded[0] ?? NULL;
@@ -2336,6 +2345,7 @@ class AmiUtilityService {
 
       $context['data'] = $this->expandJson($data->info['row']['data']);
       $context_lod = [];
+      $context_lod_contextual = [];
       // get the mappings for this set if any
       // @TODO Refactor into a Method?
       $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
@@ -2357,6 +2367,7 @@ class AmiUtilityService {
                     $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
                     $unique = array_unique($serialized);
                     $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
+                    $context_lod_contextual[$source_column][$label][$approach] = $context_lod[$source_column][$approach];
                   }
                 }
               }
@@ -2366,6 +2377,7 @@ class AmiUtilityService {
       }
 
       $context['data_lod'] = $context_lod;
+      $context['data_lod_contextual'] = $context_lod_contextual;
       $context['dataOriginal'] = $original_value;
       $context['setURL'] = $setURL;
       $context['setId'] = $set_id;
