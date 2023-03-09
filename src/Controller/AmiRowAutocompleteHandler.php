@@ -220,7 +220,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                         $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
                         $unique = array_unique($serialized);
                         $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
-                        $context_lod_contextual[$source_column][$label][$approach] = $context_lod[$source_column][$approach];
+                        $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
                       }
                     }
                   }
