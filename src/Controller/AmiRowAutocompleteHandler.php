@@ -188,8 +188,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $mimetype = $form_state->getValue('mimetype');
           $mimetype = !empty($mimetype) ? $mimetype[0]['value'] : 'text/html';
           $show_render_native = $form_state->getValue('render_native');
-
+          //@TODO there is code duplication here, we do this already at \Drupal\ami\AmiUtilityService::processMetadataDisplay
+          // We should generilize the LoD aspect of this (at least!)
           $context_lod = [];
+          $context_lod_contextual = [];
           $lod_mappings = \Drupal::service('ami.lod')
             ->getKeyValueMappingsPerAmiSet($id);
           if ($lod_mappings) {
@@ -199,7 +201,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   $context_lod[$source_column][$pos_approach] = $context_lod[$source_column][$pos_approach] ?? [];
                 }
               }
-
               if (isset($jsondata[$source_column])) {
                 // sad here. Ok, this is a work around for our normally
                 // Strange CSV data structure
@@ -219,6 +220,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                         $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
                         $unique = array_unique($serialized);
                         $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
+                        $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
                       }
                     }
                   }
@@ -237,6 +239,12 @@ class AmiRowAutocompleteHandler extends ControllerBase {
 
           $context['data'] = $jsondata;
           $context['data_lod'] = $context_lod;
+          $context['data_lod_contextual'] = $context_lod_contextual;
+          $context['setURL'] =  $preview_ami_set->toUrl('canonical', ['absolute' => TRUE])
+            ->toString();
+          $context['setId'] = $id;
+          $context['rowId'] = $row;
+          $context['setOp'] = NULL;
           $original_context = $context;
           // Allow other modules to provide extra Context!
           // Call modules that implement the hook, and let them add items.
@@ -267,6 +275,18 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             '#title' => t('Reconciliated LoD for this row <b>{{ data_lod.keyname.lod_endpoint_type }}</b> :'),
             '#rows' => 60,
             '#value' => json_encode($context['data_lod'], JSON_PRETTY_PRINT),
+            '#codemirror' => [
+              'lineNumbers' => FALSE,
+              'toolbar' => FALSE,
+              'readOnly' => TRUE,
+              'mode' => 'application/json',
+            ],
+          ];
+          $output['json']['data_lod_contextual'] = [
+            '#type' => 'codemirror',
+            '#title' => t('Reconciliated LoD for this row grouped by source reconciliated label <b>{{ data_lod_contextual.keyname.original_source_label.lod_endpoint_type }}</b> :'),
+            '#rows' => 60,
+            '#value' => json_encode($context['data_lod_contextual'], JSON_PRETTY_PRINT),
             '#codemirror' => [
               'lineNumbers' => FALSE,
               'toolbar' => FALSE,
