@@ -10,6 +10,7 @@ use Drupal\Core\Entity\EntityChangedTrait;
 use Drupal\ami\amiSetEntityInterface;
 use Drupal\user\UserInterface;
 use Drupal\Component\Utility\Environment;
+use Drupal\user\Entity\User;
 
 /**
  * Defines the Ami Set Content entity.
@@ -188,7 +189,11 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
    * {@inheritdoc}
    */
   public function getOwner() {
-    return $this->get('user_id')->entity;
+    $user = $this->get('user_id')->entity;
+    if (!$user || $user->isAnonymous()) {
+      $user = User::getAnonymousUser();
+    }
+    return $user;
   }
 
   /**
