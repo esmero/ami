@@ -515,7 +515,8 @@ class AmiUtilityService {
       $filename_from_remote_without_extension = !empty($filename_from_remote_without_extension) ? $filename_from_remote_without_extension :NULL;
       // remove any leading dots from here. The original Path (because it is calculated based on the URL) will not contain these
       if ($filename_from_remote_without_extension) {
-        // remove any spaces from the start and end$filename_from_remote_without_extension = trim($filename_from_remote_without_extension);
+        // remove any spaces from the start and end
+        $filename_from_remote_without_extension = trim($filename_from_remote_without_extension);
         // now remove and leading dots + spaces that might come after the dots
         $filename_from_remote_without_extension = preg_replace('/^(\.|\h)*/m', '', $filename_from_remote_without_extension);
         // if the regular expression fails OR the filename was just dots (like i have seen it all - the song -) use the original sink path
