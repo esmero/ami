@@ -77,8 +77,8 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
     '#title' => t('Row to preview'),
     '#states' => [
       'visible' => [
-        'input[name="entity_type"]' => ['value' => 'ami'],
-        'input[name="ado_amiset_preview"' => ['filled' => true],
+        ':input[name="entity_type"]' => ['value' => 'ami'],
+        ':input[name="ado_amiset_preview"]' => ['filled' => true],
       ],
     ],
   ];
@@ -93,8 +93,8 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
   $form['preview']['button_preview'][
     '#states'] = [
       'visible' => [
-        'input[name="ado_context_preview"' => ['filled' => true],
-        'input[name="entity_type"]' => ['value' => 'ado'],
+        ':input[name="ado_context_preview"]' => ['filled' => true],
+        ':input[name="entity_type"]' => ['value' => 'ado'],
       ],
     ];
 
@@ -108,8 +108,8 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
     ],
     '#states' => [
       'visible' => [
-        'input[name="ado_amiset_preview"' => ['filled' => true],
-        'input[name="entity_type"]' => ['value' => 'ami']
+        ':input[name="ado_amiset_preview"]' => ['filled' => true],
+        ':input[name="entity_type"]' => ['value' => 'ami']
       ],
     ],
   ];
@@ -121,10 +121,10 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
     '#title' => 'Show Preview using native Output Format (e.g HTML)',
     '#states' => [
       'visible' => [
-        ['input[name="ado_context_preview"' => ['filled' => true]],
+        [':input[name="ado_context_preview"]' => ['filled' => true]],
         'or',
-        ['input[name="ado_amiset_preview"' => ['filled' => true],
-          'input[name="ado_amiset_row_context_preview"' => ['filled' => true]]
+        [':input[name="ado_amiset_preview"]' => ['filled' => true],
+          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]]
       ],
     ],
   ];
