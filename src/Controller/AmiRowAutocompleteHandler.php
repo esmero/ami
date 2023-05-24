@@ -19,6 +19,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Drupal\Component\Utility\Xss;
 use Drupal\ami\Entity\amiSetEntity;
 use Twig\Error\Error as TwigError;
+use Drupal\format_strawberryfield\Form\MetadataDisplayForm;
 
 /**
  * Defines a route controller for watches autocomplete form elements.
@@ -251,6 +252,9 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           \Drupal::moduleHandler()
             ->alter('format_strawberryfield_twigcontext', $context);
           $context = $context + $original_context;
+
+          $json_table = MetadataDisplayForm::generateJsonKeysTable($entity, $jsondata);
+
           $output = [];
           $output['json'] = [
             '#type' => 'details',
@@ -382,6 +386,14 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   'mode' => $mimetype,
                 ],
               ];
+              $output['json_unused'] = [
+                '#type' => 'details',
+                '#open' => FALSE,
+                '#title' => 'JSON keys',
+                'render' => [
+                  'table' => $json_table
+                ],
+              ];
             }
             else {
               $output['preview'] = [
@@ -397,6 +409,14 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                 ],
                 'render' => [
                   '#markup' => $render,
+                ],
+              ];
+              $output['json_unused'] = [
+                '#type' => 'details',
+                '#open' => FALSE,
+                '#title' => 'JSON keys',
+                'render' => [
+                  'table' => $json_table
                 ],
               ];
             }
