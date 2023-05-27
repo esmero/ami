@@ -151,6 +151,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     $logfilename = $this->fileSystem->realpath($logfilename);
     $last_op = NULL;
     if ($logfilename !== FALSE && file_exists($logfilename)) {
+      clearstatcache(TRUE, $logfilename);
       // How many lines?
       $file = new \SplFileObject($logfilename, 'r');
       $file->seek(PHP_INT_MAX);

@@ -170,7 +170,7 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
-    if (method_exists(SymfonyRequestStack::class, 'getMainRequest')) {
+    if (method_exists($container->get('request_stack'), 'getMainRequest')) {
       $request =  $container->get('request_stack')->getMainRequest();
     }
     else {
@@ -181,16 +181,6 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
       $plugin_id,
       $plugin_definition,
       $request,
-      $container->get('tempstore.private'),
-      $container->get('current_user'),
-      $container->get('entity_type.manager'),
-    );
-
-    return new static(
-      $configuration,
-      $plugin_id,
-      $plugin_definition,
-      $container->get('request_stack')->getMainRequest(),
       $container->get('tempstore.private'),
       $container->get('current_user'),
       $container->get('entity_type.manager'),
