@@ -275,12 +275,13 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
                 }
               }
             }
+            if(!isset($fullvalues['type'])) {
+              $this->setConfiguration(['create_ami_set' => 0]);
+            }
             // If two types have different bundles only one will win. Do not do that ok?
             if ($this->configuration['create_ami_set']) {
               $this->context['sandbox']['type_bundle'] = $this->context['sandbox']['type_bundle'] ?? [];
-              if (isset($fullvalues['type'])) {
-                $this->context['sandbox']['type_bundle'][$fullvalues['type']] = $entity->bundle().':'.$field_name;
-              }
+              $this->context['sandbox']['type_bundle'][$fullvalues['type']] = $entity->bundle().':'.$field_name;
             }
 
             if ($this->configuration['no_media']) {
