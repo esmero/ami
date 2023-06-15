@@ -405,7 +405,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
               ['@url' => $url->toString()]));
         }
       }
-      else if (!$this->context['sandbox']['ado_type_exists']) {
+      else if ($this->configuration['create_ami_set'] && !$this->context['sandbox']['ado_type_exists']) {
         $this->messenger()
              ->addStatus($this->t('AMI Set could not be created because object(s) are missing the type key.'));
       }
