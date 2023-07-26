@@ -395,7 +395,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                 ],
               ];
             }
-            $output = MetadataDisplayForm::buildAjaxPreviewError($output, $message);
+            if(!empty($message)) {
+              $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+              $output['preview_error'] = $preview_error;
+            }
           } catch (\Exception $exception) {
             // Make the Message easier to read for the end user
             if ($exception instanceof TwigError) {
@@ -404,14 +407,20 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             else {
               $message = $exception->getMessage();
             }
-            $output = MetadataDisplayForm::buildAjaxPreviewError($output, $message);
+            if(!empty($message)) {
+              $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+              $output['preview_error'] = $preview_error;
+            }
           }
           $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
             $output, ['width' => '50%']));
         }
         else {
           $message = !$file ? t('The AMI set has no CSV File. The AMI set is empty.'): t('The AMI set has no data for chosen row. The AMI set is empty.');
-          $output = MetadataDisplayForm::buildAjaxPreviewError([], $message);
+          if(!empty($message)) {
+            $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+            $output['preview_error'] = $preview_error;
+          }
           $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
             $output, ['width' => '50%']));
         }
