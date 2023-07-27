@@ -416,7 +416,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             $output, ['width' => '50%']));
         }
         else {
-          $message = !$file ? t('The AMI set has no CSV File. The AMI set is empty.'): t('The AMI set has no data for chosen row. The AMI set is empty.');
+          $message = !$file ? 'The AMI set has no CSV File. The AMI set is empty.': 'The AMI set has no data for chosen row. The AMI set is empty.';
           if(!empty($message)) {
             $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
             $output['preview_error'] = $preview_error;
