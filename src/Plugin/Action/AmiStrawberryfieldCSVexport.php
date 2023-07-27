@@ -549,10 +549,12 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
    *   Cache unique ID for Temporary storage.
    */
   protected function getCid() {
+    // a CID can only short. We take all the pieces and apply an MD5, 32Hex max.
     if (!isset($this->context['sandbox']['cid_prefix'])) {
-      $this->context['sandbox']['cid_prefix'] = $this->context['view_id'] . ':'
-        . $this->context['display_id'] . ':' . $this->context['action_id'] . ':'
-        . md5(serialize(array_keys($this->context['list']))) . ':';
+      $this->context['sandbox']['cid_prefix'] = md5(
+          $this->context['view_id'] . ':'
+          . $this->context['display_id'] . ':' . $this->context['action_id']
+         . serialize(array_keys($this->context['list']))) . ':';
     }
 
     return $this->context['sandbox']['cid_prefix'] . $this->context['sandbox']['current_batch'];

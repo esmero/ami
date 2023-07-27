@@ -76,7 +76,7 @@ class AmiFacetsViewsBulkOperationsEventSubscriber implements EventSubscriberInte
   public function updateFacetCache(ViewsBulkOperationsEvent $event) {
     $view_data = $event->getViewData();
     $exposed_input = $event->getView()->getExposedInput();
-    $tempStoreName = 'ami_vbo_batch_facets_' . $event->getView()->id() . '_' . $event->getView()->current_display;
+    $tempStoreName = 'ami_vbo_batch_facets_' . md5($event->getView()->id() . '_' . $event->getView()->current_display);
     // Do not override once the batch starts.
     // Maybe delete when on view.solr_search_content_with_find_and_replace.page_1?
     // We do not know here if facets will or not be in a f[] so we pass
