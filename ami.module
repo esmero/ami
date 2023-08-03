@@ -33,7 +33,10 @@ function ami_help($route_name, RouteMatchInterface $route_match) {
   }
 }
 
-function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterface $form_state, $form_id) {
+/**
+ * Implements hook_form_alter().
+ */
+function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $form_state, $form_id) {
 
   // Add our AMI options here
   $form['preview']['entity_type'] = [
