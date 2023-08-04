@@ -253,7 +253,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             ->alter('format_strawberryfield_twigcontext', $context);
           $context = $context + $original_context;
 
-          $json_table = MetadataDisplayForm::generateJsonKeysTable($entity, $jsondata);
+          $show_json_table = $form_state->getValue('show_json_table');
+          if($show_json_table) {
+            $json_table = MetadataDisplayForm::generateJsonKeysTable($entity, $jsondata);
+          }
 
           $output = [];
           $output['json'] = [
@@ -386,14 +389,16 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   'mode' => $mimetype,
                 ],
               ];
-              $output['json_unused'] = [
-                '#type' => 'details',
-                '#open' => FALSE,
-                '#title' => 'JSON keys',
-                'render' => [
-                  'table' => $json_table
-                ],
-              ];
+              if($show_json_table) {
+                $output['json_unused'] = [
+                  '#type' => 'details',
+                  '#open' => FALSE,
+                  '#title' => 'JSON keys',
+                  'render' => [
+                    'table' => $json_table
+                  ],
+                ];
+	      }
             }
             else {
               $output['preview'] = [
@@ -411,14 +416,16 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   '#markup' => $render,
                 ],
               ];
-              $output['json_unused'] = [
-                '#type' => 'details',
-                '#open' => FALSE,
-                '#title' => 'JSON keys',
-                'render' => [
-                  'table' => $json_table
-                ],
-              ];
+              if($show_json_table) {
+                $output['json_unused'] = [
+                  '#type' => 'details',
+                  '#open' => FALSE,
+                  '#title' => 'JSON keys',
+                  'render' => [
+                    'table' => $json_table
+                  ],
+                ];
+	      }
             }
           } catch (\Exception $exception) {
             // Make the Message easier to read for the end user
