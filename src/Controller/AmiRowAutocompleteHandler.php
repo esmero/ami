@@ -255,7 +255,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
 
           $show_json_table = $form_state->getValue('show_json_table');
           if($show_json_table) {
-            $json_table = MetadataDisplayForm::generateJsonKeysTable($entity, $jsondata);
+            $json_table = MetadataDisplayForm::buildUsedVariableTable($jsondata, $entity);
           }
 
           $output = [];
