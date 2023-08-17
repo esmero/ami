@@ -170,7 +170,7 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
-    if (method_exists(SymfonyRequestStack::class, 'getMainRequest')) {
+    if (method_exists($container->get('request_stack'), 'getMainRequest')) {
       $request =  $container->get('request_stack')->getMainRequest();
     }
     else {
@@ -183,17 +183,7 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
       $request,
       $container->get('tempstore.private'),
       $container->get('current_user'),
-      $container->get('entity_type.manager'),
-    );
-
-    return new static(
-      $configuration,
-      $plugin_id,
-      $plugin_definition,
-      $container->get('request_stack')->getMainRequest(),
-      $container->get('tempstore.private'),
-      $container->get('current_user'),
-      $container->get('entity_type.manager'),
+      $container->get('entity_type.manager')
     );
   }
 
@@ -252,7 +242,9 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
     $view_id = $fs_id[2];
     $display_id = $fs_id[3];
     $url_parameters = $this->request->query;
-    $tempStoreName = 'ami_vbo_batch_facets_' . $view_id . '_' . $display_id;
+    // If this is too long we will get a Data too long for column 'collection' at
+    // DatabaseExceptionWrapper. So we md5 all.
+    $tempStoreName = 'ami_vbo_batch_facets_' . md5($view_id . '_' . $display_id);
     // Get the active facet parameters.
     $active_params = NULL;
     $views_params = $this->tempStoreFactory->get($tempStoreName)->get($this->currentUser->id());

@@ -406,12 +406,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                 '#open' => TRUE,
                 '#title' => 'HTML Output',
                 '#description_display' => 'before',
-                'messages' => [
-                  '#markup' => $message,
-                  '#attributes' => [
-                    'class' => ['error'],
-                  ],
-                ],
                 'render' => [
                   '#markup' => $render,
                 ],
@@ -427,6 +421,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                 ];
 	      }
             }
+            if(!empty($message)) {
+              $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+              $output['preview_error'] = $preview_error;
+            }
           } catch (\Exception $exception) {
             // Make the Message easier to read for the end user
             if ($exception instanceof TwigError) {
@@ -435,29 +433,20 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             else {
               $message = $exception->getMessage();
             }
-            $output['preview'] = [
-              '#type' => 'details',
-              '#open' => TRUE,
-              '#description_display' => 'before',
-              '#title' => t('Syntax error'),
-              'error' => [
-                '#markup' => $message,
-              ]
-            ];
+            if(!empty($message)) {
+              $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+              $output['preview_error'] = $preview_error;
+            }
           }
           $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
             $output, ['width' => '50%']));
         }
         else {
-          $output['preview'] = [
-            '#type' => 'details',
-            '#open' => TRUE,
-            '#description_display' => 'before',
-            '#title' => !$file ? t('AMI Set has no CSV File'): t('AMI Set has no data for chosen row.'),
-            'error' => [
-              '#markup' => t('The AMI set is empty.'),
-            ],
-          ];
+          $message = !$file ? 'The AMI set has no CSV File. The AMI set is empty.': 'The AMI set has no data for chosen row. The AMI set is empty.';
+          if(!empty($message)) {
+            $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+            $output['preview_error'] = $preview_error;
+          }
           $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
             $output, ['width' => '50%']));
         }

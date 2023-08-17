@@ -193,6 +193,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
    */
   public function executeMultiple(array $objects) {
     $results = $response = $errors = [];
+    $this->context['sandbox']['ado_type_exists'] = TRUE;
     foreach ($objects as $entity) {
       $result = $this->execute($entity);
       if ($result) {
@@ -275,8 +276,11 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
                 }
               }
             }
+            if(!isset($fullvalues['type'])) {
+              $this->context['sandbox']['ado_type_exists'] = FALSE;
+            }
             // If two types have different bundles only one will win. Do not do that ok?
-            if ($this->configuration['create_ami_set']) {
+            if ($this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
               $this->context['sandbox']['type_bundle'] = $this->context['sandbox']['type_bundle'] ?? [];
               $this->context['sandbox']['type_bundle'][$fullvalues['type']] = $entity->bundle().':'.$field_name;
             }
@@ -362,7 +366,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
       $data['data'] = $output;
       $data['headers'] = $this->context['sandbox']['headers'];
       $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid');
-      if ($file_id && $this->configuration['create_ami_set']) {
+      if ($file_id && $this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $amisetdata = new \stdClass();
         $amisetdata->plugin = 'spreadsheet';
         /* start definitions to make php8 happy */
@@ -400,6 +404,10 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
             ->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
               ['@url' => $url->toString()]));
         }
+      }
+      else if ($this->configuration['create_ami_set'] && !$this->context['sandbox']['ado_type_exists']) {
+        $this->messenger()
+             ->addStatus($this->t('AMI Set could not be created because object(s) are missing the type key.'));
       }
     }
   }
@@ -541,10 +549,12 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
    *   Cache unique ID for Temporary storage.
    */
   protected function getCid() {
+    // a CID can only short. We take all the pieces and apply an MD5, 32Hex max.
     if (!isset($this->context['sandbox']['cid_prefix'])) {
-      $this->context['sandbox']['cid_prefix'] = $this->context['view_id'] . ':'
-        . $this->context['display_id'] . ':' . $this->context['action_id'] . ':'
-        . md5(serialize(array_keys($this->context['list']))) . ':';
+      $this->context['sandbox']['cid_prefix'] = md5(
+          $this->context['view_id'] . ':'
+          . $this->context['display_id'] . ':' . $this->context['action_id']
+         . serialize(array_keys($this->context['list']))) . ':';
     }
 
     return $this->context['sandbox']['cid_prefix'] . $this->context['sandbox']['current_batch'];

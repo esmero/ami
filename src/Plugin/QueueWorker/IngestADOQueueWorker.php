@@ -1120,37 +1120,58 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
         $ami_set = $this->entityTypeManager->getStorage('ami_set_entity')
           ->load($set_id);
-        if ($ami_set->getStatus() != $status && $status!= amiSetEntity::STATUS_PROCESSING && !$finished) {
-          $ami_set->setStatus(
-            $status
-          );
-          $ami_set->save();
+        // Means the AMI set is gone.
+        if (!$ami_set) {
+          $message = $this->t('The original AMI Set ID @setid does not longer exist. Last known status was: @status ',[
+            '@setid' => $data->info['set_id'],
+            '@status' => $status ?? 'Unknown',
+          ]);
+          $this->loggerFactory->get('ami')->warning($message ,[
+            'setid' => $data->info['set_id'] ?? NULL,
+            'time_submitted' => $data->info['time_submitted'] ?? '',
+          ]);
         }
-        elseif ($finished) {
-          if ($processed_set_status['errored'] == 0) {
+        else {
+          if ($ami_set->getStatus() != $status
+            && $status != amiSetEntity::STATUS_PROCESSING
+            && !$finished
+          ) {
             $ami_set->setStatus(
-              amiSetEntity::STATUS_PROCESSED
+              $status
             );
+            $ami_set->save();
           }
-          elseif ($processed_set_status['errored'] == $processed_set_status['total']) {
-            $ami_set->setStatus(
-              amiSetEntity::STATUS_FAILED
-            );
+          elseif ($finished) {
+            if ($processed_set_status['errored'] == 0) {
+              $ami_set->setStatus(
+                amiSetEntity::STATUS_PROCESSED
+              );
+            }
+            elseif ($processed_set_status['errored']
+              == $processed_set_status['total']
+            ) {
+              $ami_set->setStatus(
+                amiSetEntity::STATUS_FAILED
+              );
+            }
+            else {
+              $ami_set->setStatus(
+                amiSetEntity::STATUS_PROCESSED_WITH_ERRORS
+              );
+            }
+            $ami_set->save();
           }
-          else {
-            $ami_set->setStatus(
-              amiSetEntity::STATUS_PROCESSED_WITH_ERRORS
-            );
-          }
-          $ami_set->save();
         }
       }
     }
     catch (\Exception $exception)  {
-      $message = $this->t('The original AMI Set ID @setid does not longer exist.',[
-        '@setid' => $data->info['set_id']
+      $message = $this->t('The original AMI Set ID @setid does not longer exist or some other uncaught error happened while setting the status: @e.',[
+        '@setid' => $data->info['set_id'],
+        '@e' => $exception->getMessage(),
       ]);
-      $this->loggerFactory->get('ami_file')->warning($message ,[
+      // Makes no sense to log to the AMI file logger anymore?
+      // Send to the global ami logger (DB)
+      $this->loggerFactory->get('ami')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);

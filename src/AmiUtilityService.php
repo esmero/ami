@@ -544,24 +544,26 @@ class AmiUtilityService {
         // joined by a; like text/vtt;charset=UTF-8
         $mimetype_array = explode(";", $mimetype[0]);
         if ($mimetype_array) {
+          //Exceptions for "some" remote sources that might provide/non canonical mimetypes
+          if ($mimetype_array[0] == 'image/jpg') {
+            $mimetype_array[0] = 'image/jpeg';
+          }
+          if ($mimetype_array[0] == 'image/tif') {
+            $mimetype_array[0] = 'image/tiff';
+          }
+          if ($mimetype_array[0] == "audio/vnd.wave") {
+            $mimetype_array[0] = "audio/x-wave";
+          }
+
           $mimefromextension = NULL;
           if ($extensions_from_remote) {
             $mimefromextension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
               ->guess($filename_from_remote ?? $path);
-
           }
 
-
           if (count($mimetype_array) && ($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
-            //Exceptions for some remote sources
-            if ($mimetype_array[0] == 'image/jpg') {
-              $mimetype_array[0] = 'image/jpeg';
-            }
-            if ($mimetype_array[0] == 'image/tif') {
-              $mimetype_array[0] = 'image/tiff';
-            }
             $extension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
