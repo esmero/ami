@@ -121,7 +121,7 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
     '#type' => 'checkbox',
     '#weight' => 10,
     '#defaut_value' => FALSE,
-    '#title' => 'Show Preview using native Output Format (e.g HTML)',
+    '#title' => 'Show Preview using native Output Format (e.g. HTML)',
     '#states' => [
       'visible' => [
         [':input[name="ado_context_preview"]' => ['filled' => true]],
