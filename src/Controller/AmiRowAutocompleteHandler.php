@@ -389,16 +389,24 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   'mode' => $mimetype,
                 ],
               ];
-              if($show_json_table) {
+              if ($show_json_table && isset($json_table)) {
+                $output['json_used'] = [
+                  '#type' => 'details',
+                  '#open' => FALSE,
+                  '#title' => 'JSON Keys Used',
+                  'render' => [
+                    'table' => $json_table['json_table_used']
+                  ],
+                ];
                 $output['json_unused'] = [
                   '#type' => 'details',
                   '#open' => FALSE,
-                  '#title' => 'JSON keys',
+                  '#title' => 'JSON Keys Unused',
                   'render' => [
-                    'table' => $json_table
+                    'table' => $json_table['json_table_unused']
                   ],
                 ];
-	      }
+              }
             }
             else {
               $output['preview'] = [
