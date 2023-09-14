@@ -378,15 +378,20 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             }
             if (!$show_render_native || ($show_render_native && $mimetype != 'text/html')) {
               $output['preview'] = [
-                '#type' => 'codemirror',
-                '#title' => t('Processed Output:'),
-                '#rows' => 60,
-                '#value' => $render,
-                '#codemirror' => [
-                  'lineNumbers' => FALSE,
-                  'toolbar' => FALSE,
-                  'readOnly' => TRUE,
-                  'mode' => $mimetype,
+                '#type' => 'details',
+                '#open' => TRUE,
+                '#title' => 'Processed Output',
+                '#description_display' => 'before',
+                'render' => [
+                  '#type' => 'codemirror',
+                  '#rows' => 60,
+                  '#value' => $render,
+                  '#codemirror' => [
+                    'lineNumbers' => FALSE,
+                    'toolbar' => FALSE,
+                    'readOnly' => TRUE,
+                    'mode' => $mimetype,
+                  ]
                 ],
               ];
               if ($show_json_table && isset($json_table)) {
