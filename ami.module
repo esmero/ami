@@ -70,7 +70,9 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
       'event' => 'autocompleteclose change',
     ],
     '#states' => [
-      'visible' => [':input[name="entity_type"]' => ['value' => 'ami']],
+      'visible' => [
+        ':input[name="entity_type"]' => ['value' => 'ami']
+      ],
     ],
   ];
 
@@ -124,10 +126,14 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
     '#title' => 'Show Preview using native Output Format (e.g. HTML)',
     '#states' => [
       'visible' => [
-        [':input[name="ado_context_preview"]' => ['filled' => true]],
+        [
+          ':input[name="ado_context_preview"]' => ['filled' => true]
+        ],
         'or',
-        [':input[name="ado_amiset_preview"]' => ['filled' => true],
-          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]]
+        [
+          ':input[name="ado_amiset_preview"]' => ['filled' => true],
+          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]
+        ]
       ],
     ],
   ];
@@ -137,10 +143,14 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
     '#title' => 'Show Preview with JSON keys used in this template',
     '#states' => [
       'visible' => [
-        [':input[name="ado_context_preview"]' => ['filled' => true]],
+        [
+          ':input[name="ado_context_preview"]' => ['filled' => true]
+        ],
         'or',
-        [':input[name="ado_amiset_preview"]' => ['filled' => true],
-         ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]]
+        [
+          ':input[name="ado_amiset_preview"]' => ['filled' => true],
+          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]
+        ]
       ],
     ],
   ];
