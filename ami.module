@@ -33,7 +33,10 @@ function ami_help($route_name, RouteMatchInterface $route_match) {
   }
 }
 
-function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterface $form_state, $form_id) {
+/**
+ * Implements hook_form_alter().
+ */
+function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $form_state, $form_id) {
 
   // Add our AMI options here
   $form['preview']['entity_type'] = [
@@ -67,7 +70,9 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
       'event' => 'autocompleteclose change',
     ],
     '#states' => [
-      'visible' => [':input[name="entity_type"]' => ['value' => 'ami']],
+      'visible' => [
+        ':input[name="entity_type"]' => ['value' => 'ami']
+      ],
     ],
   ];
 
@@ -118,13 +123,34 @@ function ami_form_metadatadisplay_entity_edit_form_alter(&$form,FormStateInterfa
     '#type' => 'checkbox',
     '#weight' => 10,
     '#defaut_value' => FALSE,
-    '#title' => 'Show Preview using native Output Format (e.g HTML)',
+    '#title' => 'Show Preview using native Output Format (e.g. HTML)',
     '#states' => [
       'visible' => [
-        [':input[name="ado_context_preview"]' => ['filled' => true]],
+        [
+          ':input[name="ado_context_preview"]' => ['filled' => true]
+        ],
         'or',
-        [':input[name="ado_amiset_preview"]' => ['filled' => true],
-          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]]
+        [
+          ':input[name="ado_amiset_preview"]' => ['filled' => true],
+          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]
+        ]
+      ],
+    ],
+  ];
+  $form['preview']['show_json_table'] = [
+    '#type' => 'checkbox',
+    '#defaut_value' => FALSE,
+    '#title' => 'Show Preview with JSON keys used in this template',
+    '#states' => [
+      'visible' => [
+        [
+          ':input[name="ado_context_preview"]' => ['filled' => true]
+        ],
+        'or',
+        [
+          ':input[name="ado_amiset_preview"]' => ['filled' => true],
+          ':input[name="ado_amiset_row_context_preview"]' => ['filled' => true]
+        ]
       ],
     ],
   ];
