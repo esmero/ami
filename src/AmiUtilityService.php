@@ -561,7 +561,7 @@ class AmiUtilityService {
             $mimefromextension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
-              ->guess($filename_from_remote ?? $path);
+              ->guessMimeType($filename_from_remote ?? $path);
           }
 
           if (count($mimetype_array) && ($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
@@ -579,7 +579,7 @@ class AmiUtilityService {
     // If none try with the filename either from remote (if set) of from the download path
     if (!$extension || $extension == 'bin'){
       $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
-        ->guess($filename_from_remote ?? $path);
+        ->guessMimeType($filename_from_remote ?? $path);
       if (($mimefromextension !== "application/octet-stream")) {
         $extension = $extensions_from_remote ?? 'bin';
       }
