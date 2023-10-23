@@ -170,12 +170,7 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
    * {@inheritdoc}
    */
   public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
-    if (method_exists($container->get('request_stack'), 'getMainRequest')) {
-      $request =  $container->get('request_stack')->getMainRequest();
-    }
-    else {
-      $request =  $container->get('request_stack')->getMasterRequest();
-    }
+    $request =  $container->get('request_stack')->getMainRequest();
     return new static(
       $configuration,
       $plugin_id,
@@ -222,7 +217,7 @@ class VboBatchProcessorHandler extends ProcessorPluginBase implements BuildProce
     if (!$this->processor) {
       // Means we have not intialized the processor.
       // We only do it on the constructor only when needed to avoid
-      // cluterring memory and stuff
+      // cluttering memory and stuff
       return;
     }
 
