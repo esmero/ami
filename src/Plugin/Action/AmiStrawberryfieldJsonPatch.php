@@ -10,7 +10,6 @@ use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
 use Drupal\Core\Plugin\PluginFormInterface;
 use Drupal\strawberryfield\Plugin\Action\StrawberryfieldJsonPatch;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInterface;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Provides an action that can Modify Entity attached SBFs via JSON Patch.
@@ -52,7 +51,7 @@ class AmiStrawberryfieldJsonPatch extends StrawberryfieldJsonPatch implements Vi
   /**
    * {@inheritdoc}
    */
-  public function setContext(array &$context) {
+  public function setContext(array &$context):void {
     $this->context['sandbox'] = &$context['sandbox'];
     foreach ($context as $key => $item) {
       if ($key === 'sandbox') {
@@ -65,7 +64,7 @@ class AmiStrawberryfieldJsonPatch extends StrawberryfieldJsonPatch implements Vi
   /**
    * {@inheritdoc}
    */
-  public function setView(ViewExecutable $view) {
+  public function setView(ViewExecutable $view):void {
     $this->view = $view;
   }
 
@@ -81,7 +80,8 @@ class AmiStrawberryfieldJsonPatch extends StrawberryfieldJsonPatch implements Vi
     return $results;
   }
 
-  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state) {
+  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state):array {
+    return $element;
   }
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {

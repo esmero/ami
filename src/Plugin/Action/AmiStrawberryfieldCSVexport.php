@@ -171,7 +171,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   /**
    * {@inheritdoc}
    */
-  public function setContext(array &$context) {
+  public function setContext(array &$context):void {
     $this->context['sandbox'] = &$context['sandbox'];
     foreach ($context as $key => $item) {
       if ($key === 'sandbox') {
@@ -184,7 +184,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   /**
    * {@inheritdoc}
    */
-  public function setView(ViewExecutable $view) {
+  public function setView(ViewExecutable $view):void {
     $this->view = $view;
   }
 
@@ -335,8 +335,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
     return $row;
   }
 
-
-  protected function generateOutput() {
+  protected function generateOutput():array {
     $rows = [];
     for ($i = 1; $i <= $this->context['sandbox']['current_batch']; $i++) {
       $chunk = $this->tempStore->get($this->context['sandbox']['cid_prefix'] . $i);
@@ -358,7 +357,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   /**
    * Output generated string to file. Message user.
    *
-   * @param string $output
+   * @param array $output
    *   The string that will be saved to a file.
    */
   protected function sendToFile($output) {
@@ -413,8 +412,13 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   }
 
 
-  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state) {
+  /**
+   * {@inheritdoc}
+   */
+  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state):array {
+    return $element;
   }
+
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
     $form['expand_nodes_to_uuids'] = [
@@ -464,7 +468,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   /**
    * {@inheritdoc}
    */
-  public function validateConfigurationForm(array &$form, FormStateInterface $form_state) {
+  public function validateConfigurationForm(array &$form, FormStateInterface $form_state):void {
 
   }
 
