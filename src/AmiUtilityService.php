@@ -38,6 +38,7 @@ use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 use SplFileObject;
+use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 
 class AmiUtilityService {
 
@@ -893,10 +894,8 @@ class AmiUtilityService {
         return NULL;
       }
     }
-    // Ensure the file with empty data
-    $file = file_save_data(
-      '', $uri, FileSystemInterface::EXISTS_REPLACE
-    );
+
+    $file = \Drupal::service('file.repository')->writeData('', $uri, FileSystemInterface::EXISTS_REPLACE);
 
     if (!$file) {
       $this->messenger()->addError(
@@ -955,9 +954,8 @@ class AmiUtilityService {
       return NULL;
     }
     // Ensure the file
-    $file = file_save_data(
-      '', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE
-    );
+
+    $file = \Drupal::service('file.repository')->writeData('',  $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE);
     if (!$file) {
       $this->messenger()->addError(
         $this->t('Unable to create AMI CSV file. Verify permissions please.')
@@ -1020,7 +1018,7 @@ class AmiUtilityService {
       $this->t(
         'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
         [
-          '@url' => file_create_url($file->getFileUri()),
+          '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
           '@filename' => $file->getFilename(),
         ]
       )
@@ -1528,6 +1526,7 @@ class AmiUtilityService {
     $webform_ids = $query
       ->condition("status", "open")
       ->sort('title', 'ASC')
+      ->accessCheck(TRUE)
       ->execute();
     if (count($webform_ids)) {
       $webforms = $this->entityTypeManager->getStorage('webform')->loadMultiple(
@@ -1677,7 +1676,14 @@ class AmiUtilityService {
             $zipfail = TRUE;
           }
           else {
-            $zipfile = file_move($zipfile, $target_directory, FileSystemInterface::EXISTS_REPLACE);
+            /** @var \Drupal\file\FileRepositoryInterface $file_repository */
+            $file_repository = \Drupal::service('file.repository');
+            try {
+              $zipfile = $file_repository->move($zipfile, $target_directory, FileSystemInterface::EXISTS_RENAME);
+            }
+            catch (InvalidStreamWrapperException $e) {
+              $zipfail = TRUE;
+            }
             if (!$zipfile) {
               $zipfail = TRUE;
             }
