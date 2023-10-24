@@ -197,6 +197,6 @@ function ami_ami_set_entity_presave(Drupal\Core\Entity\EntityInterface $entity) 
   if ($sbf_fields = \Drupal::service('strawberryfield.utility')->bearsStrawberryfield($entity)) {
     $event_type = AmiEventType::PRESAVE;
     $event = new AmiCrudEvent($event_type, $entity, $sbf_fields);
-    \Drupal::service('event_dispatcher')->dispatch($event_type, $event);
+    \Drupal::service('event_dispatcher')->dispatch($event, $event_type);
   }
 }
