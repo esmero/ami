@@ -1188,10 +1188,14 @@ class AmiUtilityService {
     $highestRow = count($data);
     if ($always_include_header) {
       $rowHeaders = $data[0] ?? [];
-      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(function($value) {
+        $value = $value ?? '';
+        $value = stripslashes($value);
+        $value = function_exists('mb_convert_encoding') ? mb_convert_encoding($value, 'UTF-8', 'ISO-8859-1') : utf8_encode($value);
+        $value = strtolower($value);
+        $value = trim($value);
+        return $value;
+      }, $rowHeaders);
       $headercount = count($rowHeaders);
     }
     else {
@@ -1428,7 +1432,10 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumn(array $data, int $key): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $unique = array_map('trim', $all);
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all);
     $unique = array_unique($unique, SORT_STRING);
     return $unique;
   }
@@ -1784,7 +1791,10 @@ class AmiUtilityService {
         }
         elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
           // This allows single value and or ; and trims. Neat?
-          $parent_ados_array = array_map('trim', explode(';', $parent_ados_expanded));
+          $parent_ados_array = array_map(function($value) {
+            $value = $value ?? '';
+            return trim($value);
+          }, explode(';', $parent_ados_expanded));
         }
 
         $ado['parent'][$parent_key] = $parent_ados_array;
@@ -1874,9 +1884,10 @@ class AmiUtilityService {
                     )
                   ) {
                     // This allows single value and or ; and trims. Neat?
-                    $parentup_array = array_map(
-                      'trim', explode(';', $parentup_expanded)
-                    );
+                    $parentup_array = array_map(function($value) {
+                      $value = $value ?? '';
+                      return trim($value);
+                    }, explode(';', $parentup_expanded));
                   }
 
                   foreach ($parentup_array as $parentup) {
@@ -2047,7 +2058,11 @@ class AmiUtilityService {
         $required_headers = array_merge($required_headers, array_values((array)$data->column_keys));
       }
       // We use internally Lower case Headers.
-      $required_headers = array_map('strtolower', $required_headers);
+      $required_headers = array_map(function($value) {
+        $value = $value ?? '';
+        return strtolower($value);
+      }, $required_headers);
+
       $headers_missing = array_diff(array_unique($required_headers), $file_data_all['headers']);
       if (count($headers_missing)) {
         $message = $this->t(
@@ -2494,7 +2509,11 @@ class AmiUtilityService {
         $all_entries[] = $chosen_entry;
       }
     }
-    $unique = array_map('trim', $all_entries);
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all_entries);
+
     $unique = array_unique(array_values($unique), SORT_STRING);
     return $unique;
   }

@@ -438,7 +438,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       // Why 5? one character + one dot + 3 for the extension
       if (isset($data->info['row']['data'][$file_column]) && strlen(trim($data->info['row']['data'][$file_column])) >= 5) {
         $filenames = trim($data->info['row']['data'][$file_column]);
-        $filenames = array_map('trim', explode(';', $filenames));
+        $filenames = array_map(function($value) {
+          $value = $value ?? '';
+          return trim($value);
+        }, explode(';', $filenames));
+
         // Someone can just pass a ; and we end with an empty wich means a while folder, remove the thing!
         $filenames = array_filter($filenames);
         // Clear first. Who knows whats in there. May be a file string that will eventually fail. We should not allow anything coming
