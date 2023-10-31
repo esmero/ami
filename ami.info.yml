@@ -1,9 +1,9 @@
 name: Archipelago Multi Importer
-description: Archipelago Multi Importer for Drupal 9. A module of mass ingest made for the masses.
+description: Archipelago Multi Importer for Drupal 9/10. A module of mass ingest made for the masses.
 package: Archipelago
 type: module
-core_version_requirement: ^8.9 || ^9
-php: 7.1
+core_version_requirement: ^9.5 || ^10
+php: 8
 dependencies:
   - 'views_bulk_operations'
   - 'strawberryfield'

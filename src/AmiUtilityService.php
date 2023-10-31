@@ -38,6 +38,7 @@ use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 use SplFileObject;
+use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 
 class AmiUtilityService {
 
@@ -560,7 +561,7 @@ class AmiUtilityService {
             $mimefromextension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
-              ->guess($filename_from_remote ?? $path);
+              ->guessMimeType($filename_from_remote ?? $path);
           }
 
           if (count($mimetype_array) && ($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
@@ -578,7 +579,7 @@ class AmiUtilityService {
     // If none try with the filename either from remote (if set) of from the download path
     if (!$extension || $extension == 'bin'){
       $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
-        ->guess($filename_from_remote ?? $path);
+        ->guessMimeType($filename_from_remote ?? $path);
       if (($mimefromextension !== "application/octet-stream")) {
         $extension = $extensions_from_remote ?? 'bin';
       }
@@ -893,10 +894,8 @@ class AmiUtilityService {
         return NULL;
       }
     }
-    // Ensure the file with empty data
-    $file = file_save_data(
-      '', $uri, FileSystemInterface::EXISTS_REPLACE
-    );
+
+    $file = \Drupal::service('file.repository')->writeData('', $uri, FileSystemInterface::EXISTS_REPLACE);
 
     if (!$file) {
       $this->messenger()->addError(
@@ -955,9 +954,8 @@ class AmiUtilityService {
       return NULL;
     }
     // Ensure the file
-    $file = file_save_data(
-      '', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE
-    );
+
+    $file = \Drupal::service('file.repository')->writeData('',  $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE);
     if (!$file) {
       $this->messenger()->addError(
         $this->t('Unable to create AMI CSV file. Verify permissions please.')
@@ -1020,7 +1018,7 @@ class AmiUtilityService {
       $this->t(
         'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
         [
-          '@url' => file_create_url($file->getFileUri()),
+          '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
           '@filename' => $file->getFilename(),
         ]
       )
@@ -1190,10 +1188,14 @@ class AmiUtilityService {
     $highestRow = count($data);
     if ($always_include_header) {
       $rowHeaders = $data[0] ?? [];
-      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(function($value) {
+        $value = $value ?? '';
+        $value = stripslashes($value);
+        $value = function_exists('mb_convert_encoding') ? mb_convert_encoding($value, 'UTF-8', 'ISO-8859-1') : utf8_encode($value);
+        $value = strtolower($value);
+        $value = trim($value);
+        return $value;
+      }, $rowHeaders);
       $headercount = count($rowHeaders);
     }
     else {
@@ -1430,7 +1432,10 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumn(array $data, int $key): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $unique = array_map('trim', $all);
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all);
     $unique = array_unique($unique, SORT_STRING);
     return $unique;
   }
@@ -1528,6 +1533,7 @@ class AmiUtilityService {
     $webform_ids = $query
       ->condition("status", "open")
       ->sort('title', 'ASC')
+      ->accessCheck(TRUE)
       ->execute();
     if (count($webform_ids)) {
       $webforms = $this->entityTypeManager->getStorage('webform')->loadMultiple(
@@ -1677,7 +1683,14 @@ class AmiUtilityService {
             $zipfail = TRUE;
           }
           else {
-            $zipfile = file_move($zipfile, $target_directory, FileSystemInterface::EXISTS_REPLACE);
+            /** @var \Drupal\file\FileRepositoryInterface $file_repository */
+            $file_repository = \Drupal::service('file.repository');
+            try {
+              $zipfile = $file_repository->move($zipfile, $target_directory, FileSystemInterface::EXISTS_RENAME);
+            }
+            catch (InvalidStreamWrapperException $e) {
+              $zipfail = TRUE;
+            }
             if (!$zipfile) {
               $zipfail = TRUE;
             }
@@ -1778,7 +1791,10 @@ class AmiUtilityService {
         }
         elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
           // This allows single value and or ; and trims. Neat?
-          $parent_ados_array = array_map('trim', explode(';', $parent_ados_expanded));
+          $parent_ados_array = array_map(function($value) {
+            $value = $value ?? '';
+            return trim($value);
+          }, explode(';', $parent_ados_expanded));
         }
 
         $ado['parent'][$parent_key] = $parent_ados_array;
@@ -1868,9 +1884,10 @@ class AmiUtilityService {
                     )
                   ) {
                     // This allows single value and or ; and trims. Neat?
-                    $parentup_array = array_map(
-                      'trim', explode(';', $parentup_expanded)
-                    );
+                    $parentup_array = array_map(function($value) {
+                      $value = $value ?? '';
+                      return trim($value);
+                    }, explode(';', $parentup_expanded));
                   }
 
                   foreach ($parentup_array as $parentup) {
@@ -2041,7 +2058,11 @@ class AmiUtilityService {
         $required_headers = array_merge($required_headers, array_values((array)$data->column_keys));
       }
       // We use internally Lower case Headers.
-      $required_headers = array_map('strtolower', $required_headers);
+      $required_headers = array_map(function($value) {
+        $value = $value ?? '';
+        return strtolower($value);
+      }, $required_headers);
+
       $headers_missing = array_diff(array_unique($required_headers), $file_data_all['headers']);
       if (count($headers_missing)) {
         $message = $this->t(
@@ -2488,7 +2509,11 @@ class AmiUtilityService {
         $all_entries[] = $chosen_entry;
       }
     }
-    $unique = array_map('trim', $all_entries);
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all_entries);
+
     $unique = array_unique(array_values($unique), SORT_STRING);
     return $unique;
   }

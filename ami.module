@@ -121,8 +121,8 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
 
   $form['preview']['render_native'] = [
     '#type' => 'checkbox',
-    '#weight' => 10,
     '#defaut_value' => FALSE,
+    '#weight' => -6,
     '#title' => 'Show Preview using native Output Format (e.g. HTML)',
     '#states' => [
       'visible' => [
@@ -140,6 +140,7 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
   $form['preview']['show_json_table'] = [
     '#type' => 'checkbox',
     '#defaut_value' => FALSE,
+    '#weight' => -5,
     '#title' => 'Show Preview with JSON keys used in this template',
     '#states' => [
       'visible' => [
@@ -197,6 +198,6 @@ function ami_ami_set_entity_presave(Drupal\Core\Entity\EntityInterface $entity) 
   if ($sbf_fields = \Drupal::service('strawberryfield.utility')->bearsStrawberryfield($entity)) {
     $event_type = AmiEventType::PRESAVE;
     $event = new AmiCrudEvent($event_type, $entity, $sbf_fields);
-    \Drupal::service('event_dispatcher')->dispatch($event_type, $event);
+    \Drupal::service('event_dispatcher')->dispatch($event, $event_type);
   }
 }

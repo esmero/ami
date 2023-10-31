@@ -14,6 +14,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Url;
 use Symfony\Component\DependencyInjection\ContainerInterface;
+use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 
 /**
  * Form controller for the MetadataDisplayEntity entity delete form.
@@ -143,10 +144,24 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
               'Please use the Edit Reconciled LoD tab to Fix/Correct/Enhance or '
             ),
           ];
-          $form['status']['download'] = Url::fromUri(file_create_url($lod_file->getFileUri()))->toRenderArray();
-          $form['status']['download']['#type'] = 'link';
-          $form['status']['download']['#title'] = $this->t('Download LoD CSV');
-
+          /** @var \Drupal\Core\File\FileUrlGeneratorInterface $file_url_generator */
+          $file_url_generator = \Drupal::service('file_url_generator');
+          try {
+            $lod_file_url = $file_url_generator->generateAbsoluteString(
+              $lod_file->getFileUri()
+            );
+          }
+          catch (InvalidStreamWrapperException $e) {
+            $lod_file_url = NULL;
+          }
+          if ($lod_file_url) {
+            $form['status']['download'] = Url::fromUri($lod_file_url)
+              ->toRenderArray();
+            $form['status']['download']['#type'] = 'link';
+            $form['status']['download']['#title'] = $this->t(
+              'Download LoD CSV'
+            );
+          }
         }
       }
       $form['mapping'] = [
