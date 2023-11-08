@@ -148,6 +148,7 @@ function ami_update_8905() {
   // Update all AMI sets already with 'ready' use the new uppercase default
   $entities_nids = \Drupal::entityQuery('ami_set_entity')
     ->condition('status', 'ready')
+    ->accessCheck(FALSE)
     ->execute();
 
   // Load all the articles.

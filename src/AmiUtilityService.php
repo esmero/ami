@@ -1481,6 +1481,7 @@ class AmiUtilityService {
     $metadatadisplay_ids = $query
       ->condition("mimetype", "application/json")
       ->sort('name', 'ASC')
+      ->accessCheck(TRUE)
       ->execute();
     if (count($metadatadisplay_ids)) {
       $metadatadisplays = $this->entityTypeManager->getStorage(
