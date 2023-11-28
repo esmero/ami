@@ -161,7 +161,13 @@ class AmiLoDService {
     'getty;aat;fuzzy' => 'Getty aat Fuzzy',
     'getty;aat;terms' => 'Getty aat Terms',
     'getty;aat;exact' => 'Getty aat Exact Label Match',
-    'wikidata;subjects;thing' => 'Wikidata Q Items'
+    'wikidata;subjects;thing' => 'Wikidata Q Items',
+    'mesh;term;startswith' => 'MeSH (starts with Term)',
+    'mesh;term;contains' => 'MeSH (contains Term)',
+    'mesh;term;exact' => 'MeSH (exact Term)',
+	'mesh;descriptor;startswith' => 'MeSH (starts with Descriptor)',
+	'mesh;descriptor;contains' => 'MeSH (contains Descriptor)',
+    'mesh;descriptor;exact' => 'MeSH (exact Descriptor)'
   ];
 
   public CONST LOD_COLUMN_TO_ARGUMENTS = [
@@ -183,7 +189,13 @@ class AmiLoDService {
     'getty_aat_fuzzy' => 'getty;aat;fuzzy',
     'getty_aat_terms' => 'getty;aat;terms',
     'getty_aat_exact' => 'getty;aat;exact',
-    'wikidata_subjects_thing' => 'wikidata;subjects;thing'
+    'wikidata_subjects_thing' => 'wikidata;subjects;thing',
+    'mesh' => 'mesh;term;startswith',
+    'mesh' => 'mesh;term;contains',
+    'mesh' => 'mesh;term;exact',
+    'mesh' => 'mesh;descriptor;startswith',
+	'mesh' => 'mesh;descriptor;contains',
+    'mesh' => 'mesh;descriptor;exact'
   ];
 
   /**
