@@ -165,8 +165,8 @@ class AmiLoDService {
     'mesh;term;startswith' => 'MeSH (starts with Term)',
     'mesh;term;contains' => 'MeSH (contains Term)',
     'mesh;term;exact' => 'MeSH (exact Term)',
-	'mesh;descriptor;startswith' => 'MeSH (starts with Descriptor)',
-	'mesh;descriptor;contains' => 'MeSH (contains Descriptor)',
+    'mesh;descriptor;startswith' => 'MeSH (starts with Descriptor)',
+    'mesh;descriptor;contains' => 'MeSH (contains Descriptor)',
     'mesh;descriptor;exact' => 'MeSH (exact Descriptor)'
   ];
 
@@ -194,7 +194,7 @@ class AmiLoDService {
     'mesh' => 'mesh;term;contains',
     'mesh' => 'mesh;term;exact',
     'mesh' => 'mesh;descriptor;startswith',
-	'mesh' => 'mesh;descriptor;contains',
+    'mesh' => 'mesh;descriptor;contains',
     'mesh' => 'mesh;descriptor;exact'
   ];
 
