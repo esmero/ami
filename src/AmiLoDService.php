@@ -194,7 +194,7 @@ class AmiLoDService {
     'mesh_term_contains' => 'mesh;term;contains',
     'mesh_term_exact' => 'mesh;term;exact',
     'mesh_descriptor_startswith' => 'mesh;descriptor;startswith',
-	  'mesh_descriptor_contains' => 'mesh;descriptor;contains',
+    'mesh_descriptor_contains' => 'mesh;descriptor;contains',
     'mesh_descriptor_exact' => 'mesh;descriptor;exact'
   ];
 
