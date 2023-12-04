@@ -190,12 +190,12 @@ class AmiLoDService {
     'getty_aat_terms' => 'getty;aat;terms',
     'getty_aat_exact' => 'getty;aat;exact',
     'wikidata_subjects_thing' => 'wikidata;subjects;thing',
-    'mesh' => 'mesh;term;startswith',
-    'mesh' => 'mesh;term;contains',
-    'mesh' => 'mesh;term;exact',
-    'mesh' => 'mesh;descriptor;startswith',
-    'mesh' => 'mesh;descriptor;contains',
-    'mesh' => 'mesh;descriptor;exact'
+    'mesh_term_startswith' => 'mesh;term;startswith',
+    'mesh_term_contains' => 'mesh;term;contains',
+    'mesh_term_exact' => 'mesh;term;exact',
+    'mesh_descriptor_startswith' => 'mesh;descriptor;startswith',
+    'mesh_descriptor_contains' => 'mesh;descriptor;contains',
+    'mesh_descriptor_exact' => 'mesh;descriptor;exact'
   ];
 
   /**
