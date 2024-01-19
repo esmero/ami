@@ -380,6 +380,12 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       '#type' => 'submit',
       '#value' => $this->t('Submit'),
     );
+    // Because this form has no real submissions and the entity itself is not changing
+    // we had users seen stale (no reports) but other user loging in can see them
+    // Maybe this helps?
+    $form['#cache'] = [
+      'max-age' => 0
+    ];
     return $form + parent::buildForm($form, $form_state);
   }
 
