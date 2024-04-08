@@ -304,7 +304,7 @@ class AmiUtilityService {
    *   - If not remote and exists a Drupal file object
    *   - If does not exist boolean FALSE
    */
-  public function file_get($uri, File $zip_file = NULL) {
+  public function file_get($uri, File $zip_file = NULL, $force = FALSE) {
     $uri = trim($uri);
 
     $parsed_url = parse_url($uri);
@@ -350,11 +350,10 @@ class AmiUtilityService {
           // Means no local file but we can check inside a ZIP.
           // Try with the ZIP file in case there is a ZIP and local failed
           // Use the Zip file uuid to prefix the destination.
-          // @TODO file_build_uri is deprecated replace before Drupal 10.0.0
           $localfile = $this->streamWrapperManager->normalizeUri(
             $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
           );
-          if (!file_exists($localfile)) {
+          if (!file_exists($localfile) || $force) {
             $destination_zip = $destination . $zip_file->uuid() . '/';
             if (!$this->fileSystem->prepareDirectory(
               $destination_zip,
@@ -406,7 +405,7 @@ class AmiUtilityService {
         $localfile = $path;
       }
       // Actual remote heavy lifting only if not present.
-      if (!file_exists($localfile)) {
+      if (!file_exists($localfile) || $force) {
         if (!$this->fileSystem->prepareDirectory(
           $destination,
           FileSystemInterface::CREATE_DIRECTORY
@@ -495,7 +494,21 @@ class AmiUtilityService {
       if ($max_time == 0) {
         $max_time = 720.00;
       }
+      // Do a HEAD request first. Be sure we don't have anything in the 4XX or 5xx range
+      $head= $this->httpClient->head($uri, ['timeout' => round($max_time,2)]);
+      if ($head->getStatusCode() >= 400) {
+        return FALSE;
+      }
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
+      // Edge case... in a fraction of time, someone closes the file from the remote source. We can still cancel
+      if ($response->getStatusCode() >= 400) {
+        if (file_exists($path)) {
+          @unlink($path);
+        }
+        return FALSE;
+      }
+
+
       $filename_from_remote = $basename;
       $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
       $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);

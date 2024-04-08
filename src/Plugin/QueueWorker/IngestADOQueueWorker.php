@@ -979,7 +979,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       );
       if (!$file) {
         $data->info['force_file_process'] = TRUE;
-        // OK still there and alive. If not we have to force reprocessing!
       }
       elseif (file_exists($file->getFileUri()) == FALSE) {
         $data->info['force_file_process'] = TRUE;
@@ -992,7 +991,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // First check if we already have the info here and not forced to recreate, if so do nothing.
     if (($data->info['force_file_process'] ?? FALSE)) {
       $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
-        $data->info['zip_file']);
+        $data->info['zip_file'], $data->info['force_file_process']);
       if ($file) {
         $force_destination = isset($data->info['ops_forcemanaged_destination_file']) ? (bool) $data->info['ops_forcemanaged_destination_file'] : TRUE;
         $reduced = $data->info['reduced'] ?? FALSE;
