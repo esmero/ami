@@ -495,12 +495,16 @@ class AmiUtilityService {
         $max_time = 720.00;
       }
       // Do a HEAD request first. Be sure we don't have anything in the 4XX or 5xx range
-      $head= $this->httpClient->head($uri, ['timeout' => round($max_time,2)]);
+      $head = $this->httpClient->head($uri, ['timeout' => round($max_time,2)]);
+      // Note. This will never run per se. Because the client is setup to throw an exception, but...
+      // If Drupal changes the client base setup in the future we won't know and we won't catch it
+      // So keeping it.
       if ($head->getStatusCode() >= 400) {
         return FALSE;
       }
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
       // Edge case... in a fraction of time, someone closes the file from the remote source. We can still cancel
+      // Same as with the HEAD. In this current setup this won't run and that is ok, the catch deals with it.
       if ($response->getStatusCode() >= 400) {
         if (file_exists($path)) {
           @unlink($path);
@@ -508,14 +512,12 @@ class AmiUtilityService {
         return FALSE;
       }
 
-
       $filename_from_remote = $basename;
       $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
       $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
       $extension_from_mime = NULL;
       $extension = NULL;
       $content_disposition = $response->getHeader('Content-Disposition');
-
       if (!empty($content_disposition)) {
         $filename_from_remote = $this->getFilenameFromDisposition($content_disposition[0]);
         if ($filename_from_remote) {
@@ -539,14 +541,20 @@ class AmiUtilityService {
       }
     }
     catch (\Exception $exception) {
+      // Deals with 4xx and 5xx too.
       $message_vars = [
         '@uri' => $uri,
         '@path' => $path,
         '@error' => $exception->getMessage(),
         '@time' => $max_time,
+        '@code' => $exception->getCode()
       ];
-      $message = 'Unable to download remote file from @uri to local @path with error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible and destination is writable.';
+      $message = 'Unable to download remote file from @uri to local @path with HTTP code @code and error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible and destination is writable.';
       $this->loggerFactory->get('ami')->error($message, $message_vars);
+      // in case the sink did download the file/we delete it here.
+      if (file_exists($path)) {
+        @unlink($path);
+      }
       return FALSE;
     }
 
