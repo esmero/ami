@@ -48,20 +48,28 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
     // it simple for now.
     $this->loggerFactory->get('ami_file')->setLoggers([[$log]]);
 
-    /* Data info for an ADO has this structure
+    /* Data info for an CSV has this structure
       $data->info = [
+        'csv_file' => The CSV File that will (or we hope so if well formed) generate multiple ADO Queue items
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.
+        'status' => Either a string (moderation state) or a 1/0 for published/unpublished if not moderated
         'op_secondary' => applies only to Update/Patch operations. Can be one of 'update','replace','append'
         'ops_safefiles' => Boolean, True if we will not allow files/mappings to be removed/we will keep them warm and safe
         'log_jsonpatch' => If for Update operations we will generate a single PER ADO Log with a full JSON Patch,
         'attempt' => The number of attempts to process. We always start with a 1
         'zip_file' => Zip File/File Entity
-        'csv_file' => The CSV that will generate the ADO queue items.
         'queue_name' => because well ... we use Hydroponics too
-        'time_submitted' => Timestamp on when the queue was sent. All Entries will share the same
+        'force_file_queue' => defaults to false, will always treat files as separate queue items.
+        'force_file_process' => defaults to false, will force all techmd and file fetching to happen from scratch instead of using cached versions.
+        'manyfiles' => Number of files (passed by \Drupal\ami\Form\amiSetEntityProcessForm::submitForm) that will trigger queue processing for files,
+        'ops_skip_onmissing_file' => Skips ADO operations if a passed/mapped file is not present,
+        'ops_forcemanaged_destination_file' => Forces Archipelago to manage a files destination when the source matches the destination Schema (e.g S3),
+        'time_submitted' => Timestamp on when the queue was send. All Entries will share the same
       ];
+
+    Most of this data will simply be relayed to another queue item.
     // This will simply go to an alternate processing on this same Queue Worker
     // Just for files.
     */
