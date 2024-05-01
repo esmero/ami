@@ -103,7 +103,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @var array
    */
-  private CONST OP_HUMAN = [
+  protected CONST OP_HUMAN = [
     'create' => 'created',
     'update' => 'updated',
     'patch' => 'patched',
@@ -1101,7 +1101,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param string    $status
    * @param \stdClass $data
    */
-  private function setStatus(string $status, \stdClass $data) {
+  protected function setStatus(string $status, \stdClass $data) {
     try {
       $set_id = $data->info['set_id'];
       if (!empty($set_id)) {
