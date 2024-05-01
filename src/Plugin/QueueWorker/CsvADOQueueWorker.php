@@ -51,6 +51,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
     /* Data info for an CSV has this structure
       $data->info = [
         'csv_file' => The CSV File that will (or we hope so if well formed) generate multiple ADO Queue items
+        'csv_file_name' => Only present if this is called not from the root
         'set_id' => The Set id
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.

@@ -399,7 +399,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     else {
       $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
-      $csv_file_object =   $data->mapping->globalmapping_settings->files_csv ?? NULL;
+      $csv_file_object = $data->mapping->globalmapping_settings->files_csv ?? NULL;
     }
 
     $file_columns = [];
@@ -578,7 +578,37 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       return;
     }
     // Only persist if we passed this.
-    $this->persistEntity($data, $processed_metadata);
+    // True if all ok, to the best of our knowledge of course
+    $persisted = $this->persistEntity($data, $processed_metadata);
+    // @TODO another question for @alliomera. If i don't check if the ROW was ingested.. we could process a Child CSV
+    // EVEN if the parent object was A) there already OR, was non even valid. That could be useful?
+    // A Processing setting like "don't process if file missing?"
+    if ($persisted && !empty($file_csv_columns)) {
+      $current_uuid = $data->info['row']['uuid'] ?? NULL;
+      $current_row_id = $data->info['row']['row_id'] ?? NULL;
+      $data_csv = clone $data;
+      unset($data_csv->info['row']);
+      foreach ($file_csv_columns as $file_csv_column) {
+        if (isset($data->info['row']['data'][$file_csv_column]) && strlen(trim($data->info['row']['data'][$file_csv_column])) >= 5) {
+          $filenames = trim($data->info['row']['data'][$file_csv_column]);
+          $filenames = array_map(function($value) {
+            $value = $value ?? '';
+            return trim($value);
+          }, explode(';', $filenames));
+          $filenames = array_filter($filenames);
+          foreach($filenames as $filename) {
+              $data_csv->info['csv_filename'] = $filename;
+              $csv_file = $this->processCSvFile($data_csv);
+              if ($csv_file) {
+                $data_csv->info['csv_file'] = $csv_file;
+                // Push to the CSV  queue
+                \Drupal::queue('ami_csv_ado')
+                  ->createItem($data_csv);
+              }
+          }
+        }
+      }
+    }
   }
 
 
@@ -614,7 +644,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   private function persistEntity(\stdClass $data, array $processed_metadata) {
 
     if (!$this->canProcess($data)) {
-      return;
+      return FALSE;
     }
 
     //OP can be one of:
@@ -890,6 +920,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
         $this->setStatus(amiSetEntity::STATUS_PROCESSING, $data);
+        return TRUE;
       }
       catch (\Exception $exception) {
         $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
@@ -902,7 +933,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
         $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-        return;
+        return FALSE;
       }
     }
     else {
@@ -916,6 +947,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
+      return FALSE;
     }
   }
 
@@ -1043,8 +1075,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null
   {
+    if (!($data->info['csv_filename'] ?? NULL)) {
+      return NULL;
+    }
     $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
-    $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
+    $file = $this->AmiUtilityService->file_get(trim($data->info['csv_filename']),
         $data->info['zip_file'], TRUE);
     if ($file && $file->getMimeType() == 'application/csv') {
         return $file;
@@ -1052,7 +1087,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     else {
         return NULL;
     }
-
   }
 
 
