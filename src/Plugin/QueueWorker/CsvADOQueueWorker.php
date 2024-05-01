@@ -77,6 +77,18 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
       // But the ADO worker itself will (new code) extract a CSV and then again, enqueue back to this so this one can yet again
       // split into smaller chuncks and so on.
       $info = $this->AmiUtilityService->preprocessAmiSet($data->info['csv_file'], $data, $invalid, FALSE);
+
+      if (!count($info)) {
+        $message = $this->t('So sorry. CSV for @setid produced no ADOs. Please correct your source CSV data', [
+          '@setid' => $data->info['set_id']
+        ]);
+        $this->loggerFactory->get('ami_file')->warning($message, [
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
+        return;
+      }
+
       foreach ($info as $item) {
         // We set current User here since we want to be sure the final owner of
         // the object is this and not the user that runs the queue
@@ -107,6 +119,19 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           '@setid' => $data->info['set_id']
         ]);
         $this->loggerFactory->get('ami_file')->info($message, [
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
+      }
+      if (count($invalid)) {
+        $invalid_message = $this->formatPlural(count($invalid),
+          'Source data Row @row had an issue, common cause is an invalid parent.',
+          '@count rows, @row, had issues, common causes are invalid parents and/or non existing referenced rows.',
+          [
+            '@row' => implode(', ', array_keys($invalid)),
+          ]
+        );
+        $this->loggerFactory->get('ami_file')->warning($invalid_message, [
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
