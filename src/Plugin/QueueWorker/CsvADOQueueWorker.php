@@ -27,18 +27,18 @@ use \Drupal\Core\TempStore\PrivateTempStoreFactory;
  *
  * @QueueWorker(
  *   id = "ami_csv_ado",
- *   title = @Translation("AMI CSV expander and row Enqueuer Queue Worker")
+ *   title = @Translation("AMI CSV Expander and ADO Enqueuer Queue Worker")
  * )
  */
-class CsvADOQueueWorker extends IngestADOQueueWorker {
-
+class CsvADOQueueWorker extends IngestADOQueueWorker
+{
   /**
    * {@inheritdoc}
    */
   public function processItem($data) {
     $log = new Logger('ami_file');
     $private_path = \Drupal::service('stream_wrapper_manager')->getViaUri('private://')->getDirectoryPath();
-    $handler = new StreamHandler($private_path.'/ami/logs/set'.$data->info['set_id'].'.log', Logger::DEBUG);
+    $handler = new StreamHandler($private_path . '/ami/logs/set' . $data->info['set_id'] . '.log', Logger::DEBUG);
     $handler->setFormatter(new JsonFormatter());
     $log->pushHandler($handler);
     // This will add the File logger not replace the DB
@@ -68,6 +68,8 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
     $adodata = clone $data;
     $adodata->info = NULL;
     $added = [];
+    // @TODO discuss with Allison the idea that one could ingest with "AMI set" data but without an actual AMI set?
+    // That would require, e.g generating a fake $data->info['set_id']
     if (!empty($data->info['csv_file'])) {
       $invalid = [];
       // Note. We won't process the nested CSV here. This queue worker only takes a CSV and splits into smaller
@@ -81,18 +83,18 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
         $adodata->info = [
           'zip_file' => $data->info['zip_file'] ?? NULL,
           'row' => $item,
-          'set_id' =>  $data->info['set_id'],
+          'set_id' => $data->info['set_id'],
           'uid' => $data->info['uid'],
           'status' => $data->info['status'],
           'op_secondary' => $data->info['op_secondary'] ?? NULL,
-          'ops_safefiles' => $data->info['ops_safefiles'] ? TRUE: FALSE,
+          'ops_safefiles' => $data->info['ops_safefiles'] ? TRUE : FALSE,
           'log_jsonpatch' => FALSE,
           'set_url' => $data->info['set_url'],
           'attempt' => 1,
-          'queue_name' =>  $data->info['queue_name'],
-          'force_file_queue' =>   $data->info['force_file_queue'],
+          'queue_name' => $data->info['queue_name'],
+          'force_file_queue' => $data->info['force_file_queue'],
           'force_file_process' => $data->info['force_file_process'],
-          'manyfiles' =>  $data->info['manyfiles'],
+          'manyfiles' => $data->info['manyfiles'],
           'ops_skip_onmissing_file' => $data->info['ops_skip_onmissing_file'],
           'ops_forcemanaged_destination_file' => $data->info['ops_forcemanaged_destination_file'],
           'time_submitted' => $data->info['time_submitted'],
@@ -101,143 +103,21 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
           ->createItem($adodata);
       }
       if (count($added)) {
-        $message = $this->t('CSV for Set @setid was expanded to ADOs',[
+        $message = $this->t('CSV for Set @setid was expanded to ADOs', [
           '@setid' => $data->info['set_id']
         ]);
-        $this->loggerFactory->get('ami_file')->info($message ,[
+        $this->loggerFactory->get('ami_file')->info($message, [
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
       }
-      $processed_set_status = $this->statusStore->get('set_' . $this->entity->id());
-      $processed_set_status['processed'] =  $processed_set_status['processed'] ?? 0;
-      $processed_set_status['errored'] =  $processed_set_status['errored'] ?? 0;
+      $processed_set_status = $this->statusStore->get('set_' . $data->info['set_id']);
+      $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
+      $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
       $processed_set_status['total'] = $processed_set_status['total'] ?? 0 + count($added);
       $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
       return;
     }
     return;
-    // Before we do any processing. Check if Parent(s) exists?
-    // If not, re-enqueue: we try twice only. Should we try more?
-    $parent_nodes = [];
-    if (isset($data->info['row']['parent']) && is_array($data->info['row']['parent'])) {
-      $parents = $data->info['row']['parent'];
-      $parents = array_filter($parents);
-      foreach($parents as $parent_property => $parent_uuid) {
-        $parent_uuids = (array) $parent_uuid;
-        // We should validate each member to be an UUID here (again). Just in case.
-        $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $parent_uuids]);
-        if (count($existing) != count($parent_uuids)) {
-          $message = $this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
-            '@uuid' => $data->info['row']['uuid'],
-            '@setid' => $data->info['set_id'],
-            '@parent_uuids' => implode(',', $parent_uuids)
-          ]);
-          $this->loggerFactory->get('ami_file')->warning($message ,[
-            'setid' => $data->info['set_id'] ?? NULL,
-            'time_submitted' => $data->info['time_submitted'] ?? '',
-          ]);
-
-          // Pushing to the end of the queue.
-          $data->info['attempt']++;
-          if ($data->info['attempt'] < 3) {
-            \Drupal::queue($data->info['queue_name'])
-              ->createItem($data);
-            return;
-          }
-          else {
-            $message = $this->t('Sorry, We tried twice to process ADO with @uuid from Set @setid yet, but you have missing parents. Please check your CSV file and make sure parents with an UUID are in your REPO first and that no other parent generated by the set itself is failing',[
-              '@uuid' => $data->info['row']['uuid'],
-              '@setid' => $data->info['set_id']
-            ]);
-            $this->loggerFactory->get('ami_file')->error($message ,[
-              'setid' => $data->info['set_id'] ?? NULL,
-              'time_submitted' => $data->info['time_submitted'] ?? '',
-            ]);
-            $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-            return;
-            // We could enqueue in a "failed" queue?
-            // @TODO for 0.6.0: Or better. We could keep track of the dependency
-            // and then afterwards update one and then the other
-            // Why? Because if we have one object pointing to X
-            // and the other pointing back the graph is not acyclic
-            // but we could still via an update operation
-            // Ingest without the relations both. Then update both once the
-            // Ingest is ready IF both have IDs.
-          }
-        }
-        else {
-          // Get the IDs!
-          foreach($existing as $node) {
-            $parent_nodes[$parent_property][] = (int) $node->id();
-          }
-        }
-      }
-    }
-
-    $processed_metadata = NULL;
-
-    $method = $data->mapping->globalmapping ?? "direct";
-    if ($method == 'custom') {
-      $method = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata ?? "direct";
-    }
-    if ($method == 'template') {
-      $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
-      if (!$processed_metadata) {
-        $message = $this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
-          '@uuid' => $data->info['row']['uuid'],
-          '@setid' => $data->info['set_id']
-        ]);
-        $this->loggerFactory->get('ami_file')->error($message ,[
-          'setid' => $data->info['set_id'] ?? NULL,
-          'time_submitted' => $data->info['time_submitted'] ?? '',
-        ]);
-        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-        return;
-      }
-    }
-    if ($method == "direct") {
-      if (isset($data->info['row']['data']) && !is_array($data->info['row']['data'])) {
-        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',[
-          '@uuid' => $data->info['row']['uuid'] ?? "MISSING UUID",
-          '@setid' => $data->info['set_id']
-        ]);
-
-        $this->loggerFactory->get('ami_file')->error($message ,[
-          'setid' => $data->info['set_id'] ?? NULL,
-          'time_submitted' => $data->info['time_submitted'] ?? '',
-        ]);
-        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-        return;
-      }
-      elseif (!isset($data->info['row']['data'])) {
-        $message = $this->t('Sorry, we can not cast an ADO directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',
-          [
-            '@setid' => $data->info['set_id'],
-          ]);
-        $this->loggerFactory->get('ami_file')->error($message ,[
-          'setid' => $data->info['set_id'] ?? NULL,
-          'time_submitted' => $data->info['time_submitted'] ?? '',
-        ]);
-        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-        return;
-      }
-
-      $processed_metadata = $this->AmiUtilityService->expandJson($data->info['row']['data']);
-      $processed_metadata = !empty($processed_metadata) ? json_encode($processed_metadata) : NULL;
-      $json_error = json_last_error();
-      if ($json_error !== JSON_ERROR_NONE || !$processed_metadata) {
-        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
-          '@uuid' => $data->info['row']['uuid'],
-          '@setid' => $data->info['set_id']
-        ]);
-        $this->loggerFactory->get('ami_file')->error($message ,[
-          'setid' => $data->info['set_id'] ?? NULL,
-          'time_submitted' => $data->info['time_submitted'] ?? '',
-        ]);
-        $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-        return;
-      }
-    }
   }
 }
