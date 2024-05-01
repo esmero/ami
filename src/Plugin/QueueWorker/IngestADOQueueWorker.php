@@ -395,15 +395,28 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     if ($data->mapping->globalmapping == "custom") {
       $file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files ?? NULL;
+      $csv_file_object =  $data->mapping->custommapping_settings->{$data->info['row']['type']}->files_csv ?? NULL;
     }
     else {
       $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
+      $csv_file_object =   $data->mapping->globalmapping_settings->files_csv ?? NULL;
     }
 
     $file_columns = [];
+    $file_csv_columns = [];
+
+
     $ado_columns = [];
     if ($file_object && is_object($file_object)) {
       $file_columns = array_values(get_object_vars($file_object));
+    }
+    // CSV (nested ones) can not be processed as "pre-files", but still need to be processed as files.
+    // There might be an edge case where the user decides that the CSV that generated the children
+    // Should also be attached to the parent ADO.Still, we need to be sure the ADO itself was ingesed
+    // before treating the CSV as a source for children objects.
+
+    if ($csv_file_object && is_object($csv_file_object)) {
+      $file_csv_columns = array_values(get_object_vars($csv_file_object));
     }
 
     if ($ado_object && is_object($ado_object)) {
@@ -1021,6 +1034,25 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         ]);
       }
     }
+  }
+
+  /**
+   * Processes a CSV File without technical metadata. This is just for the purpose of input for the CSV queue worker
+   *
+   * @param mixed $data
+   */
+  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null
+  {
+    $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
+    $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
+        $data->info['zip_file'], TRUE);
+    if ($file && $file->getMimeType() == 'application/csv') {
+        return $file;
+    }
+    else {
+        return NULL;
+    }
+
   }
 
 
