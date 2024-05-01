@@ -489,8 +489,6 @@ class SolrImporter extends SpreadsheetImporter {
     }
     $filename_columns = array_unique(array_merge(static::FILE_COLUMNS,$filename_columns));
 
-
-
     $solr_config = [
       'endpoint' => [
         'amiremote' => [
