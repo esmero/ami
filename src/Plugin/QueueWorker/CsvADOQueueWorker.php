@@ -99,7 +99,6 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
         ];
         $added[] = \Drupal::queue($data->info['queue_name'])
           ->createItem($adodata);
-        //$adodata;
       }
       if (count($added)) {
         $message = $this->t('CSV for Set @setid was expanded to ADOs',[
@@ -110,6 +109,11 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
       }
+      $processed_set_status = $this->statusStore->get('set_' . $this->entity->id());
+      $processed_set_status['processed'] =  $processed_set_status['processed'] ?? 0;
+      $processed_set_status['errored'] =  $processed_set_status['errored'] ?? 0;
+      $processed_set_status['total'] = $processed_set_status['total'] ?? 0 + count($added);
+      $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
       return;
     }
     return;
