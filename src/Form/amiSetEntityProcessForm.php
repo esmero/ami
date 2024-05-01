@@ -115,6 +115,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     }
     if ($file && $data !== new \stdClass()) {
       $invalid = [];
+
+
+
+
       $info = $this->AmiUtilityService->preprocessAmiSet($file, $data, $invalid, FALSE);
       // Means preprocess set
       if (count($invalid)) {
@@ -169,6 +173,33 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
         $ops_safefiles = $form_state->getValue(['ops_secondary','ops_safefiles'], TRUE);
       }
+      $data_csv = clone $data;
+
+
+
+      // Testing the CSV processor
+      $data_csv->info = [
+        'zip_file' => $zip_file,
+        'csv_file' => $file,
+        'set_id' => $this->entity->id(),
+        'uid' => $this->currentUser()->id(),
+        'status' => $statuses,
+        'op_secondary' => $op_secondary,
+        'ops_safefiles' => $ops_safefiles ? TRUE: FALSE,
+        'log_jsonpatch' => FALSE,
+        'set_url' => $SetURL,
+        'attempt' => 1,
+        'queue_name' => $queue_name,
+        'force_file_queue' => (bool) $form_state->getValue('force_file_queue', FALSE),
+        'force_file_process' => (bool) $form_state->getValue('force_file_process', FALSE),
+        'manyfiles' => $manyfiles,
+        'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
+        'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
+        'time_submitted' => $run_timestamp
+      ];
+      \Drupal::queue('ami_csv_ado')
+        ->createItem($data_csv);
+
       foreach ($info as $item) {
         // We set current User here since we want to be sure the final owner of
         // the object is this and not the user that runs the queue
