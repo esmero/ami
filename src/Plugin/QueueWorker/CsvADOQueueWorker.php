@@ -67,7 +67,8 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
     */
     $adodata = clone $data;
     $adodata->info = NULL;
-    if (!empty($data->info['csv_file']) && !empty($data->info['file_column'])) {
+    $added = [];
+    if (!empty($data->info['csv_file'])) {
       $invalid = [];
       // Note. We won't process the nested CSV here. This queue worker only takes a CSV and splits into smaller
       // chunks. Basically what the \Drupal\ami\Form\amiSetEntityProcessForm::submitForm already does.
@@ -96,13 +97,22 @@ class CsvADOQueueWorker extends IngestADOQueueWorker {
           'ops_forcemanaged_destination_file' => $data->info['ops_forcemanaged_destination_file'],
           'time_submitted' => $data->info['time_submitted'],
         ];
-        /*$added[] = \Drupal::queue($data->info['queue_name'])
-          ->createItem($adodata);*/
-        $adodata;
+        $added[] = \Drupal::queue($data->info['queue_name'])
+          ->createItem($adodata);
+        //$adodata;
+      }
+      if (count($added)) {
+        $message = $this->t('CSV for Set @setid was expanded to ADOs',[
+          '@setid' => $data->info['set_id']
+        ]);
+        $this->loggerFactory->get('ami_file')->info($message ,[
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
       }
       return;
     }
-
+    return;
     // Before we do any processing. Check if Parent(s) exists?
     // If not, re-enqueue: we try twice only. Should we try more?
     $parent_nodes = [];
