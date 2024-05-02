@@ -66,7 +66,7 @@ class SolrImporter extends SpreadsheetImporter {
   protected $httpClient;
 
   /**
-   * GoogleSheetImporter constructor.
+   * Solr Importer constructor.
    *
    * @param array $configuration
    * @param $plugin_id
