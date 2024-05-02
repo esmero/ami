@@ -85,11 +85,11 @@ class EADImporter extends SpreadsheetImporter {
       '#type' => 'managed_file',
       '#default_value' => $form_state->getValue(array_merge($parents , ['file'])),
       '#title' => $this->t('Upload your file'),
-      '#description' => $this->t('The Spreadsheet file containing your EAD records.'),
+      '#description' => $this->t('The CSV file containing your EAD records.'),
       '#required' => TRUE,
-      '#upload_location' => 'public://',
+      '#upload_location' => 'private://',
       '#upload_validators' => [
-        'file_validate_extensions' => ['csv xls xlsx xlst tsv'],
+        'file_validate_extensions' => ['csv'],
       ],
     ];
 
@@ -135,19 +135,13 @@ class EADImporter extends SpreadsheetImporter {
       $this->tempFile = $response;
       $file_path = $response;
     }
-
     try {
       $inputFileType = IOFactory::identify($file_path);
       // Because of \PhpOffice\PhpSpreadsheet\Cell\DataType::checkString we can
       // Not use this library for CSVs that contain large JSONs
       // Since we do not know if they contain that, we will
       // assume so (maybe a user choice in the future)
-      if ($inputFileType == 'Csv') {
-        return $this->AmiUtilityService->csv_read($file, 0, 0, TRUE) ?? $tabdata;
-      }
-      $objReader = IOFactory::createReader($inputFileType);
-      $objReader->setReadDataOnly(TRUE);
-      $objPHPExcel = $objReader->load($file_path);
+      return $this->AmiUtilityService->csv_read($file, 0, 0, TRUE) ?? $tabdata;
     }
     catch (\Exception $e) {
       $this->messenger()->addMessage(
@@ -158,65 +152,6 @@ class EADImporter extends SpreadsheetImporter {
       );
       return $tabdata;
     }
-
-    $table = [];
-    $headers = [];
-    $maxRow = 0;
-    $worksheet = $objPHPExcel->getActiveSheet();
-    $highestRow = $worksheet->getHighestRow();
-    $highestColumn = $worksheet->getHighestDataColumn(1);
-
-    if (($highestRow) > 1) {
-      // Returns Row Headers.
-      $rowHeaders = $worksheet->rangeToArray(
-        'A1:' . $highestColumn . '1',
-        NULL,
-        TRUE,
-        TRUE,
-        FALSE
-      );
-      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders[0]);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_filter($rowHeaders_utf8);
-      $headercount = count($rowHeaders_utf8);
-
-      foreach ($worksheet->getRowIterator() as $row) {
-        $rowindex = $row->getRowIndex();
-        if (($rowindex > 1) && ($rowindex > ($offset)) && (($rowindex <= ($offset + $per_page + 1)) || $per_page == -1)) {
-          $rowdata = [];
-          // gets one row data
-          $datarow = $worksheet->rangeToArray(
-            "A{$rowindex}:" . $highestColumn . $rowindex,
-            NULL,
-            TRUE,
-            TRUE,
-            FALSE
-          );
-          $flat = trim(implode('', $datarow[0]));
-          //check for empty row...if found stop there.
-          if (strlen($flat) == 0) {
-            $maxRow = $rowindex;
-            break;
-          }
-
-          $row = $this->AmiUtilityService->arrayEquallySeize(
-            $headercount,
-            $datarow[0]
-          );
-          $table[$rowindex] = $row;
-        }
-        $maxRow = $rowindex;
-      }
-    }
-    $tabdata = [
-      'headers' => $rowHeaders_utf8,
-      'data' => $table,
-      'totalrows' => $maxRow,
-    ];
-    $objPHPExcel->disconnectWorksheets();
-    return $tabdata;
   }
 
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
