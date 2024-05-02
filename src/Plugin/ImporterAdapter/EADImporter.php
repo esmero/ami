@@ -29,50 +29,6 @@ class EADImporter extends SpreadsheetImporter {
   use StringTranslationTrait;
   use MessengerTrait;
 
-  /**
-   * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
-   */
-  protected StreamWrapperManagerInterface $streamWrapperManager;
-
-  /**
-   * @var string|null
-   */
-  protected ?string $tempFile;
-
-  /**
-   * SpreadsheetImporter constructor.
-   *
-   * @param array $configuration
-   * @param $plugin_id
-   * @param $plugin_definition
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
-   * @param \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface $streamWrapperManager
-   * @param \Drupal\ami\AmiUtilityService $ami_utility
-   *
-   * @throws \Drupal\Component\Plugin\Exception\PluginException
-   */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
-    parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $ami_utility);
-    $this->streamWrapperManager = $streamWrapperManager;
-    $this->tempFile = NULL;
-    register_shutdown_function([$this, 'shutdown']);
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
-    return new static(
-      $configuration,
-      $plugin_id,
-      $plugin_definition,
-      $container->get('entity_type.manager'),
-      $container->get('stream_wrapper_manager'),
-      $container->get('ami.utility')
-    );
-  }
-
-
   use StringTranslationTrait;
 
   /**
@@ -157,6 +113,16 @@ class EADImporter extends SpreadsheetImporter {
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
     return $this->getData($config, $page, $per_page);
   }
+
+  public function provideKeys(array $config, array $data): array
+  {
+    // These are our discussed types. No flexibility here.
+    return [
+      'ArchiveContainer' =>  'ArchiveContainer',
+      'ArchiveComponent' => 'ArchiveComponent',
+    ];
+  }
+
 
   /**
    * Shutdown that "should" clean temp file if one was generated
