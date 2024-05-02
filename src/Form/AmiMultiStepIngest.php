@@ -129,13 +129,17 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         'template' => 'Template',
       ];
       $template = $this->getMetadatadisplays();
-      // $webform = $this->getWebforms();
       $bundle = $this->getBundlesAndFields();
 
       $global_metadata_options = $metadata + ['custom' => 'Custom (Expert Mode)'];
       //Each row (based on its type column) can have its own approach setup(expert mode)
       $element_conditional = [];
       $element = [];
+      // Get all headers and check for a 'type' key first, if not allow the user to select one?
+      // Wonder if we can be strict about this and simply require always a "type"?
+      // @TODO WE need to check for 'type' always. Maybe even in the submit handler?
+      $alltypes = $plugin_instance->provideTypes($pluginconfig, $data);
+
       $element['bundle'] =[
         '#type' => 'select',
         '#title' => $this->t('Fields and Bundles'),
@@ -149,15 +153,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#options' => $template,
         '#description' => $this->t('Columns will be casted to ADO metadata (JSON) using a Twig template setup for JSON output'),
       ];
-
-      /**
-       * $element_conditional['webform'] = [
-       *   '#type' => 'select',
-       *   '#title' => $this->t('Webform'),
-       *   '#options' => $webform,
-       *   '#description' => $this->t('Columns are casted to ADO metadata (JSON) by passing/validating Data through an existing Webform'),
-       * ];
-       */
 
       $form['ingestsetup']['globalmapping'] = [
         '#type' => 'select',
@@ -202,10 +197,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         ],
       ];
 
-      // Get all headers and check for a 'type' key first, if not allow the user to select one?
-      // Wonder if we can be strict about this and simply require always a "type"?
-      // @TODO WE need to check for 'type' always. Maybe even in the submit handler?
-      $alltypes = $plugin_instance->provideTypes($pluginconfig, $data);
       if (!empty($alltypes)) {
         $form['ingestsetup']['custommapping'] = [
           '#type' => 'fieldset',
@@ -473,12 +464,10 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     parent::submitForm($form, $form_state);
     if ($form_state->getValue('plugin', NULL)) {
-
       if ($this->store->get('plugin') != $form_state->getValue('plugin', NULL)) {
         $this->store->set('pluginconfig',[]);
       }
       $this->store->set('plugin', $form_state->getValue('plugin'));
-
     }
     if ($form_state->getValue('pluginconfig', [])) {
       $this->store->set('pluginconfig', $form_state->getValue('pluginconfig'));
@@ -494,7 +483,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         $ready = $form_state->getValue('pluginconfig')['ready'] ?? TRUE;
         $op = $form_state->getValue('pluginconfig')['op'] ?? 'create';
         if (!$ready) {
-          // Back yo Step 2 until the Plugin is ready doing its thing.
+          // Back to Step 2 until the Plugin is ready doing its thing.
           $this->step = 2;
           $form_state->setRebuild();
         }
