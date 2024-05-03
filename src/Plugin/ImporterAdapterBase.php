@@ -13,6 +13,7 @@ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Entity\ImporterAdapterInterface;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface ;
+use Drupal\Core\TempStore\PrivateTempStore;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\file\Entity\File;
 
@@ -157,6 +158,23 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
         $type_column_index);
     }
     return $alltypes;
+  }
+
+  /**
+   * During a Multistep Ingest Form Setup we can alter any steps/generated data
+   * @see \Drupal\ami\Form\AmiMultiStepIngestBaseForm
+   *
+   * @param $step
+   * @param PrivateTempStore $store
+   * @return void
+   */
+  public function alterStepStore($step, PrivateTempStore $store):void {
+
+  }
+
+  public function stepFormAlter(&$form, FormStateInterface $form_state, PrivateTempStore $store, $step): void
+  {
+    // TODO: Implement stepFormAlter() method.
   }
 
 

@@ -5,6 +5,7 @@ namespace Drupal\ami\Plugin;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
 use Drupal\Component\Plugin\PluginInspectionInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\TempStore\PrivateTempStore;
 use Drupal\file\Entity\File;
 
 /**
@@ -49,6 +50,22 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    * @return array
    */
   public function interactiveForm(array $parents, FormStateInterface $form_state): array;
+
+
+  /**
+   * Allows the Step form to be altered by reference.
+   *
+   * @param $form
+   * @param FormStateInterface $form_state
+   * @param PrivateTempStore $store
+   * @param int $step
+   * @return array
+   * @see \Drupal\ami\Form\AmiMultiStepIngestBaseForm
+   * Each plugin is responsible for providing a Form step that is compatible with the
+   * AmiMultiStepIngestBaseForm
+   *
+   */
+  public function stepFormAlter(&$form, FormStateInterface $form_state, PrivateTempStore $store, $step):void;
 
 
   /**
@@ -129,5 +146,16 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
    * @return array
    */
   public function provideTypes(array $config, array $data):array;
+
+  /**
+   * During a Multistep Ingest Form Setup we can alter any steps/generated data
+   *
+   * @see \Drupal\ami\Form\AmiMultiStepIngestBaseForm
+   *
+   * @param $step
+   * @param PrivateTempStore $store
+   * @return void
+   */
+  public function alterStepStore($step, PrivateTempStore $store):void;
 
 }
