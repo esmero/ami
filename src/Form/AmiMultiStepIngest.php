@@ -74,6 +74,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
     $form = parent::buildForm($form, $form_state);
+
+
+    /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface | NULL */
+    $plugin_instance = $this->store->get('plugininstance');
+    $pluginValue = $this->store->get('plugin');
+
     $form['message-step'] = [
       '#markup' => '<div class="step">' . $this->t('AMI step @step of @laststep',[
           '@step' => $this->step,
@@ -101,10 +107,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($this->step == 2) {
       $parents = ['pluginconfig'];
       $form_state->setValue('pluginconfig', $this->store->get('pluginconfig'));
-      $pluginValue = $this->store->get('plugin');
       // Only create a new instance if we do not have the PluginInstace around
-      /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface | NULL */
-      $plugin_instance = $this->store->get('plugininstance');
       if (!$plugin_instance || $plugin_instance->getPluginid() != $pluginValue || $pluginValue == NULL) {
         $configuration = [];
         $configuration['config'] = ImporterAdapter::create();
@@ -114,13 +117,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $form['pluginconfig'] = $plugin_instance->interactiveForm($parents, $form_state);
       $form['pluginconfig']['#tree'] = TRUE;
     }
-    // TO keep this discrete and easier to edit maybe move to it's own method?
+    // To keep this discrete and easier to edit maybe move to their own methods?
     if ($this->step == 3) {
       // We should never reach this point if data is not enough. Submit handler
       // will go back to Step 2 if so.
       $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
-      $plugin_instance = $this->store->get('plugininstance');
       $op = $pluginconfig['op'];
       $column_keys = $plugin_instance->provideKeys($pluginconfig, $data);
       $mapping = $this->store->get('mapping');
@@ -287,7 +289,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $data = $this->store->get('data') ?? [];
       $pluginconfig = $this->store->get('pluginconfig');
       $op = $pluginconfig['op'];
-      $plugin_instance = $this->store->get('plugininstance');
       $column_keys = $plugin_instance->provideKeys($pluginconfig, $data);
       $column_options = array_combine($column_keys, $column_keys);
       $mapping = $this->store->get('mapping');
@@ -307,8 +308,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       else {
         $node_description = $this->t('Columns that hold either other row <b>numbers</b> or <b>UUIDs</b>(an existing ADO) connecting ADOs between each other (e.g "ismemberof"). You can choose multiple.');
       }
-
-
 
       $form['ingestsetup']['adomapping']['parents'] = [
         '#type' => 'select',
@@ -420,6 +419,10 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#default_value' => 'AMI Set of ' . $this->currentUser()->getDisplayName()
       ];
     }
+    // Allow the plugin to alter the forms if needed in any way
+    if ($plugin_instance && $this->step > 1) {
+      $plugin_instance->stepFormAlter($form, $form_state, $this->store, $this->step);
+    }
     return $form;
   }
 
@@ -476,7 +479,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($this->step == 3) {
       $this->store->delete('data');
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
-      $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
         // Check if the Plugin is ready processing or needs more data
@@ -557,8 +559,6 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $amisetdata->adomapping = $this->store->get('adomapping');
       $amisetdata->zip = $this->store->get('zip');
       $amisetdata->name = $ami_set_label;
-      /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
-      $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
         if (!$plugin_instance->getPluginDefinition()['batch']) {
           $data = $plugin_instance->getData($this->store->get('pluginconfig'),
