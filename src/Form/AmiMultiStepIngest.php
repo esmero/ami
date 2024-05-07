@@ -479,6 +479,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($this->step == 3) {
       $this->store->delete('data');
       /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
+      $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
         // Check if the Plugin is ready processing or needs more data
