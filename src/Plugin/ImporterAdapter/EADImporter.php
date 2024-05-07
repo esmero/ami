@@ -136,7 +136,7 @@ class EADImporter extends SpreadsheetImporter {
 
   public function stepFormAlter(&$form, FormStateInterface $form_state, PrivateTempStore $store, $step): void
   {
-    if ($step == 3)
+    if ($step == 3) {
       $form['ingestsetup']['globalmapping'] = [
         '#type' => 'select',
         '#title' => $this->t('Select the data transformation approach'),
@@ -145,5 +145,15 @@ class EADImporter extends SpreadsheetImporter {
         '#description' => $this->t('How your source data will be transformed into EADs Metadata.'),
         '#required' => TRUE,
       ];
+      foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
+        if (strpos($key,'#') !== 0 && is_array($settings)) {
+          if ($settings['metadata']['#default_value'] ?? NULL) {
+            $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
+            $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
+          }
+        }
+      }
+    }
+    $form = $form;
   }
 }
