@@ -9,6 +9,7 @@ use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Plugin\ImporterAdapterBase;
+use Drupal\Core\TempStore\PrivateTempStore;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\file\Entity\File;
@@ -114,7 +115,7 @@ class EADImporter extends SpreadsheetImporter {
     return $this->getData($config, $page, $per_page);
   }
 
-  public function provideKeys(array $config, array $data): array
+  public function provideTypes(array $config, array $data): array
   {
     // These are our discussed types. No flexibility here.
     return [
@@ -122,7 +123,6 @@ class EADImporter extends SpreadsheetImporter {
       'ArchiveComponent' => 'ArchiveComponent',
     ];
   }
-
 
   /**
    * Shutdown that "should" clean temp file if one was generated
@@ -132,5 +132,18 @@ class EADImporter extends SpreadsheetImporter {
     if ($this->tempFile !== NULL) {
       $this->AmiUtilityService->cleanUpTemp($this->tempFile);
     }
+  }
+
+  public function stepFormAlter(&$form, FormStateInterface $form_state, PrivateTempStore $store, $step): void
+  {
+    if ($step == 3)
+      $form['ingestsetup']['globalmapping'] = [
+        '#type' => 'select',
+        '#title' => $this->t('Select the data transformation approach'),
+        '#default_value' => 'custom',
+        '#options' => ['custom' => 'Custom (Expert Mode)'],
+        '#description' => $this->t('How your source data will be transformed into EADs Metadata.'),
+        '#required' => TRUE,
+      ];
   }
 }
