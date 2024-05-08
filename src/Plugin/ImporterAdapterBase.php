@@ -160,21 +160,14 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
     return $alltypes;
   }
 
-  /**
-   * During a Multistep Ingest Form Setup we can alter any steps/generated data
-   * @see \Drupal\ami\Form\AmiMultiStepIngestBaseForm
-   *
-   * @param $step
-   * @param PrivateTempStore $store
-   * @return void
-   */
-  public function alterStepStore($step, PrivateTempStore $store):void {
-
-  }
-
   public function stepFormAlter(&$form, FormStateInterface $form_state, PrivateTempStore $store, $step): void
   {
     // TODO: Implement stepFormAlter() method.
+  }
+
+  public function alterStepStore(FormStateInterface $form_state, PrivateTempStore $store, int $step = 1): void
+  {
+    // TODO: Implement alterStepStore() method.
   }
 
 

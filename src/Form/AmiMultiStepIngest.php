@@ -75,17 +75,14 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
   public function buildForm(array $form, FormStateInterface $form_state) {
     $form = parent::buildForm($form, $form_state);
 
-
-    /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface | NULL */
-    $plugin_instance = $this->store->get('plugininstance');
-    $pluginValue = $this->store->get('plugin');
-
     $form['message-step'] = [
-      '#markup' => '<div class="step">' . $this->t('AMI step @step of @laststep',[
+      '#markup' => '<div class="step">' . $this->t('AMI step @step of @laststep', [
           '@step' => $this->step,
           '@laststep' => $this->lastStep,
         ]) . '</div>',
     ];
+    $plugin_instance = NULL;
+    $pluginValue = NULL;
     if ($this->step == 1) {
       $pluginValue = $this->store->get('plugin');
       $definitions = $this->importerManager->getDefinitions();
@@ -93,6 +90,8 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       foreach ($definitions as $id => $definition) {
         $options[$id] = $definition['label'];
       }
+      // Reset the plugin instance in case of code change.
+      $this->store->set('plugininstance', NULL);
 
       $form['plugin'] = [
         '#type' => 'select',
@@ -104,6 +103,12 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#empty_option' => $this->t('- Please select a plugin -'),
       ];
     }
+    if ($this->step > 1) {
+      //Only carry the plugin instance
+      /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface | NULL */
+      $plugin_instance = $this->store->get('plugininstance');
+      $pluginValue = $this->store->get('plugin');
+    }
     if ($this->step == 2) {
       $parents = ['pluginconfig'];
       $form_state->setValue('pluginconfig', $this->store->get('pluginconfig'));
@@ -111,12 +116,13 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       if (!$plugin_instance || $plugin_instance->getPluginid() != $pluginValue || $pluginValue == NULL) {
         $configuration = [];
         $configuration['config'] = ImporterAdapter::create();
-        $plugin_instance = $this->importerManager->createInstance($pluginValue,$configuration);
-        $this->store->set('plugininstance',$plugin_instance);
+        $plugin_instance = $this->importerManager->createInstance($pluginValue, $configuration);
+        $this->store->set('plugininstance', $plugin_instance);
       }
       $form['pluginconfig'] = $plugin_instance->interactiveForm($parents, $form_state);
       $form['pluginconfig']['#tree'] = TRUE;
     }
+
     // To keep this discrete and easier to edit maybe move to their own methods?
     if ($this->step == 3) {
       // We should never reach this point if data is not enough. Submit handler
@@ -475,11 +481,11 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
     if ($form_state->getValue('pluginconfig', [])) {
       $this->store->set('pluginconfig', $form_state->getValue('pluginconfig'));
     }
+    /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
+    $plugin_instance = $this->store->get('plugininstance');
     // First data fetch step
     if ($this->step == 3) {
       $this->store->delete('data');
-      /* @var $plugin_instance \Drupal\ami\Plugin\ImporterAdapterInterface| NULL */
-      $plugin_instance = $this->store->get('plugininstance');
       if ($plugin_instance) {
         $data = $plugin_instance->getInfo($this->store->get('pluginconfig'), $form_state,0,-1);
         // Check if the Plugin is ready processing or needs more data
@@ -496,6 +502,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           // Total rows contains data without headers So a single one is good enough.
           if (is_array($data) && !empty($data) and isset($data['headers']) && ((count($data['headers']) >= 3) || (count($data['headers']) >= 2 && $op != 'create')) && isset($data['totalrows']) && $data['totalrows'] >= 1) {
             $this->store->set('data', $data);
+            $plugin_instance->alterStepStore($form_state, $this->store, $this->step);
           }
           else {
             // Not the data we are looking for? Back to Step 2.
@@ -528,12 +535,18 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             ]
           ]
         ]);
+        if ($plugin_instance) {
+          $plugin_instance->alterStepStore($form_state, $this->store, $this->step);
+        }
       }
     }
     if ($this->step == 5) {
       if ($form_state->getTriggeringElement()['#name'] !== 'prev') {
         $adomapping = $form_state->getValue('adomapping');
         $this->store->set('adomapping', $adomapping);
+        if ($plugin_instance) {
+          $plugin_instance->alterStepStore($form_state, $this->store, $this->step);
+        }
       }
     }
     if ($this->step == 6) {
@@ -549,6 +562,9 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         }
       } else {
         $this->store->set('zip', NULL);
+      }
+      if ($plugin_instance) {
+        $plugin_instance->alterStepStore($form_state, $this->store, $this->step);
       }
       $ami_set_label = $form_state->getValue('ami_set_label', NULL);
       $ami_set_label = $ami_set_label ? trim($ami_set_label) : $ami_set_label;
@@ -643,6 +659,9 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $form_state->setRebuild(TRUE);
     } else {
       if (!empty($batch)) {
+        if ($plugin_instance) {
+          $plugin_instance->alterStepStore($form_state, $this->store, $this->step);
+        }
         batch_set($batch);
       }
     }

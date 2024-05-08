@@ -21,7 +21,7 @@ use Drupal\file\Entity\File;
  *   id = "ead",
  *   label = @Translation("EAD Importer"),
  *   remote = false,
- *   batch = true,
+ *   batch = false,
  * )
  */
 class EADImporter extends SpreadsheetImporter {
@@ -154,6 +154,49 @@ class EADImporter extends SpreadsheetImporter {
         }
       }
     }
+    if ($step == 4) {
+      $current_options = $form['ingestsetup']['adomapping']['parents']['#options'];
+      $current_options['iscontainedby'] = 'iscontainedby (used by CSV child container)';
+      // We add this just in case the top level does not has it.
+      $current_options['ispartof'] = 'ispartof';
+      unset($current_options['node_uuid']);
+      if (empty($form['ingestsetup']['adomapping']['parents']['#default_value'])) {
+        $form['ingestsetup']['adomapping']['parents']['#default_value'] = ['ispartof', 'iscontainedby'];
+      }
+      $form['ingestsetup']['adomapping']['parents']['#options'] = $current_options;
+      $form['ingestsetup']['adomapping']['autouuid'] = [
+        '#disabled' => TRUE,
+        '#default_value' => FALSE,
+      ];
+      $form['ingestsetup']['adomapping']['uuid'] = [
+        '#default_value' => 'node_uuid',
+        '#disabled' => TRUE,
+      ];
+      foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
+        if (strpos($key,'#') !== 0 && is_array($settings)) {
+          if ($settings['metadata']['#default_value'] ?? NULL) {
+            $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
+            $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
+          }
+        }
+      }
+    }
     $form = $form;
+  }
+
+  /**
+   * @inheritDoc
+   */
+  public function alterStepStore(FormStateInterface $form_state, PrivateTempStore $store, int $step = 1): void {
+    if ($step == 4) {
+      $mapping = $store->get('mapping');
+      // We only set this for ArchiveContainer, that way we won't have nested of nested CSVs (means the container CSV
+      // won't have nested CSV again. We can. We won't
+      if (isset($mapping['custommapping_settings']['ArchiveContainer'])) {
+        $mapping['custommapping_settings']['ArchiveContainer']['files_csv'] = ['dsc_csv'];
+        // Will be used by \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processItem
+      }
+      $store->set('mapping', $mapping);
+    }
   }
 }

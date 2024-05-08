@@ -580,9 +580,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // Only persist if we passed this.
     // True if all ok, to the best of our knowledge of course
     $persisted = $this->persistEntity($data, $processed_metadata);
-    // @TODO another question for @alliomera. If i don't check if the ROW was ingested.. we could process a Child CSV
-    // EVEN if the parent object was A) there already OR, was non even valid. That could be useful?
-    // A Processing setting like "don't process if file missing?"
+    // We only process a CSV column IF and only if the row that contains it generated an ADO.
     if ($persisted && !empty($file_csv_columns)) {
       $current_uuid = $data->info['row']['uuid'] ?? NULL;
       $current_row_id = $data->info['row']['row_id'] ?? NULL;

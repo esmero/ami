@@ -148,14 +148,14 @@ interface ImporterAdapterInterface extends PluginInspectionInterface {
   public function provideTypes(array $config, array $data):array;
 
   /**
-   * During a Multistep Ingest Form Setup we can alter any steps/generated data
+   * During a Multistep Ingest Form Submit, we can alter any steps/generated data
    *
-   * @see \Drupal\ami\Form\AmiMultiStepIngestBaseForm
-   *
-   * @param $step
+   * @param FormStateInterface $form_state
    * @param PrivateTempStore $store
+   * @param int $step
    * @return void
+   * @see \Drupal\ami\Form\AmiMultiStepIngestBaseForm
    */
-  public function alterStepStore($step, PrivateTempStore $store):void;
+  public function alterStepStore(FormStateInterface $form_state, PrivateTempStore $store, int $step = 1):void;
 
 }
