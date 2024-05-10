@@ -5,6 +5,7 @@ namespace Drupal\ami\Plugin\QueueWorker;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Entity\amiSetEntity;
+use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\file\FileInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -12,6 +13,8 @@ use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\strawberryfield\Event\StrawberryfieldFileEvent;
+use Drupal\strawberryfield\StrawberryfieldEventType;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Monolog\Handler\StreamHandler;
@@ -21,6 +24,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use \Drupal\Core\TempStore\PrivateTempStoreFactory;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Processes and Ingests each AMI Set CSV row.
@@ -110,19 +114,27 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   ];
 
   /**
+   * The event dispatcher.
+   *
+   * @var EventDispatcherInterface
+   */
+  protected EventDispatcherInterface $eventDispatcher;
+
+  /**
    * Constructor.
    *
    * @param array $configuration
    * @param string $plugin_id
    * @param mixed $plugin_definition
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
-   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
-   * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
-   * @param \Drupal\ami\AmiUtilityService $ami_utility
-   * @param \Drupal\ami\AmiLoDService $ami_lod
-   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
-   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberry_filepersister
-   * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
+   * @param EntityTypeManagerInterface $entity_type_manager
+   * @param LoggerChannelFactoryInterface $logger_factory
+   * @param StrawberryfieldUtilityService $strawberryfield_utility_service
+   * @param AmiUtilityService $ami_utility
+   * @param AmiLoDService $ami_lod
+   * @param MessengerInterface $messenger
+   * @param StrawberryfieldFilePersisterService $strawberry_filepersister
+   * @param PrivateTempStoreFactory $temp_store_factory
+   * @param EventDispatcherInterface $event_dispatcher
    */
   public function __construct(
     array $configuration,
@@ -135,7 +147,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     AmiLoDService $ami_lod,
     MessengerInterface $messenger,
     StrawberryfieldFilePersisterService $strawberry_filepersister,
-    PrivateTempStoreFactory $temp_store_factory
+    PrivateTempStoreFactory $temp_store_factory,
+    EventDispatcherInterface $event_dispatcher
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -147,6 +160,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->strawberryfilepersister = $strawberry_filepersister;
     $this->store = $temp_store_factory->get('ami_queue_worker_file');
     $this->statusStore = $temp_store_factory->get('ami_queue_status');
+    $this->eventDispatcher = $event_dispatcher;
   }
 
   /**
@@ -176,7 +190,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('ami.lod'),
       $container->get('messenger'),
       $container->get('strawberryfield.file_persister'),
-      $container->get('tempstore.private')
+      $container->get('tempstore.private'),
+      $container->get('event_dispatcher')
     );
   }
 
@@ -556,7 +571,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
 
     if ($process_files_via_queue && empty($data->info['waiting_for_files'])) {
-      // If so we need to push this one to the end..
+      // If so we need to push this one to the end.
       // Reset the attempts
       $data->info['waiting_for_files'] = TRUE;
       $data->info['attempt'] = $data->info['attempt'] ? $data->info['attempt'] + 1 : 0;
@@ -594,6 +609,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             return trim($value);
           }, explode(';', $filenames));
           $filenames = array_filter($filenames);
+          // We will keep the original row ID, so we can log it.
+          $data_csv->info['row']['row_id'] = $data->info['row']['row_id'];
           foreach($filenames as $filename) {
               $data_csv->info['csv_filename'] = $filename;
               $csv_file = $this->processCSvFile($data_csv);
@@ -1076,13 +1093,30 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     if (!($data->info['csv_filename'] ?? NULL)) {
       return NULL;
     }
-    $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
     $file = $this->AmiUtilityService->file_get(trim($data->info['csv_filename']),
-        $data->info['zip_file'], TRUE);
+        $data->info['zip_file'] ?? NULL, TRUE);
+    if ($file) {
+      $event_type = StrawberryfieldEventType::TEMP_FILE_CREATION;
+      $current_timestamp = (new DrupalDateTime())->getTimestamp();
+      $event = new StrawberryfieldFileEvent($event_type, 'ami', $file->getFileUri(), $current_timestamp);
+      // This will allow the extracted CSV from the zip to be composted, even if it was not a CSV.
+      // IN a queue by \Drupal\strawberryfield\EventSubscriber\StrawberryfieldEventCompostBinSubscriber
+      $this->eventDispatcher->dispatch($event, $event_type);
+    }
     if ($file && $file->getMimeType() == 'text/csv') {
         return $file;
     }
     else {
+      $message = $this->t('The referenced nested CSV @filename on row id @rowid from Set @setid could not be found or had the wrong format. Skipping',
+        [
+          '@setid' => $data->info['set_id'],
+          '@filename' => $data->info['csv_filename'],
+          '@rowid' => $data->info['row']['row_id'] ?? '0',
+        ]);
+      $this->loggerFactory->get('ami_file')->warning($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
         return NULL;
     }
   }
