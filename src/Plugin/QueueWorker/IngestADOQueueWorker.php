@@ -1079,7 +1079,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
     $file = $this->AmiUtilityService->file_get(trim($data->info['csv_filename']),
         $data->info['zip_file'], TRUE);
-    if ($file && $file->getMimeType() == 'application/csv') {
+    if ($file && $file->getMimeType() == 'text/csv') {
         return $file;
     }
     else {
