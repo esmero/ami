@@ -677,7 +677,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-      return;
+      return FALSE;
     }
 
     $bundle = $property_path_split[0];

@@ -88,6 +88,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
       $info = $this->AmiUtilityService->preprocessAmiSet($data->info['csv_file'], $data, $invalid, FALSE);
 
       if (!count($info)) {
+        //@TODO tell the user which CSV failed please?
         $message = $this->t('So sorry. CSV for @setid produced no ADOs. Please correct your source CSV data', [
           '@setid' => $data->info['set_id']
         ]);
@@ -149,9 +150,10 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
       $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
       $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
       $processed_set_status['total'] = $processed_set_status['total'] ?? 0 + count($added);
-      $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
+      $this->statusStore->set('set_' . $data->info['set_id'], $processed_set_status);
       return;
     }
+    // @TODO add a logger error saying it was enqueued as CSV but there was no CSV file to be found
     return;
   }
 }

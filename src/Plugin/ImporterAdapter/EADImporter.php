@@ -190,10 +190,12 @@ class EADImporter extends SpreadsheetImporter {
   public function alterStepStore(FormStateInterface $form_state, PrivateTempStore $store, int $step = 1): void {
     if ($step == 4) {
       $mapping = $store->get('mapping');
-      // We only set this for ArchiveContainer, that way we won't have nested of nested CSVs (means the container CSV
+      // We only set this for ArchiveComponent, that way we won't have nested of nested CSVs (means the container CSV
       // won't have nested CSV again. We can. We won't
-      if (isset($mapping['custommapping_settings']['ArchiveContainer'])) {
-        $mapping['custommapping_settings']['ArchiveContainer']['files_csv'] = ['dsc_csv'];
+      // Diego wake up!
+      if (isset($mapping['custommapping_settings']['ArchiveComponent'])) {
+        // Needs to be a an associative array bc we convert into object afterwards and access the files_csv as property
+        $mapping['custommapping_settings']['ArchiveComponent']['files_csv'] = ['dsc_csv' => 'dsc_csv'];
         // Will be used by \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processItem
       }
       $store->set('mapping', $mapping);
