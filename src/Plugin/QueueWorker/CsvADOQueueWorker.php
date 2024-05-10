@@ -79,8 +79,10 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
     $added = [];
     // @TODO discuss with Allison the idea that one could ingest with "AMI set" data but without an actual AMI set?
     // That would require, e.g generating a fake $data->info['set_id']
-    if (!empty($data->info['csv_file'])) {
+    $csv_file = $data->info['csv_file'] ?? NULL;
+    if ($csv_file instanceof FileInterface) {
       $invalid = [];
+
       // Note. We won't process the nested CSV here. This queue worker only takes a CSV and splits into smaller
       // chunks. Basically what the \Drupal\ami\Form\amiSetEntityProcessForm::submitForm already does.
       // But the ADO worker itself will (new code) extract a CSV and then again, enqueue back to this so this one can yet again
@@ -89,8 +91,9 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
 
       if (!count($info)) {
         //@TODO tell the user which CSV failed please?
-        $message = $this->t('So sorry. CSV for @setid produced no ADOs. Please correct your source CSV data', [
-          '@setid' => $data->info['set_id']
+        $message = $this->t('So sorry. CSV @csv for @setid produced no ADOs. Please correct your source CSV data', [
+          '@setid' => $data->info['set_id'],
+          '@csv' => $csv_file->getFilename(),
         ]);
         $this->loggerFactory->get('ami_file')->warning($message, [
           'setid' => $data->info['set_id'] ?? NULL,
@@ -125,8 +128,10 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           ->createItem($adodata);
       }
       if (count($added)) {
-        $message = $this->t('CSV for Set @setid was expanded to ADOs', [
-          '@setid' => $data->info['set_id']
+        $message = $this->t('CSV @csv for Set @setid was expanded to @count ADOs', [
+          '@setid' => $data->info['set_id'],
+          '@csv' => $csv_file->getFilename(),
+          '@count' => count($added),
         ]);
         $this->loggerFactory->get('ami_file')->info($message, [
           'setid' => $data->info['set_id'] ?? NULL,
@@ -152,6 +157,9 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
       $processed_set_status['total'] = $processed_set_status['total'] ?? 0 + count($added);
       $this->statusStore->set('set_' . $data->info['set_id'], $processed_set_status);
       return;
+    }
+    else {
+      error_log('wrongly enqueued');
     }
     // @TODO add a logger error saying it was enqueued as CSV but there was no CSV file to be found
     return;

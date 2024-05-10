@@ -138,8 +138,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   public function __construct(
     array $configuration,
-    $plugin_id,
-    $plugin_definition,
+          $plugin_id,
+          $plugin_definition,
     EntityTypeManagerInterface $entity_type_manager,
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
@@ -176,8 +176,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   public static function create(
     ContainerInterface $container,
     array $configuration,
-    $plugin_id,
-    $plugin_definition
+                       $plugin_id,
+                       $plugin_definition
   ) {
     return new static(
       empty($configuration) ? [] : $configuration,
@@ -610,20 +610,21 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           }, explode(';', $filenames));
           $filenames = array_filter($filenames);
           // We will keep the original row ID, so we can log it.
-          $data_csv->info['row']['row_id'] = $data->info['row']['row_id'];
+          $data_csv->info['row']['row_id'] = $current_row_id;
           foreach($filenames as $filename) {
-              $data_csv->info['csv_filename'] = $filename;
-              $csv_file = $this->processCSvFile($data_csv);
-              if ($csv_file) {
-                $data_csv->info['csv_file'] = $csv_file;
-                // Push to the CSV  queue
-                \Drupal::queue('ami_csv_ado')
-                  ->createItem($data_csv);
-              }
+            $data_csv->info['csv_filename'] = $filename;
+            $csv_file = $this->processCSvFile($data_csv);
+            if ($csv_file) {
+              $data_csv->info['csv_file'] = $csv_file;
+              // Push to the CSV  queue
+              \Drupal::queue('ami_csv_ado')
+                ->createItem($data_csv);
+            }
           }
         }
       }
     }
+    return;
   }
 
 
@@ -1094,7 +1095,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       return NULL;
     }
     $file = $this->AmiUtilityService->file_get(trim($data->info['csv_filename']),
-        $data->info['zip_file'] ?? NULL, TRUE);
+      $data->info['zip_file'] ?? NULL, TRUE);
     if ($file) {
       $event_type = StrawberryfieldEventType::TEMP_FILE_CREATION;
       $current_timestamp = (new DrupalDateTime())->getTimestamp();
@@ -1104,7 +1105,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $this->eventDispatcher->dispatch($event, $event_type);
     }
     if ($file && $file->getMimeType() == 'text/csv') {
-        return $file;
+      return $file;
     }
     else {
       $message = $this->t('The referenced nested CSV @filename on row id @rowid from Set @setid could not be found or had the wrong format. Skipping',
@@ -1117,7 +1118,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
-        return NULL;
+      return NULL;
     }
   }
 
