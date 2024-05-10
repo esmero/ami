@@ -709,12 +709,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $status = $data->info['status'][$bundle] ?? 0;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
-    if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
-      $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
-    }
-    else {
-      $processed_metadata['ap:tasks'] = [];
-      $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+    // We can't blindly override ap:tasks if we are dealing with an update operation. So make an exception here for only create
+    // And deal with the same for update but later
+    if ($op ==='create') {
+      if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
+        $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+      } else {
+        $processed_metadata['ap:tasks'] = [];
+        $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+      }
     }
 
     // JSON_ENCODE AGAIN!
@@ -827,7 +830,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   $processed_metadata = $original_value;
                 }
 
-
                 if (isset($data->info['log_jsonpatch']) && $data->info['log_jsonpatch']) {
                   $this->patchJson($original_value ?? [], $processed_metadata ?? [], true);
                 }
@@ -891,8 +893,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   }
                   $processed_metadata = $original_value;
                 }
-                // @TODO. Log this?
-                // $this->patchJson($original_value, $processed_metadata);
+
+                // Now deal again with ap:tasks only if the replace/append operation stripped the basics out
+
+                if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
+                  // basically reuse what is there (which at this stage will be a mix of original data and new or default to the $sort file defined before
+                  $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? $sort_files;
+                } else {
+                  // Only set if after all the options it was removed at all.
+                  $processed_metadata['ap:tasks'] = [];
+                  $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+                }
+
 
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
