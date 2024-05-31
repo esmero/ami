@@ -384,7 +384,6 @@ class AmiUtilityService {
       // This may be remote!
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
-
       $md5uri = md5($uri);
       $destination = $destination . $md5uri . '/' ;
       $path = str_replace(
@@ -545,7 +544,7 @@ class AmiUtilityService {
         // joined by a; like text/vtt;charset=UTF-8
         $mimetype_array = explode(";", $mimetype[0]);
         if ($mimetype_array) {
-          //Exceptions for "some" remote sources that might provide/non canonical mimetypes
+         //Exceptions for "some" remote sources that might provide/non canonical mimetypes
           if ($mimetype_array[0] == 'image/jpg') {
             $mimetype_array[0] = 'image/jpeg';
           }
@@ -555,7 +554,6 @@ class AmiUtilityService {
           if ($mimetype_array[0] == "audio/vnd.wave") {
             $mimetype_array[0] = "audio/x-wave";
           }
-
           $mimefromextension = NULL;
           if ($extensions_from_remote) {
             $mimefromextension = \Drupal::service(
@@ -803,7 +801,6 @@ class AmiUtilityService {
     }
   }
 
-
   /**
    * Returns the filename from a Content-Disposition header string.
    *
@@ -857,6 +854,21 @@ class AmiUtilityService {
 
     return $filename;
   }
+
+  /**
+   * Returns the filename from a Content-Disposition header string.
+   *
+   * @param string $value
+   *
+   * @return string|null
+   *    Returns NULL if could not be parsed/empty
+   */
+  protected function getFilenameFromDisposition(string $value) {
+    $value = trim($value);
+
+    if (strpos($value, ';') === false) {
+      return NULL;
+    }
 
   /**
    * Creates an empty CSV and returns a file.
