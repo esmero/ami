@@ -8,8 +8,9 @@ use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
-use Drupal\Core\StreamWrapper\StreamWrapperInterface;
+use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Drupal\Core\Url;
+use Drupal\ami\Entity\amiSetEntity;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -25,6 +26,13 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   protected $AmiUtilityService;
 
   /**
+   * Private Store used to keep the Set Processing Status/count
+   *
+   * @var \Drupal\Core\TempStore\PrivateTempStore
+   */
+  protected $statusStore;
+
+  /**
    * Constructs a ContentEntityForm object.
    *
    * @param \Drupal\Core\Entity\EntityRepositoryInterface $entity_repository
@@ -34,13 +42,15 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    * @param \Drupal\Component\Datetime\TimeInterface|null $time
    *   The time service.
    * @param \Drupal\ami\AmiUtilityService $ami_utility
+   * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
    */
   public function __construct(
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, AmiUtilityService $ami_utility) {
+    TimeInterface $time = NULL, AmiUtilityService $ami_utility, PrivateTempStoreFactory $temp_store_factory) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
+    $this->statusStore = $temp_store_factory->get('ami_queue_status');
   }
 
   /**
@@ -52,7 +62,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
       $container->get('ami.utility'),
-      $container->get('strawberryfield.utility')
+      $container->get('tempstore.private')
     );
   }
 
@@ -78,6 +88,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
+    $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
+    $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
+
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
@@ -129,6 +142,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
+
+      $run_timestamp = $this->time->getCurrentTime();
+
+
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = 'ami_ingest_ado';
       if (!$notprocessnow) {
@@ -147,6 +164,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       // Only applies to Update/Patch operations but for contract reasons
       // we generate all $data->info the same.
       $ops_safefiles = TRUE;
+
       if (isset($data->pluginconfig->op) && $data->pluginconfig->op != 'create') {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
         $ops_safefiles = $form_state->getValue(['ops_secondary','ops_safefiles'], TRUE);
@@ -169,12 +187,16 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'force_file_queue' => (bool) $form_state->getValue('force_file_queue', FALSE),
           'force_file_process' => (bool) $form_state->getValue('force_file_process', FALSE),
           'manyfiles' => $manyfiles,
+          'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
+          'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
+          'time_submitted' => $run_timestamp
         ];
         $added[] = \Drupal::queue($queue_name)
           ->createItem($data);
       }
+      $count = count(array_filter($added));
 
-      if ($notprocessnow) {
+      if ($notprocessnow && $count) {
         $this->messenger()->addMessage(
           $this->t(
             'Set @label enqueued and processed .',
@@ -183,13 +205,32 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             ]
           )
         );
+
+        $processed_set_status['processed'] =  0;
+        $processed_set_status['errored'] =  0;
+        $processed_set_status['total'] = $count;
+        $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
+        $this->entity->setStatus(amiSetEntity::STATUS_ENQUEUED);
+        $this->entity->save();
         $form_state->setRedirectUrl($this->getCancelUrl());
       }
-      else {
-        $count = count(array_filter($added));
-        if ($count) {
+      elseif ($count) {
+          $processed_set_status['processed'] =  0;
+          $processed_set_status['errored'] =  0;
+          $processed_set_status['total'] = $count;
+          $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
           $this->submitBatch($form_state, $queue_name, $count);
-        }
+      }
+      else {
+        $this->messenger()->addError(
+          $this->t(
+            'So Sorry. Ami Set @label has issues, is either empty or could not be sent to processing. Please check your CSV, correct or delete and generate a new AMI set.',
+            [
+              '@label' => $this->entity->label(),
+            ]
+          )
+        );
+        $form_state->setRebuild();
       }
     }
     else {
@@ -286,6 +327,28 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $base = 1024;
       $class = min((int)log($bytes , $base) , count($si_prefix) - 1);
 
+      $form['skip_onmissing_file'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t("Skip ADO processing on missing File"),
+        '#description' => $this->t("If enabled a referenced missed file or one that can not be processed from the source, remote or local will make AMI skip the affected ROW. Enabled by default for better QA during processing."),
+        '#default_value' => TRUE,
+      ];
+      $config = \Drupal::config('strawberryfield.general');
+      if ($config->get('override_persistent_storage') === TRUE) {
+        $form['take_control_file'] = [
+          '#type'          => 'checkbox',
+          '#title'         => $this->t("Let Archipelago organize my files"),
+          '#description'   => $this->t(
+            "Enabled by default. All files referenced in this AMI set will be copied into an Archipelago managed location and sanitized.<br> Danger: If disabled files that share source location with this repositories configured <em>Storage Scheme for Persisting Files</em> will maintain its original location and it will be up to the manager to ensure they are not removed from there."
+          ),
+          '#default_value' => TRUE,
+          '#access'        => $this->currentUser()->hasPermission(
+              'override file destination ami entity'
+            )
+            || $this->currentUser()->hasRole('administrator'),
+        ];
+      }
+
       $form['status'] = [
         '#tree' => TRUE,
         '#type' => 'fieldset',
@@ -353,7 +416,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'Re download and reprocess every file'
         ),
         '#description' => $this->t(
-          'Check this to force every file attached to an ADO to be downloaded and characterized again, even if on a previous Batch run that data was already generated for reuse. Needed if e.g the URL of a file is the same but the remote source changed.'
+          'Check this to force every file attached to an ADO to be downloaded and characterized again, even if on a previous Batch run that data was already generated for reuse. IMPORTANT: Needed if e.g the URL of a file is the same but the remote source changed, if you have custom code that modifies the backend naming strategy of files.'
         ),
         '#required' => FALSE,
         '#default_value' => FALSE,
@@ -379,6 +442,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       '\Drupal\ami\AmiBatchQueue::takeOne',
       [$queue_name, $this->entity->id()],
     ];
+    $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSING);
+    $this->entity->save();
     batch_set($batch);
   }
 

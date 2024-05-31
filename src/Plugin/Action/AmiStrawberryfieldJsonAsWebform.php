@@ -55,8 +55,8 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
 
   }
 
-  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state) {
-
+  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state):array {
+    return $element;
   }
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {
@@ -304,6 +304,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
             // Now try to decode fullvalues
             $fullvaluesmodified_string = json_encode($fullvaluesmodified);
             $fullvaluesoriginal_string = json_encode($fullvaluesoriginal);
+            $json_error = json_last_error();
             if ($json_error != JSON_ERROR_NONE) {
               $visualjsondiff = new Diff(explode(PHP_EOL, $fullvaluesmodified_string), explode(PHP_EOL,$fullvaluesoriginal_string));
               $formatter = new DiffFormatter();

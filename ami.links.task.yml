@@ -50,3 +50,9 @@ entity.ami_set_entity.reconcileedit_form:
   base_route: entity.ami_set_entity.canonical
   title: Edit Reconciled LoD
   weight: 14
+
+entity.ami_set_entity.report_form:
+  route_name: entity.ami_set_entity.report_form
+  base_route: entity.ami_set_entity.canonical
+  title: Reports
+  weight: 15

@@ -10,6 +10,7 @@ use Drupal\Core\Entity\EntityChangedTrait;
 use Drupal\ami\amiSetEntityInterface;
 use Drupal\user\UserInterface;
 use Drupal\Component\Utility\Environment;
+use Drupal\user\Entity\User;
 
 /**
  * Defines the Ami Set Content entity.
@@ -84,7 +85,8 @@ use Drupal\Component\Utility\Environment;
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteprocessed" = "Drupal\ami\Form\amiSetEntityDeleteProcessedForm",
  *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm",
- *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm"
+ *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm",
+ *       "report" = "Drupal\ami\Form\amiSetEntityReportForm"
  *     },
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
@@ -105,6 +107,7 @@ use Drupal\Component\Utility\Environment;
  *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
  *     "edit-reconcile-form" = "/amiset/{ami_set_entity}/editreconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",
+ *     "report-form" = "/amiset/{ami_set_entity}/report",
  *     "collection" = "/amiset/list"
  *   },
  *   field_ui_base_route = "ami.amisetentity_settings",
@@ -139,6 +142,29 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
   // Implements methods defined by EntityChangedInterface.
   use EntityChangedTrait;
 
+
+  public const STATUS_READY = 'READY';
+  public const STATUS_NOT_READY = 'NOT_READY';
+  public const STATUS_PROCESSING = 'PROCESSING';
+  public const STATUS_PROCESSED = 'PROCESSED';
+  public const STATUS_ENQUEUED = 'ENQUEUED';
+  public const STATUS_PROCESSING_WITH_ERRORS = 'PROCESSING_WITH_ERRORS';
+  public const STATUS_PROCESSED_WITH_ERRORS = 'PROCESSED_WITH_ERRORS';
+  public const STATUS_FAILED = 'FAILED';
+  public const STATUS_ENTITIES_DELETED = 'ENTITIES_DELETED';
+
+  public const STATUS = [
+    amiSetEntity::STATUS_READY => 'Ready to process',
+    amiSetEntity::STATUS_NOT_READY  => 'Not ready to process',
+    amiSetEntity::STATUS_PROCESSING => 'Sent to processing',
+    amiSetEntity::STATUS_PROCESSED => 'Processed',
+    amiSetEntity::STATUS_ENQUEUED => 'Enqueued',
+    amiSetEntity::STATUS_PROCESSING_WITH_ERRORS => 'Processing with some errors',
+    amiSetEntity::STATUS_PROCESSED_WITH_ERRORS => 'Processed with errors',
+    amiSetEntity::STATUS_FAILED => 'Failed',
+    amiSetEntity::STATUS_ENTITIES_DELETED => 'ADOs Deleted',
+  ];
+
   /**
    * {@inheritdoc}
    *
@@ -163,7 +189,11 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
    * {@inheritdoc}
    */
   public function getOwner() {
-    return $this->get('user_id')->entity;
+    $user = $this->get('user_id')->entity;
+    if (!$user || $user->isAnonymous()) {
+      $user = User::getAnonymousUser();
+    }
+    return $user;
   }
 
   /**
@@ -316,18 +346,13 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDescription(t('The time that the Ami Set was last edited.'));
 
     $fields['status'] = BaseFieldDefinition::create('list_string')
-      ->setLabel(t('This Set last known status'))
+      ->setLabel(t("This Set's last known status"))
       ->setDescription(t('Current Status of this Set'))
       ->setSettings([
-        'default_value' => 'ready',
+        'default_value' => 'READY',
         'max_length' => 64,
         'cardinality' => 1,
-        'allowed_values' => [
-          'ready' => 'ready',
-          'not ready' => 'notready',
-          'processed' => 'processed',
-          'enqueued' => 'enqueued',
-        ],
+        'allowed_values' => static::STATUS,
       ])
       ->setRequired(TRUE)
       ->setDisplayOptions('view', [
@@ -409,6 +434,22 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
           'upload_validators' => $validatorszip,
         ],
         'weight' => -3,
+      ])
+      ->setDisplayConfigurable('view', TRUE)
+      ->setDisplayConfigurable('form', TRUE);
+
+    $fields['report_file'] = BaseFieldDefinition::create('file')
+      ->setLabel(t('AMI Process Reports'))
+      ->setDescription(t('Processed set reports in CSV format'))
+      ->setSetting('file_extensions', 'csv')
+      ->setSetting('upload_validators', $validators)
+      ->setSetting('uri_scheme', 'private')
+      ->setSetting('file_directory', '/ami/reports')
+      ->setRequired(FALSE)
+      ->setDisplayOptions('view', [
+        'label' => 'above',
+        'type' => 'file',
+        'weight' => -2,
       ])
       ->setDisplayConfigurable('view', TRUE)
       ->setDisplayConfigurable('form', TRUE);

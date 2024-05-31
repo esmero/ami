@@ -43,7 +43,7 @@ class AmiMultiStepIngestBaseForm extends FormBase {
   private $currentUser;
 
   /**
-   * @var \Drupal\user\PrivateTempStore
+   * @var \Drupal\Core\TempStore\PrivateTempStore
    */
   protected $store;
 

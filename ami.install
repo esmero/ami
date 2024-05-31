@@ -45,9 +45,9 @@ function ami_update_8901() {
  */
 function ami_update_8902() {
   $validators = [
-      'file_validate_extensions' => ['zip'],
-      'file_validate_size' => [Environment::getUploadMaxSize()],
-    ];
+    'file_validate_extensions' => ['zip'],
+    'file_validate_size' => [Environment::getUploadMaxSize()],
+  ];
   $storage_definition = BaseFieldDefinition::create('file')
     ->setLabel(new TranslatableMarkup('Attached ZIP file'))
     ->setDescription(new TranslatableMarkup('A Zip file containing accompanying Files for the Source Data'))
@@ -64,8 +64,8 @@ function ami_update_8902() {
     ->setDisplayOptions('form', [
       'type' => 'file',
       'description' => [
-      'theme' => 'file_upload_help',
-      'description' => new TranslatableMarkup('Source Files for this Set')
+        'theme' => 'file_upload_help',
+        'description' => new TranslatableMarkup('Source Files for this Set')
       ],
       'settings' => [
         'upload_validators' => $validators,
@@ -83,25 +83,25 @@ function ami_update_8902() {
  */
 function ami_update_8903() {
   \Drupal::entityDefinitionUpdateManager()->installEntityType(new ConfigEntityType([
-     'id' => 'importeradapter',
-     'label' => new TranslatableMarkup('AMI Importer Adapter'),
-     'config_prefix' => 'importeradapter',
-     'admin_permission' => 'administer site configuration',
-     'entity_keys' => [
-       'id' => 'id',
-       'label' => 'label',
-       'uuid' => 'uuid',
-     ],
-     'config_export' => [
-        "id",
-        "label",
-        "plugin",
-        "update_existing",
-        "target_entity_types",
-        "active",
-        "plugin_configuration"
-     ],
-   ]));
+    'id' => 'importeradapter',
+    'label' => new TranslatableMarkup('AMI Importer Adapter'),
+    'config_prefix' => 'importeradapter',
+    'admin_permission' => 'administer site configuration',
+    'entity_keys' => [
+      'id' => 'id',
+      'label' => 'label',
+      'uuid' => 'uuid',
+    ],
+    'config_export' => [
+      "id",
+      "label",
+      "plugin",
+      "update_existing",
+      "target_entity_types",
+      "active",
+      "plugin_configuration"
+    ],
+  ]));
 }
 
 /**
@@ -114,5 +114,50 @@ function ami_update_8904() {
   \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition);
 }
 
+/**
+ * Update 8905 - Add Report CSV file Field for AMI Set entity.
+ */
+function ami_update_8905() {
+  $validators = [
+    'file_validate_extensions' => ['csv'],
+    'file_validate_size' => [Environment::getUploadMaxSize()],
+  ];
+
+  $storage_definition = BaseFieldDefinition::create('file')
+    ->setLabel(t('AMI Process Reports'))
+    ->setDescription(t('Processed set report in CSV format'))
+    ->setSetting('file_extensions', 'csv')
+    ->setSetting('upload_validators', $validators)
+    ->setSetting('uri_scheme', 'private')
+    ->setSetting('file_directory', '/ami/reports')
+    ->setRequired(FALSE)
+    ->setDisplayOptions('view', [
+      'label' => 'above',
+      'type' => 'file',
+      'weight' => -2,
+    ])
+    ->setDisplayConfigurable('view', TRUE)
+    ->setDisplayConfigurable('form', TRUE);
+  \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('report_file', 'ami_set_entity', 'ami', $storage_definition);
+  $field_storage_definition_status = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('status', 'ami_set_entity');
+  $field_storage_definition_status->setLabel(t("This Set's last known status"));
+  $field_storage_definition_status->setSetting('allowed_values', \Drupal\ami\Entity\amiSetEntity::STATUS);
+  $field_storage_definition_status->setSetting('default_value', 'READY');
+  \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_status);
+
+  // Update all AMI sets already with 'ready' use the new uppercase default
+  $entities_nids = \Drupal::entityQuery('ami_set_entity')
+    ->condition('status', 'ready')
+    ->accessCheck(FALSE)
+    ->execute();
+
+  // Load all the articles.
+  $entities = \Drupal::entityTypeManager()->getStorage('ami_set_entity')->loadMultiple($entities_nids);
+  foreach ($entities as $entity) {
+    $entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_READY);
+    $entity->save();
+  }
+
+}
 
 

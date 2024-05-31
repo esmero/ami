@@ -58,7 +58,7 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
   /**
    * {@inheritdoc}
    */
-  public function setContext(array &$context) {
+  public function setContext(array &$context):void {
     $this->context['sandbox'] = &$context['sandbox'];
     foreach ($context as $key => $item) {
       if ($key === 'sandbox') {
@@ -71,7 +71,7 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
   /**
    * {@inheritdoc}
    */
-  public function setView(ViewExecutable $view) {
+  public function setView(ViewExecutable $view):void {
     $this->view = $view;
   }
 
@@ -229,7 +229,8 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
   }
 
 
-  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state) {
+  public function buildPreConfigurationForm(array $element, array $values, FormStateInterface $form_state):array {
+    return $element;
   }
 
   public function buildConfigurationForm(array $form, FormStateInterface $form_state) {

@@ -2,6 +2,7 @@
 namespace Drupal\ami\Form;
 
 use Drupal\ami\AmiUtilityService;
+use Drupal\ami\Entity\amiSetEntity;
 use Drupal\Component\Datetime\TimeInterface;
 use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
@@ -62,7 +63,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function getCancelUrl() {
-    return new Url('entity.ami_set_entity.collection');
+    return new Url('entity.ami_set_entity.process_form',['ami_set_entity' => $this->entity->id()]);
   }
 
 
@@ -93,7 +94,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         return;
       }
       $operations = [];
-      foreach (array_chunk($uuids, 10) as $batch_data_uuid) {
+      foreach (array_chunk($uuids, 50) as $batch_data_uuid) {
         $operations[] = ['\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchDelete'
           , [$batch_data_uuid]];
       }
@@ -103,6 +104,9 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         'operations' => $operations,
         'finished' => '\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchFinished',
       );
+      $this->entity->setStatus(amiSetEntity::STATUS_ENTITIES_DELETED);
+      $this->entity->save();
+      $form_state->setRedirectUrl($this->getCancelUrl());
       batch_set($batch);
     } else {
       $this->messenger()->addError(
@@ -176,10 +180,12 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
 
   // What to do after batch ran. Display success or error message.
   public static function batchFinished($success, $results, $operations) {
-    if ($success)
-      $message = count($results). ' batches processed.';
-    else
+    if ($success) {
+      $message = count($results) . ' batches processed.';
+    }
+    else {
       $message = 'Finished with an error.';
+    }
 
     $messenger = \Drupal::messenger();
     if (isset($message)) {

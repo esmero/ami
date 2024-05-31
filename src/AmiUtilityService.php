@@ -17,6 +17,7 @@ use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use \Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
+use Drupal\Core\File\Exception\FileWriteException;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\KeyValueStore\KeyValueFactoryInterface;
 use Drupal\Core\Language\LanguageManagerInterface;
@@ -37,6 +38,7 @@ use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 use SplFileObject;
+use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 
 class AmiUtilityService {
 
@@ -303,6 +305,8 @@ class AmiUtilityService {
    *   - If does not exist boolean FALSE
    */
   public function file_get($uri, File $zip_file = NULL) {
+    $uri = trim($uri);
+
     $parsed_url = parse_url($uri);
     $remote_schemes = ['http', 'https', 'feed'];
     $ami_temp_folder = 'ami/setfiles/';
@@ -316,6 +320,7 @@ class AmiUtilityService {
     ) {
       // Now that we know its not remote, try with our registered schemas
       // means its either private/public/s3, etc
+      // normalize targetx
 
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
@@ -328,17 +333,26 @@ class AmiUtilityService {
       else {
         // Means it may be local to the accessible file storage, eg. a path inside
         // the server or inside a provided ZIP file
-        //@TODO check if we should copy here or just deal with it.
         $localfile = $this->fileSystem->realpath($uri);
-        if (!file_exists($localfile) && !$zip_file) {
+
+        if (!$localfile && !$zip_file) {
           return FALSE;
         }
-        elseif ($zip_file) {
+        elseif ($localfile) {
+          // We can not allow DIRS. C'mon
+          if (is_dir($localfile)) {
+            return FALSE;
+          }
+          // Means the file is there already locally. Just assign.
+          $finaluri = $localfile;
+        }
+        elseif (!$localfile && $zip_file) {
+          // Means no local file but we can check inside a ZIP.
           // Try with the ZIP file in case there is a ZIP and local failed
           // Use the Zip file uuid to prefix the destination.
           // @TODO file_build_uri is deprecated replace before Drupal 10.0.0
-          $localfile = file_build_uri(
-            $this->fileSystem->basename($ami_temp_folder . $zip_file->uuid() . '/' . urldecode($parsed_url['path']))
+          $localfile = $this->streamWrapperManager->normalizeUri(
+            $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
           );
           if (!file_exists($localfile)) {
             $destination_zip = $destination . $zip_file->uuid() . '/';
@@ -370,9 +384,6 @@ class AmiUtilityService {
       // This may be remote!
       // Simulate what could be the final path of a remote download.
       // to avoid re downloading.
-      $localfile = file_build_uri(
-        $this->fileSystem->basename(urldecode($parsed_url['path']))
-      );
       $md5uri = md5($uri);
       $destination = $destination . $md5uri . '/' ;
       $path = str_replace(
@@ -380,14 +391,18 @@ class AmiUtilityService {
           '//',
           "{$destination}"
         ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+      $localfile = $this->streamWrapperManager->normalizeUri($path);
       $escaped_path = str_replace(' ', '\ ', $path);
-      if ($isthere = glob($this->fileSystem->realpath($escaped_path) . '.*')) {
+      // This is very naive since the remote file might be different than
+      // the last part of the actual URL (header given name).
+      $isthere = glob($this->fileSystem->realpath($escaped_path) . '.*');
+      $isthere = is_array($isthere) && (count($isthere) == 1) ? $isthere : glob($this->fileSystem->realpath($escaped_path));
+
+      if (is_array($isthere) && count($isthere) == 1) {
         // Ups its here
-        if (count($isthere) == 1) {
-          // Use path here instead of the first entry to keep the streamwrapper
-          // around for future use
-          $localfile = $path;
-        }
+        // Use path here instead of the first entry to keep the streamwrapper
+        // around for future use
+        $localfile = $path;
       }
       // Actual remote heavy lifting only if not present.
       if (!file_exists($localfile)) {
@@ -452,11 +467,12 @@ class AmiUtilityService {
     $parsed_url = parse_url($uri);
     $basename = $this->fileSystem->basename(urldecode($parsed_url['path']));
     if (!isset($destination)) {
-      $path = file_build_uri($basename);
+      $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
+      $path = $this->streamWrapperManager->normalizeUri($basename);
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
-        // Prevent URIs with triple slashes when glueing parts together.
+        // Prevent URIs with triple slashes when glue-ing parts together.
         $path = str_replace(
             '///',
             '//',
@@ -480,9 +496,8 @@ class AmiUtilityService {
       }
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
       $filename_from_remote = $basename;
-      $filename_from_remote_parts = explode(".", $basename, 2);
-      $filename_from_remote_without_extension = $filename_from_remote_parts[0] ?? NULL;
-      $extensions_from_remote = $filename_from_remote_parts[1] ?? NULL;
+      $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
+      $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
       $extension_from_mime = NULL;
       $extension = NULL;
       $content_disposition = $response->getHeader('Content-Disposition');
@@ -492,10 +507,21 @@ class AmiUtilityService {
         if ($filename_from_remote) {
           // we want the name without extension, we do not trust the extension
           // See remote sources with double extension!
-          $filename_from_remote_parts = explode(".", $filename_from_remote, 2);
-          $filename_from_remote_without_extension = $filename_from_remote_parts[0] ?? NULL;
-          $extensions_from_remote = $filename_from_remote_parts[1] ?? NULL;
+          $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
+          $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
         }
+      }
+      $extensions_from_remote = !empty($extensions_from_remote) ? $extensions_from_remote : NULL;
+      $filename_from_remote_without_extension = !empty($filename_from_remote_without_extension) ? $filename_from_remote_without_extension : NULL;
+      // remove any leading dots from here. The original Path (because it is calculated based on the URL) will not contain these
+      if ($filename_from_remote_without_extension) {
+        // remove any spaces from the start and end
+        $filename_from_remote_without_extension = trim($filename_from_remote_without_extension);
+        // now remove and leading dots + spaces that might come after the dots
+        $filename_from_remote_without_extension = preg_replace('/^(\.|\h)*/m', '', $filename_from_remote_without_extension);
+        // if the regular expression fails OR the filename was just dots (like i have seen it all - the song -) use the original sink path
+        $filename_from_remote_without_extension = !empty($filename_from_remote_without_extension)
+        && (strlen($filename_from_remote_without_extension) > 0) ? $filename_from_remote_without_extension : NULL;
       }
     }
     catch (\Exception $exception) {
@@ -518,15 +544,25 @@ class AmiUtilityService {
         // joined by a; like text/vtt;charset=UTF-8
         $mimetype_array = explode(";", $mimetype[0]);
         if ($mimetype_array) {
+         //Exceptions for "some" remote sources that might provide/non canonical mimetypes
+          if ($mimetype_array[0] == 'image/jpg') {
+            $mimetype_array[0] = 'image/jpeg';
+          }
+          if ($mimetype_array[0] == 'image/tif') {
+            $mimetype_array[0] = 'image/tiff';
+          }
+          if ($mimetype_array[0] == "audio/vnd.wave") {
+            $mimetype_array[0] = "audio/x-wave";
+          }
           $mimefromextension = NULL;
           if ($extensions_from_remote) {
             $mimefromextension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
-              ->guess($filename_from_remote ?? $path);
-
+              ->guessMimeType($filename_from_remote ?? $path);
           }
-          if (($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
+
+          if (count($mimetype_array) && ($mimefromextension == NULL || $mimefromextension != $mimetype_array[0]) && ($mimetype_array[0] != 'application/octet-stream')) {
             $extension = \Drupal::service(
               'strawberryfield.mime_type.guesser.mime'
             )
@@ -541,7 +577,7 @@ class AmiUtilityService {
     // If none try with the filename either from remote (if set) of from the download path
     if (!$extension || $extension == 'bin'){
       $mimefromextension = \Drupal::service('strawberryfield.mime_type.guesser.mime')
-        ->guess($filename_from_remote ?? $path);
+        ->guessMimeType($filename_from_remote ?? $path);
       if (($mimefromextension !== "application/octet-stream")) {
         $extension = $extensions_from_remote ?? 'bin';
       }
@@ -609,10 +645,11 @@ class AmiUtilityService {
       return FALSE;
     }
     $zip_realpath = NULL;
-    $md5uri = md5($uri);
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $path = file_build_uri($this->fileSystem->basename($parsed_url['path']));
+      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
+      $path = $this->streamWrapperManager->normalizeUri($basename);
     }
     else {
       if (is_dir($this->fileSystem->realpath($destination))) {
@@ -620,8 +657,8 @@ class AmiUtilityService {
         $path = str_replace(
             '///',
             '//',
-            "{$destination}/"
-          ) . $md5uri . '_' . $this->fileSystem->basename(
+            "{$destination}"
+          ) . $this->fileSystem->basename(
             $parsed_url['path']
           );
       }
@@ -685,13 +722,61 @@ class AmiUtilityService {
    */
   public function create_file_from_uri($localpath) {
     try {
+      // Sadly File URIs can not be longer than 255 characters. We have no other way
+      // Because of Drupal's DB Fixed schema and a Override on this might
+      // Not be great/sustainable.
+      // Because this is not a very common thing
+      // I will incur in the penalty of moving a file here
+      // Just to keep code isolated but also to have the chance to preserve
+      // the original name!
+      if (strlen($localpath) > 255) {
+        $path_length = strlen($localpath);
+        $filename = $this->fileSystem->basename($localpath);
+        $prefix_and_wrapper_length = ($path_length - strlen($filename));
+        $max_file_length = 255 - $prefix_and_wrapper_length;
+        $max_part_length = floor($max_file_length / 2);
+        $first_part = substr($localpath, $prefix_and_wrapper_length, $max_part_length);
+        // -4 because 'we' are cute and will add this in between " -_- "
+        $second_part = substr($localpath, -1 * ($max_part_length - 4));
+        $new_uri = substr($localpath, 0, $prefix_and_wrapper_length) . $first_part .' -_- '.$second_part;
+        if (strlen($filename > 255)) {
+          // For consistency i cut again.
+          $filename  = substr($filename, 0, 127) .' -_- '. substr($filename, -1 * (123));
+        }
+        try {
+          $moved_file = $this->fileSystem->move(
+            $localpath, $new_uri, FileSystemInterface::EXISTS_REPLACE
+          );
+          $message = 'File generated during Ami Set Processing with temporary URI @longuri was longer than 255 characters (Drupal field limit) so had to be renamed to shorter @path';
+          $this->loggerFactory->get('ami')->warning($message, [
+            '@longuri' =>$localpath,
+            '@path' => $new_uri,
+          ]);
+        }
+        catch (FileWriteException $writeException) {
+          $message = 'Unable to move file from longer than 255 characters @longuri to shorter @path with error: @error.';
+          $this->loggerFactory->get('ami')->error($message, [
+            '@error' => $writeException->getMessage(),
+            '@longuri' =>$localpath,
+            '@path' => $new_uri,
+          ]);
+          return FALSE;
+        }
+        $localpath = $new_uri;
+      }
+      else {
+        $filename = $this->fileSystem->basename($localpath);
+      }
+      /** @var File $file */
       $file = $this->entityTypeManager->getStorage('file')->create(
         [
           'uri' => $localpath,
           'uid' => $this->currentUser->id(),
           'status' => FileInterface::STATUS_PERMANENT,
+          'filename' => $filename,
         ]
       );
+
       // If we are replacing an existing file re-use its database record.
       // @todo Do not create a new entity in order to update it. See
       //   https://www.drupal.org/node/2241865.
@@ -715,7 +800,6 @@ class AmiUtilityService {
       return FALSE;
     }
   }
-
 
   /**
    * Returns the filename from a Content-Disposition header string.
@@ -772,6 +856,21 @@ class AmiUtilityService {
   }
 
   /**
+   * Returns the filename from a Content-Disposition header string.
+   *
+   * @param string $value
+   *
+   * @return string|null
+   *    Returns NULL if could not be parsed/empty
+   */
+  protected function getFilenameFromDisposition(string $value) {
+    $value = trim($value);
+
+    if (strpos($value, ';') === false) {
+      return NULL;
+    }
+
+  /**
    * Creates an empty CSV and returns a file.
    *
    * @param string|null $filename
@@ -807,10 +906,8 @@ class AmiUtilityService {
         return NULL;
       }
     }
-    // Ensure the file with empty data
-    $file = file_save_data(
-      '', $uri, FileSystemInterface::EXISTS_REPLACE
-    );
+
+    $file = \Drupal::service('file.repository')->writeData('', $uri, FileSystemInterface::EXISTS_REPLACE);
 
     if (!$file) {
       $this->messenger()->addError(
@@ -869,9 +966,8 @@ class AmiUtilityService {
       return NULL;
     }
     // Ensure the file
-    $file = file_save_data(
-      '', $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE
-    );
+
+    $file = \Drupal::service('file.repository')->writeData('',  $path . '/' . $filename, FileSystemInterface::EXISTS_REPLACE);
     if (!$file) {
       $this->messenger()->addError(
         $this->t('Unable to create AMI CSV file. Verify permissions please.')
@@ -934,7 +1030,7 @@ class AmiUtilityService {
       $this->t(
         'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
         [
-          '@url' => file_create_url($file->getFileUri()),
+          '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
           '@filename' => $file->getFilename(),
         ]
       )
@@ -1104,10 +1200,14 @@ class AmiUtilityService {
     $highestRow = count($data);
     if ($always_include_header) {
       $rowHeaders = $data[0] ?? [];
-      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(function($value) {
+        $value = $value ?? '';
+        $value = stripslashes($value);
+        $value = function_exists('mb_convert_encoding') ? mb_convert_encoding($value, 'UTF-8', 'ISO-8859-1') : utf8_encode($value);
+        $value = strtolower($value);
+        $value = trim($value);
+        return $value;
+      }, $rowHeaders);
       $headercount = count($rowHeaders);
     }
     else {
@@ -1344,7 +1444,10 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumn(array $data, int $key): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $unique = array_map('trim', $all);
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all);
     $unique = array_unique($unique, SORT_STRING);
     return $unique;
   }
@@ -1390,6 +1493,7 @@ class AmiUtilityService {
     $metadatadisplay_ids = $query
       ->condition("mimetype", "application/json")
       ->sort('name', 'ASC')
+      ->accessCheck(TRUE)
       ->execute();
     if (count($metadatadisplay_ids)) {
       $metadatadisplays = $this->entityTypeManager->getStorage(
@@ -1442,6 +1546,7 @@ class AmiUtilityService {
     $webform_ids = $query
       ->condition("status", "open")
       ->sort('title', 'ASC')
+      ->accessCheck(TRUE)
       ->execute();
     if (count($webform_ids)) {
       $webforms = $this->entityTypeManager->getStorage('webform')->loadMultiple(
@@ -1591,7 +1696,14 @@ class AmiUtilityService {
             $zipfail = TRUE;
           }
           else {
-            $zipfile = file_move($zipfile, $target_directory, FileSystemInterface::EXISTS_REPLACE);
+            /** @var \Drupal\file\FileRepositoryInterface $file_repository */
+            $file_repository = \Drupal::service('file.repository');
+            try {
+              $zipfile = $file_repository->move($zipfile, $target_directory, FileSystemInterface::EXISTS_RENAME);
+            }
+            catch (InvalidStreamWrapperException $e) {
+              $zipfail = TRUE;
+            }
             if (!$zipfile) {
               $zipfail = TRUE;
             }
@@ -1681,10 +1793,25 @@ class AmiUtilityService {
           $parent_key, $config['data']['headers']
         );
 
-        $ado['parent'][$parent_key] = trim(
+        $parent_ados_toexpand = (array) trim(
           $row[$parent_key]
         );
-        $ado['anyparent'][] = $row[$parent_key];
+        $parent_ados_array = [];
+        $parent_ados_expanded = $this->expandJson($parent_ados_toexpand);
+        $parent_ados_expanded = $parent_ados_expanded[0] ?? NULL;
+        if (is_array($parent_ados_expanded)) {
+          $parent_ados_array = $parent_ados_expanded;
+        }
+        elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
+          // This allows single value and or ; and trims. Neat?
+          $parent_ados_array = array_map(function($value) {
+            $value = $value ?? '';
+            return trim($value);
+          }, explode(';', $parent_ados_expanded));
+        }
+
+        $ado['parent'][$parent_key] = $parent_ados_array;
+        $ado['anyparent'] = array_unique(array_merge($ado['anyparent'], $ado['parent'][$parent_key]));
       }
 
       $ado['data'] = $row;
@@ -1716,73 +1843,102 @@ class AmiUtilityService {
 
       if (isset($ado)) {
         // CHECK. Different to IMI. we have multiple relationships
-        foreach ($ado['parent'] as $parent_key => $parent_ado) {
-          // Discard further processing of empty parents
-          if (strlen(trim($parent_ado)) == 0) {
-            // Empty parent;
-            continue;
-          }
-
-          if (!Uuid::isValid($parent_ado) && (intval(trim($parent_ado)) > 1)) {
-            // Its a row
-            // Means our parent object is a ROW index
-            // (referencing another row in the spreadsheet)
-            // So a different strategy is needed. We will need recurse
-            // until we find a non numeric parent or none! Because
-            // in Archipelago we allow the none option for sure!
-            $rootfound = FALSE;
-            // SUPER IMPORTANT. SINCE PEOPLE ARE LOOKING AT A SPREADSHEET THEIR PARENT NUMBER WILL INCLUDE THE HEADER
-            // SO WE ARE OFFSET by 1, substract 1
-            $parent_numeric = intval(trim($parent_ado));
-            $parent_hash[$parent_key][$parent_numeric][$index] = $index;
-
-            // Lets check if the index actually exists before going crazy.
-
-            // If parent is empty that is OK here. WE are Ok with no membership!
-            if (!isset($file_data_all['data'][$parent_numeric])) {
-              // Parent row does not exist
-              $invalid[$parent_numeric] = $parent_numeric;
-              $invalid[$index] = $index;
+        foreach ($ado['parent'] as $parent_key => &$parent_ados) {
+          foreach ($parent_ados as $parent_ado) {
+            if (strlen($parent_ado) == 0) {
+              // Empty parent;
+              continue;
             }
+            if (!Uuid::isValid($parent_ado)
+              && is_scalar($parent_ado)
+              && (intval($parent_ado) > 1)
+            ) {
+              // Its a row
+              // Means our parent object is a ROW index
+              // (referencing another row in the spreadsheet)
+              // So a different strategy is needed. We will need recurse
+              // until we find a non numeric parent or none! Because
+              // in Archipelago we allow the none option for sure!
+              $rootfound = FALSE;
+              // SUPER IMPORTANT. SINCE PEOPLE ARE LOOKING AT A SPREADSHEET THEIR PARENT NUMBER WILL INCLUDE THE HEADER
+              // SO WE ARE OFFSET by 1, substract 1
+              $parent_numeric = intval(trim($parent_ado));
+              $parent_hash[$parent_key][$parent_numeric][$index] = $index;
 
-            if ((!isset($invalid[$index])) && (!isset($invalid[$parent_numeric]))) {
-              // Only traverse if we don't have this index or the parent one
-              // in the invalid register.
-              $parentchilds = [];
-              while (!$rootfound) {
-                $parentup = $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]];
-                if ($this->isRootParent($parentup)) {
-                  $rootfound = TRUE;
-                  break;
-                }
-                // If $parentup
-                // The Simplest approach for breaking a knot /infinite loop,
-                // is invalidating the whole parentship chain for good.
-                $inaloop = isset($parentchilds[$parentup]);
-                // If $inaloop === true means we already traversed this branch
-                // so we are in a loop and all our original child and it's
-                // parent objects are invalid.
-                if ($inaloop) {
-                  // In a loop
-                  $invalid = $invalid + $parentchilds;
-                  unset($ado);
-                  $rootfound = TRUE;
-                  // Means this object is already doomed. We break any attempt
-                  // to get relationships for this one.
-                  break 2;
-                }
+              // Lets check if the index actually exists before going crazy.
 
-                $parentchilds[$parentup] = $parentup;
-                // If this parent is either a UUID or empty means we reached the root
-
-                // This a simple accumulator, means all is well,
-                // parent is still an index.
-                $parent_hash[$parent_key][$parentup][$parent_numeric] = $parent_numeric;
-                $parent_numeric = $parentup;
+              // If parent is empty that is OK here. WE are Ok with no membership!
+              if (!isset($file_data_all['data'][$parent_numeric])) {
+                // Parent row does not exist
+                $invalid[$parent_numeric] = $parent_numeric;
+                $invalid[$index] = $index;
               }
-            }
-            else {
-              unset($ado);
+
+              if ((!isset($invalid[$index]))
+                && (!isset($invalid[$parent_numeric]))
+              ) {
+                // Only traverse if we don't have this index or the parent one
+                // in the invalid register.
+                $parentchilds = [];
+                while (!$rootfound) {
+                  // $parentup gets the same treatment as $ado['parent']
+                  $parentup_toexpand = [trim(
+                                          $file_data_all['data'][$parent_numeric][$parent_to_index[$parent_key]]
+                                        )];
+                  $parentup_array = [];
+                  $parentup_expanded = $this->expandJson($parentup_toexpand);
+                  $parentup_expanded = $parentup_expanded[0] ?? NULL;
+                  if (is_array($parentup_expanded)) {
+                    $parentup_array = $parent_ados_expanded;
+                  }
+                  elseif (is_string($parentup_expanded)
+                    || is_integer(
+                      $parentup_expanded
+                    )
+                  ) {
+                    // This allows single value and or ; and trims. Neat?
+                    $parentup_array = array_map(function($value) {
+                      $value = $value ?? '';
+                      return trim($value);
+                    }, explode(';', $parentup_expanded));
+                  }
+
+                  foreach ($parentup_array as $parentup) {
+                    if ($this->isRootParent($parentup)) {
+                      $rootfound = TRUE;
+                      break;
+                    }
+                    // If $parentup
+                    // The Simplest approach for breaking a knot /infinite loop,
+                    // is invalidating the whole parentship chain for good.
+                    $inaloop = isset($parentchilds[$parentup]);
+                    // If $inaloop === true means we already traversed this branch
+                    // so we are in a loop and all our original child and it's
+                    // parent objects are invalid.
+                    if ($inaloop) {
+                      // In a loop
+                      $invalid = $invalid + $parentchilds;
+                      unset($ado);
+                      $rootfound = TRUE;
+                      // Means this object is already doomed. We break any attempt
+                      // to get relationships for this one.
+                      break 2;
+                    }
+
+                    $parentchilds[$parentup] = $parentup;
+                    // If this parent is either a UUID or empty means we reached the root
+
+                    // This a simple accumulator, means all is well,
+                    // parent is still an index.
+                    $parent_hash[$parent_key][$parentup][$parent_numeric]
+                      = $parent_numeric;
+                    $parent_numeric = $parentup;
+                  }
+                }
+              }
+              else {
+                unset($ado);
+              }
             }
           }
         }
@@ -1794,12 +1950,17 @@ class AmiUtilityService {
 
 
     // Now the real pass, iterate over every row.
-
     foreach ($info as $index => &$ado) {
       foreach ($data->adomapping->parents as $parent_key) {
         // Is this object parent of someone?
-        if (isset($parent_hash[$parent_key][$ado['parent'][$parent_key]])) {
-          $ado['parent'][$parent_key] = $info[$ado['parent'][$parent_key]]['uuid'];
+        // at this stage $ado['parent'][$parent_key] SHOULD BE AN ARRAY IF VALID
+        if (is_array($ado['parent'][$parent_key])) {
+          foreach ($ado['parent'][$parent_key] ?? [] as $index_rel => $parentnumeric) {
+            if (!empty($parentnumeric) && isset($parent_hash[$parent_key][$parentnumeric])) {
+              $ado['parent'][$parent_key][$index_rel] = $info[$parentnumeric]['uuid'];
+            }
+          }
+          $ado['parent'][$parent_key] = array_filter(array_unique($ado['parent'][$parent_key]));
         }
       }
       // Since we are reodering we may want to keep the original row_id around
@@ -1834,22 +1995,44 @@ class AmiUtilityService {
     ]
      */
     // This way the move parent Objects first and leave children to the end.
+    // With multi parentship this gets more messy. We could have a parent
+    // That also depends on another parent.
+    // Idea. We keep track of all parents added in an accumulator
+    // Everytime we will want to add a new one
+    // we check if a child of this one was added already as parent and if so, we unshift
+    // instead of appending.
+    $added = [];
     foreach ($parent_hash as $parent_tree) {
       foreach ($parent_tree as $row_id => $children) {
         // There could be a reference to a non existing index.
         if (isset($info[$row_id])) {
-          $newinfo[] = $info[$row_id];
+          $unshift = FALSE;
+          foreach($children as $child) {
+            if (isset($added[$child])) {
+              $unshift = TRUE;
+              break;
+            }
+          }
+          if ($unshift) {
+            array_unshift($newinfo, $info[$row_id]);
+          }
+          else {
+            $newinfo[] = $info[$row_id];
+          }
           unset($info[$row_id]);
+          $added[$row_id] = $row_id;
         }
         else {
           // Unset Invalid index if the row never existed
+          // TODO revisit this. Makes no sense in 2022?
           unset($invalid[$row_id]);
         }
       }
     }
     $newinfo = array_merge($newinfo, $info);
     unset($info);
-    // @TODO Should we do a final check here? Alert the user the rows are less/equal to the desired?
+    unset($added);
+    // @TODO Should we do a final check here? Alert the user the rows are less/equal/more to the desired?
     return $newinfo;
   }
 
@@ -1888,7 +2071,11 @@ class AmiUtilityService {
         $required_headers = array_merge($required_headers, array_values((array)$data->column_keys));
       }
       // We use internally Lower case Headers.
-      $required_headers = array_map('strtolower', $required_headers);
+      $required_headers = array_map(function($value) {
+        $value = $value ?? '';
+        return strtolower($value);
+      }, $required_headers);
+
       $headers_missing = array_diff(array_unique($required_headers), $file_data_all['headers']);
       if (count($headers_missing)) {
         $message = $this->t(
@@ -2119,7 +2306,6 @@ class AmiUtilityService {
       }
     }
 
-
     $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
       ->load($metadatadisplay_id);
     if ($metadatadisplay_entity) {
@@ -2205,6 +2391,7 @@ class AmiUtilityService {
 
       $context['data'] = $this->expandJson($data->info['row']['data']);
       $context_lod = [];
+      $context_lod_contextual = [];
       // get the mappings for this set if any
       // @TODO Refactor into a Method?
       $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
@@ -2226,6 +2413,7 @@ class AmiUtilityService {
                     $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
                     $unique = array_unique($serialized);
                     $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
+                    $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
                   }
                 }
               }
@@ -2235,6 +2423,7 @@ class AmiUtilityService {
       }
 
       $context['data_lod'] = $context_lod;
+      $context['data_lod_contextual'] = $context_lod_contextual;
       $context['dataOriginal'] = $original_value;
       $context['setURL'] = $setURL;
       $context['setId'] = $set_id;
@@ -2310,7 +2499,8 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $all_notJson = array_filter($all,  array($this, 'isNotJson'));
+    $all_isstring= array_filter($all, 'is_string');
+    $all_notJson = array_filter($all_isstring,  array($this, 'isNotJson'));
     $all_entries = [];
     // The difficulty. In case of multiple delimiters we need to see which one
     // works/works better. But if none, assume it may be also right since a single
@@ -2332,7 +2522,11 @@ class AmiUtilityService {
         $all_entries[] = $chosen_entry;
       }
     }
-    $unique = array_map('trim', $all_entries);
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all_entries);
+
     $unique = array_unique(array_values($unique), SORT_STRING);
     return $unique;
   }

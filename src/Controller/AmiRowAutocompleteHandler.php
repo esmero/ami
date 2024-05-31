@@ -19,6 +19,7 @@ use Symfony\Component\HttpFoundation\Request;
 use Drupal\Component\Utility\Xss;
 use Drupal\ami\Entity\amiSetEntity;
 use Twig\Error\Error as TwigError;
+use Drupal\format_strawberryfield\Form\MetadataDisplayForm;
 
 /**
  * Defines a route controller for watches autocomplete form elements.
@@ -188,8 +189,14 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $mimetype = $form_state->getValue('mimetype');
           $mimetype = !empty($mimetype) ? $mimetype[0]['value'] : 'text/html';
           $show_render_native = $form_state->getValue('render_native');
+          if ($show_render_native) {
+            set_error_handler('_format_strawberryfield_metadata_preview_error_handler');
+          }
 
+          //@TODO there is code duplication here, we do this already at \Drupal\ami\AmiUtilityService::processMetadataDisplay
+          // We should generilize the LoD aspect of this (at least!)
           $context_lod = [];
+          $context_lod_contextual = [];
           $lod_mappings = \Drupal::service('ami.lod')
             ->getKeyValueMappingsPerAmiSet($id);
           if ($lod_mappings) {
@@ -199,7 +206,6 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   $context_lod[$source_column][$pos_approach] = $context_lod[$source_column][$pos_approach] ?? [];
                 }
               }
-
               if (isset($jsondata[$source_column])) {
                 // sad here. Ok, this is a work around for our normally
                 // Strange CSV data structure
@@ -219,6 +225,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                         $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
                         $unique = array_unique($serialized);
                         $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
+                        $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
                       }
                     }
                   }
@@ -237,16 +244,24 @@ class AmiRowAutocompleteHandler extends ControllerBase {
 
           $context['data'] = $jsondata;
           $context['data_lod'] = $context_lod;
+          $context['data_lod_contextual'] = $context_lod_contextual;
+          $context['setURL'] =  $preview_ami_set->toUrl('canonical', ['absolute' => TRUE])
+            ->toString();
+          $context['setId'] = $id;
+          $context['rowId'] = $row;
+          $context['setOp'] = NULL;
           $original_context = $context;
           // Allow other modules to provide extra Context!
           // Call modules that implement the hook, and let them add items.
           \Drupal::moduleHandler()
             ->alter('format_strawberryfield_twigcontext', $context);
           $context = $context + $original_context;
+
           $output = [];
           $output['json'] = [
             '#type' => 'details',
             '#title' => t('JSON Data'),
+            '#description_display' => 'before',
             '#open' => FALSE,
           ];
           $output['json']['data'] = [
@@ -273,10 +288,23 @@ class AmiRowAutocompleteHandler extends ControllerBase {
               'mode' => 'application/json',
             ],
           ];
+          $output['json']['data_lod_contextual'] = [
+            '#type' => 'codemirror',
+            '#title' => t('Reconciliated LoD for this row grouped by source reconciliated label <b>{{ data_lod_contextual.keyname.original_source_label.lod_endpoint_type }}</b> :'),
+            '#rows' => 60,
+            '#value' => json_encode($context['data_lod_contextual'], JSON_PRETTY_PRINT),
+            '#codemirror' => [
+              'lineNumbers' => FALSE,
+              'toolbar' => FALSE,
+              'readOnly' => TRUE,
+              'mode' => 'application/json',
+            ],
+          ];
           $output['json']['dataOriginal'] = [
             '#type' => 'codemirror',
             '#title' => t('Original JSON of an ADO <b>{{ dataOriginal.keyname }}</b> :'),
             '#description' => t('This data structure will contain the original values (before modification) of an ADO only when updating. Sadly we can not at this time preview it during an AMI set preview.'),
+            '#description_display' => 'before',
             '#rows' => 60,
             '#value' => json_encode('{}', JSON_PRETTY_PRINT),
             '#codemirror' => [
@@ -287,24 +315,42 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             ],
           ];
 
-          // Try to Ensure we're using the twig from user's input instead of the entity's
-          // default.
           try {
+            // Try to Ensure we're using the twig from user's input instead of the entity's
+            // default.
             $input = $form_state->getUserInput();
             $entity->set('twig', $input['twig'][0], FALSE);
+            $show_json_table = $form_state->getValue('show_json_table');
+            if($show_json_table) {
+              $json_table = MetadataDisplayForm::buildUsedVariableTable($jsondata, $entity);
+            }
             $render = $entity->renderNative($context);
-            if ($show_render_native) {
+
+            if ($show_render_native && empty($render)) {
+              throw new \Exception(
+                'Twig Template is empty.',
+                0,
+                null
+              );
+            }
+            elseif ($show_render_native) {
               $message = '';
               switch ($mimetype) {
                 case 'application/ld+json':
                 case 'application/json':
-                  json_decode((string) $render);
+                  $json_decoded = json_decode((string) $render);
                   if (JSON_ERROR_NONE !== json_last_error()) {
+                    $render = null;
                     throw new \Exception(
                       'Error parsing JSON: ' . json_last_error_msg(),
                       0,
                       NULL
                     );
+                  }
+                  else {
+                    // If the test passed show it pretty printed so Allison
+                    // has a better experience.
+                    $render = json_encode($json_decoded, JSON_PRETTY_PRINT);
                   }
                   break;
                 case 'text/html':
@@ -342,37 +388,8 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                   break;
               }
             }
-            if (!$show_render_native || ($show_render_native && $mimetype != 'text/html')) {
-              $output['preview'] = [
-                '#type' => 'codemirror',
-                '#title' => t('Processed Output:'),
-                '#rows' => 60,
-                '#value' => $render,
-                '#codemirror' => [
-                  'lineNumbers' => FALSE,
-                  'toolbar' => FALSE,
-                  'readOnly' => TRUE,
-                  'mode' => $mimetype,
-                ],
-              ];
-            }
-            else {
-              $output['preview'] = [
-                '#type' => 'details',
-                '#open' => TRUE,
-                '#title' => 'HTML Output',
-                'messages' => [
-                  '#markup' => $message,
-                  '#attributes' => [
-                    'class' => ['error'],
-                  ],
-                ],
-                'render' => [
-                  '#markup' => $render,
-                ],
-              ];
-            }
           } catch (\Exception $exception) {
+            $render = NULL;
             // Make the Message easier to read for the end user
             if ($exception instanceof TwigError) {
               $message = $exception->getRawMessage() . ' at line ' . $exception->getTemplateLine();
@@ -380,29 +397,73 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             else {
               $message = $exception->getMessage();
             }
-            $output['preview'] = [
-              '#type' => 'details',
-              '#open' => TRUE,
-              '#title' => t('Syntax error'),
-              'error' => [
-                '#markup' => $message,
-              ]
-            ];
+          } finally {
+            if (!empty($message)) {
+              // If there's no render output, generate an error message. Otherwise,
+              // generate a warning.
+              $preview_error = !isset($render);
+              $preview_error_output = MetadataDisplayForm::buildAjaxPreviewError($message, $preview_error);
+              $output['preview_error'] = $preview_error_output;
+            }
+            if (isset($render) && (!$show_render_native || ($show_render_native && $mimetype != 'text/html'))) {
+              $output['preview'] = [
+                '#type' => 'details',
+                '#open' => TRUE,
+                '#title' => 'Processed Output',
+                'render' => [
+                  '#type' => 'codemirror',
+                  '#rows' => 60,
+                  '#value' => $render,
+                  '#codemirror' => [
+                    'lineNumbers' => FALSE,
+                    'toolbar' => FALSE,
+                    'readOnly' => TRUE,
+                    'mode' => $mimetype,
+                  ]
+                ],
+              ];
+            }
+            elseif ($show_render_native && isset($render)) {
+                $output['preview'] = [
+                  '#type' => 'details',
+                  '#open' => TRUE,
+                  '#title' => 'HTML Output',
+                  'render' => [
+                    '#markup' => $render,
+                  ],
+                ];
+            }
+            if ($show_json_table && isset($json_table)) {
+              $output['json_used'] = [
+                '#type' => 'details',
+                '#open' => FALSE,
+                '#title' => 'JSON Keys Used',
+                'render' => [
+                  'table' => $json_table['json_table_used']
+                ],
+              ];
+              $output['json_unused'] = [
+                '#type' => 'details',
+                '#open' => FALSE,
+                '#title' => 'JSON Keys Unused',
+                'render' => [
+                  'table' => $json_table['json_table_unused']
+                ],
+              ];
+            }
           }
-          $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
-            $output, ['width' => '50%']));
+          if ($show_render_native) {
+            restore_error_handler();
+          }
+          $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'), $output, ['width' => '50%']));
         }
         else {
-          $output['preview'] = [
-            '#type' => 'details',
-            '#open' => TRUE,
-            '#title' => !$file ? t('AMI Set has no CSV File'): t('AMI Set has no data for chosen row.'),
-            'error' => [
-              '#markup' => t('The AMI set is empty.'),
-            ],
-          ];
-          $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'),
-            $output, ['width' => '50%']));
+          $message = !$file ? 'The AMI set has no CSV File. The AMI set is empty.': 'The AMI set has no data for chosen row. The AMI set is empty.';
+          if (!empty($message)) {
+            $preview_error = MetadataDisplayForm::buildAjaxPreviewError($message);
+            $output['preview_error'] = $preview_error;
+          }
+          $response->addCommand(new OpenOffCanvasDialogCommand(t('Preview'), $output, ['width' => '50%']));
         }
       }
     }
