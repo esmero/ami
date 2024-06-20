@@ -13,6 +13,7 @@ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Entity\ImporterAdapterInterface;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface ;
+use Drupal\Core\TempStore\PrivateTempStore;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\file\Entity\File;
 
@@ -157,6 +158,16 @@ abstract class ImporterAdapterBase extends PluginBase implements ImporterPluginA
         $type_column_index);
     }
     return $alltypes;
+  }
+
+  public function stepFormAlter(&$form, FormStateInterface $form_state, PrivateTempStore $store, $step): void
+  {
+    // TODO: Implement stepFormAlter() method.
+  }
+
+  public function alterStepStore(FormStateInterface $form_state, PrivateTempStore $store, int $step = 1): void
+  {
+    // TODO: Implement alterStepStore() method.
   }
 
 

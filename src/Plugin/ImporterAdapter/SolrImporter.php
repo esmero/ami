@@ -66,7 +66,7 @@ class SolrImporter extends SpreadsheetImporter {
   protected $httpClient;
 
   /**
-   * GoogleSheetImporter constructor.
+   * Solr Importer constructor.
    *
    * @param array $configuration
    * @param $plugin_id
@@ -488,8 +488,6 @@ class SolrImporter extends SpreadsheetImporter {
       }
     }
     $filename_columns = array_unique(array_merge(static::FILE_COLUMNS,$filename_columns));
-
-
 
     $solr_config = [
       'endpoint' => [

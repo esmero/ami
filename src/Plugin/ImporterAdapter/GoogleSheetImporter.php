@@ -195,7 +195,6 @@ class GoogleSheetImporter extends SpreadsheetImporter {
             MessengerInterface::TYPE_ERROR
           );
           return $tabdata;
-
         }
       } catch (Google_Service_Exception $e) {
         $this->messenger()->addMessage(
