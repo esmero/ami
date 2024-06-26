@@ -340,8 +340,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'ops_secondary_update' => [
             '#type' => 'select',
             '#title' => $this->t('Update Operation'),
-             '#description' => $this->t(
-              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+            '#description' => $this->t(
+            'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update,
             '#default_value' => 'replace',
             '#wrapper_attributes' => [
