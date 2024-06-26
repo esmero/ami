@@ -115,31 +115,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     }
     if ($file && $data !== new \stdClass()) {
       $invalid = [];
-      $info = $this->AmiUtilityService->preprocessAmiSet($file, $data, $invalid, FALSE);
-      // Means preprocess set
-      if (count($invalid)) {
-        $invalid_message = $this->formatPlural(count($invalid),
-          'Source data Row @row had an issue, common cause is an invalid parent.',
-          '@count rows, @row, had issues, common causes are invalid parents and/or non existing referenced rows.',
-          [
-            '@row' => implode(', ', array_keys($invalid)),
-          ]
-        );
-        $this->messenger()->addWarning($invalid_message);
-      }
-      if (!count($info)) {
-        $this->messenger()->addError(
-          $this->t(
-            'So Sorry. Ami Set @label produced no ADOs. Please correct your source CSV data.',
-            [
-              '@label' => $this->entity->label(),
-            ]
-          )
-        );
-        $form_state->setRebuild();
-        return;
-      }
-
       $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
 
@@ -169,34 +144,87 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
         $ops_safefiles = $form_state->getValue(['ops_secondary','ops_safefiles'], TRUE);
       }
-      foreach ($info as $item) {
-        // We set current User here since we want to be sure the final owner of
-        // the object is this and not the user that runs the queue
-        $data->info = [
+      if ($notprocessnow) {
+        $data_csv = clone $data;
+        // Testing the CSV processor
+        $data_csv->info = [
           'zip_file' => $zip_file,
-          'row' => $item,
+          'csv_file' => $file,
           'set_id' => $this->entity->id(),
           'uid' => $this->currentUser()->id(),
           'status' => $statuses,
           'op_secondary' => $op_secondary,
-          'ops_safefiles' => $ops_safefiles ? TRUE: FALSE,
+          'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
           'log_jsonpatch' => FALSE,
           'set_url' => $SetURL,
           'attempt' => 1,
           'queue_name' => $queue_name,
-          'force_file_queue' => (bool) $form_state->getValue('force_file_queue', FALSE),
-          'force_file_process' => (bool) $form_state->getValue('force_file_process', FALSE),
+          'force_file_queue' => (bool)$form_state->getValue('force_file_queue', FALSE),
+          'force_file_process' => (bool)$form_state->getValue('force_file_process', FALSE),
           'manyfiles' => $manyfiles,
           'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
           'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
           'time_submitted' => $run_timestamp
         ];
-        $added[] = \Drupal::queue($queue_name)
-          ->createItem($data);
+        \Drupal::queue('ami_csv_ado')
+          ->createItem($data_csv);
       }
-      $count = count(array_filter($added));
+      else {
+        $info = $this->AmiUtilityService->preprocessAmiSet($file, $data, $invalid, FALSE);
+        // Means preprocess set
+        if (count($invalid)) {
+          $invalid_message = $this->formatPlural(count($invalid),
+            'Source data Row @row had an issue, common cause is an invalid parent.',
+            '@count rows, @row, had issues, common causes are invalid parents and/or non existing referenced rows.',
+            [
+              '@row' => implode(', ', array_keys($invalid)),
+            ]
+          );
+          $this->messenger()->addWarning($invalid_message);
+        }
+        if (!count($info)) {
+          $this->messenger()->addError(
+            $this->t(
+              'So Sorry. Ami Set @label produced no ADOs. Please correct your source CSV data.',
+              [
+                '@label' => $this->entity->label(),
+              ]
+            )
+          );
+          $form_state->setRebuild();
+          return;
+        }
 
-      if ($notprocessnow && $count) {
+
+        foreach ($info as $item) {
+          // We set current User here since we want to be sure the final owner of
+          // the object is this and not the user that runs the queue
+          $data->info = [
+            'zip_file' => $zip_file,
+            'row' => $item,
+            'set_id' => $this->entity->id(),
+            'uid' => $this->currentUser()->id(),
+            'status' => $statuses,
+            'op_secondary' => $op_secondary,
+            'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
+            'log_jsonpatch' => FALSE,
+            'set_url' => $SetURL,
+            'attempt' => 1,
+            'queue_name' => $queue_name,
+            'force_file_queue' => (bool)$form_state->getValue('force_file_queue', FALSE),
+            'force_file_process' => (bool)$form_state->getValue('force_file_process', FALSE),
+            'manyfiles' => $manyfiles,
+            'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
+            'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
+            'time_submitted' => $run_timestamp
+          ];
+          $added[] = \Drupal::queue($queue_name)
+            ->createItem($data);
+        }
+        $count = count(array_filter($added));
+      }
+
+      if ($notprocessnow) {
         $this->messenger()->addMessage(
           $this->t(
             'Set @label enqueued and processed .',
@@ -208,7 +236,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
         $processed_set_status['processed'] =  0;
         $processed_set_status['errored'] =  0;
-        $processed_set_status['total'] = $count;
+        $processed_set_status['total'] = 0;
+        // So far here, with the new CSV enqueue plugin we have no idea how many. But the CSV queue entry will fill up the gap
         $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
         $this->entity->setStatus(amiSetEntity::STATUS_ENQUEUED);
         $this->entity->save();
@@ -281,7 +310,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field(s) with new JSON values. Not provided JSON keys will be kept."),
         'update' =>  $this->t("Complete (All JSON keys) Update. Will update a complete existing ADO's JSON data with all new JSON data."),
         'append' =>  $this->t("Append Update. Will append values to existing JSON key(s) in an ADO's configured target field(s). New JSON keys will be added too."),
-      ];
+
       if (!in_array($op, $ops)) {
         $form['status'] = [
           '#tree' => TRUE,
@@ -311,7 +340,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'ops_secondary_update' => [
             '#type' => 'select',
             '#title' => $this->t('Update Operation'),
-            '#description' => $this->t(
+             '#description' => $this->t(
               'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update,
             '#default_value' => 'replace',
