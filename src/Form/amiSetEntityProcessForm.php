@@ -307,10 +307,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         'patch',
       ];
       $ops_update = [
-        'update' =>  $this->t("Normal Update. Will update a complete existing ADO's configured target field with new JSON Content."),
-        'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field with new JSON content. Not provided ones will be kept"),
-        'append' =>  $this->t("Append Update. Will append values to existing JSON keys in an ADO's configured target field. New ones will be added too."),
-      ];
+        'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field(s) with new JSON values. Not provided JSON keys will be kept."),
+        'update' =>  $this->t("Complete (All JSON keys) Update. Will update a complete existing ADO's JSON data with all new JSON data."),
+        'append' =>  $this->t("Append Update. Will append values to existing JSON key(s) in an ADO's configured target field(s). New JSON keys will be added too."),
 
       if (!in_array($op, $ops)) {
         $form['status'] = [
@@ -341,8 +340,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'ops_secondary_update' => [
             '#type' => 'select',
             '#title' => $this->t('Update Operation'),
+            '#description' => $this->t(
+            'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update,
-            '#default_value' => 'update',
+            '#default_value' => 'replace',
             '#wrapper_attributes' => [
               'class' => ['container-inline'],
             ],
