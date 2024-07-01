@@ -310,6 +310,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field(s) with new JSON values. Not provided JSON keys will be kept."),
         'update' =>  $this->t("Complete (All JSON keys) Update. Will update a complete existing ADO's JSON data with all new JSON data."),
         'append' =>  $this->t("Append Update. Will append values to existing JSON key(s) in an ADO's configured target field(s). New JSON keys will be added too."),
+      ];
 
       if (!in_array($op, $ops)) {
         $form['status'] = [
