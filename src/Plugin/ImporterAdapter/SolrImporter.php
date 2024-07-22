@@ -155,6 +155,18 @@ class SolrImporter extends SpreadsheetImporter {
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['solarium_config', 'islandora_collection'])),
       ],
+      'scheme' => [
+        '#type' => 'radios',
+        '#required' => TRUE,
+        '#title' => $this->t('The Scheme (protocol) of your Solr Server'),
+        '#options' => [
+          'http' => 'HTTP',
+          'https' => 'HTTPS'
+        ],
+        '#description' => $this->t('If you port is 443 most likely your scheme is going to be HTTPS.'),
+        '#default_value' => $form_state->getValue(array_merge($parents,
+          ['solarium_config', 'schema'])),
+      ],
       'host' => [
         '#type' => 'textfield',
         '#required' => TRUE,
@@ -344,8 +356,8 @@ class SolrImporter extends SpreadsheetImporter {
         '#required' => FALSE,
         '#description_display' => 'before',
         '#description' => $this->t('Additional Datastreams to fetch. <em>OBJ</em> datastream will always be fetched. Not all datastreams listed here might be present once your data is fetched.'),
-        '#default_value' => $datastreams_values_combined,
-        '#options' => $datastreams_source,
+        '#default_value' => $datastreams_values_combined ?? [],
+        '#options' => $datastreams_source ?? [],
       ],
       'datastreams_how' => [
         '#access' => !empty($cmodels),
@@ -437,6 +449,7 @@ class SolrImporter extends SpreadsheetImporter {
       'endpoint' => [
         'amiremote' => [
           'host' => $config['host'],
+          'scheme' => $config['scheme'] ?? 'http',
           'port' => $config['port'],
           'path' => $config['path'],
         ],
@@ -470,7 +483,9 @@ class SolrImporter extends SpreadsheetImporter {
       $result = $client->ping($ping);
     } catch (\Exception $e) {
       $form_state->setError($element,
-        t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address.'));
+        t('Ups. We could not contact your server. Check if your settings are correct and/or firewalls are open for this IP address. Remote error is @e', [
+          '@e' => $e->getMessage()
+        ]));
     }
   }
 
@@ -493,6 +508,7 @@ class SolrImporter extends SpreadsheetImporter {
       'endpoint' => [
         'amiremote' => [
           'host' => $config['solarium_config']['host'],
+          'scheme' => $config['solarium_config']['scheme'],
           'port' => $config['solarium_config']['port'],
           'path' => $config['solarium_config']['path'],
         ],
@@ -521,7 +537,10 @@ class SolrImporter extends SpreadsheetImporter {
       $ping_sucessful = $result->getData();
     } catch (\Exception $e) {
       $form_state->setError($element,
-        $this->t('Ups. We could not contact your server. Check if your settings,ports,core,etc are correct and/or firewalls are open for this IP address.'));
+        $this->t('Ups. We could not contact your server. Check if your settings,ports,core,etc are correct and/or firewalls are open for this IP address. The error thrown is: @e',
+        [
+          '@e' => $e->getMessage()
+        ]));
       $form_state->setValue(['pluginconfig','ready'], FALSE);
       return $tabdata;
     }
@@ -779,6 +798,7 @@ class SolrImporter extends SpreadsheetImporter {
       'endpoint' => [
         'amiremote' => [
           'host' => $config['solarium_config']['host'],
+          'scheme' => $config['solarium_config']['scheme'] ?? 'http',
           'port' => $config['solarium_config']['port'],
           'path' => $config['solarium_config']['path'],
         ],
