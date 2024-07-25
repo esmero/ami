@@ -81,16 +81,22 @@ class AmiFacetsViewsBulkOperationsEventSubscriber implements EventSubscriberInte
     // We do not know here if facets will or not be in a f[] so we pass
     // all values (also good, respects filters).
     // The VBO URL facet processor will know/read from the URL Processor settings.
-    // Do not overridewrite once the batch starts or we will end with 0 filters.
+    // Do not override once the batch starts or we will end with 0 filters.
     // Arguments will be 'op' = 'do', _format = 'json', id = a number the batch id
     // Normally just checking if this is happening under the unbrella of the actual Views Route is enough
     // BUT ... we need to also take in account layout builder .. so in that case we check for 'op' !== do && id (the batch)
     // @TODO. No idea how to deal with the blocks and other options
-    // I could to the opposite> Save it anytime it is not a batch but bc Facets are basically processed all the time
+    // I could to the opposite: Save it anytime it is not a batch but bc Facets are basically processed all the time
     // anywhere that would be a lot of extra processing time.
+    // Add work around for users that disabled "layout builder"
+    $is_layout_builder = NULL;
+    $route_object = \Drupal::routeMatch()->getRouteObject();
+    if ($route_object) {
+      $is_layout_builder = $route_object->getOption('_layout_builder');
+    }
     if ((\Drupal::routeMatch()->getRouteName() == 'view'. '.' . $event->getView()->id(). '.' .$event->getView()->current_display) ||
       (
-        (\Drupal::routeMatch()->getRouteObject()->getOption('_layout_builder') ||
+        ($is_layout_builder ||
           $event->getView()->display_handler->getBaseId() == 'block') && (($exposed_input['op'] ?? NULL) !== "do") && !isset($exposed_input['id']))
     ) {
       $this->tempStoreFactory->get($tempStoreName)->set(
