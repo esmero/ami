@@ -188,10 +188,11 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   /**
    * {@inheritdoc}
    */
-  public function processItem($data)
-  {
+  public function processItem($data) {
     $log = new Logger('ami_file');
-    $private_path = \Drupal::service('stream_wrapper_manager')->getViaUri('private://')->getDirectoryPath();
+    $private_path = \Drupal::service('stream_wrapper_manager')
+      ->getViaUri('private://')
+      ->getDirectoryPath();
     $handler = new StreamHandler($private_path . '/ami/logs/set' . $data->info['set_id'] . '.log', Logger::DEBUG);
     $handler->setFormatter(new JsonFormatter());
     $log->pushHandler($handler);
@@ -219,7 +220,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'batch_size' => max Number of UUIDs/ADOS to process per Queue entry, defaults to 50,
             ];
     */
-    if  ($data->pluginconfig->op !== "action") {
+    if ($data->pluginconfig->op !== "action") {
       return;
     }
 
@@ -245,8 +246,8 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
+      return;
     }
-    return;
   }
 
   private function processAction($data): bool|null {
@@ -319,6 +320,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
             $success = TRUE;
+
           }
           catch (EntityStorageException $e) {
             $message = $this->t('Error executing @action on ADOs via Set @setid.', [
