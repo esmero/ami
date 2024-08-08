@@ -1159,6 +1159,18 @@ class AmiUtilityService {
     }
 
     $url = $wrapper->getUri();
+    $uri = $this->streamWrapperManager->normalizeUri($url);
+    if (!is_file($uri)) {
+      $message = $this->t(
+        'CSV File referenced in AMI set for processing at @uri is no longer present. Check your composting times. Skipping',
+        [
+          '@uri' => $uri,
+        ]
+      );
+      $this->loggerFactory->get('ami')->error($message);
+      return NULL;
+    }
+
     $spl = new \SplFileObject($url, 'r');
     if ($offset > 0) {
       // We only set this flags when an offset is present.
@@ -2130,7 +2142,7 @@ class AmiUtilityService {
 
 
   /**
-   * Returns UUIDs for AMI data the user has permissions to operate on.
+   * Returns UUIDs for AMI data the user has permissions (if op passed) to operate on.
    *
    * @param \Drupal\file\Entity\File $file
    * @param \stdClass $data
@@ -2138,6 +2150,8 @@ class AmiUtilityService {
    * @param null|string $op
    *
    * @return mixed
+   *  UUIDs will be in the keys, possible child CSVs (array) in the values.
+   *
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
@@ -2147,16 +2161,46 @@ class AmiUtilityService {
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
 
     $file_data_all = $this->csv_read($file);
+    if (!$file_data_all) {
+      return [];
+    }
     // we may want to check if saved metadata headers == csv ones first.
     // $data->column_keys
     $config['data']['headers'] = $file_data_all['headers'];
     $uuids = [];
+    // We want to get the per ROW CSVs if any here too
+    $file_csv_columns = [];
+
+
     foreach ($file_data_all['data'] as $index => $keyedrow) {
       // This makes tracking of values more consistent and easier for the actual processing via
       // twig templates, webforms or direct
       $row = array_combine($config['data']['headers'], $keyedrow);
+
+      if ($data->mapping->globalmapping == "custom") {
+        if ($row['type'] ?? NULL ) {
+          $csv_file_object = $data->mapping->custommapping_settings->{$row['type']}->files_csv ?? NULL;
+        }
+        else {
+          $csv_file_object = NULL;
+        }
+      } else {
+        $csv_file_object = $data->mapping->globalmapping_settings->files_csv ?? NULL;
+      }
+      if ($csv_file_object && is_object($csv_file_object)) {
+        $file_csv_columns = array_values(get_object_vars($csv_file_object));
+      }
+
       $possibleUUID = $row[$data->adomapping->uuid->uuid] ?? NULL;
       $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
+      $possibleCSV = [];
+      // Check now for the CSV file column/file name
+      if (count($file_csv_columns)) {
+        foreach($file_csv_columns as $file_csv_column) {
+          $possibleCSV[] = $row[$file_csv_column] ?? NULL;
+        }
+      }
+      $possibleCSV = array_filter($possibleCSV);
       // Double check? User may be tricking us!
       if ($possibleUUID && Uuid::isValid($possibleUUID)) {
         if ($op !== 'create' && $op !== NULL) {
@@ -2166,13 +2210,25 @@ class AmiUtilityService {
           // In case access changes later of course
           // This does NOT delete. So we only check for Update.
           $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+
           if ($existing_object && $existing_object->access($op, $account)) {
-            $uuids[] = $possibleUUID;
+            $uuids[$possibleUUID] = $possibleCSV;
           }
         }
         else {
-          $uuids[] = $possibleUUID;
+          $uuids[$possibleUUID] = $possibleCSV;
         }
+      }
+      else {
+       $message = $this->t(
+          'Invalid UUID @uuid found. Skipping for AMI Set ID @setid, Row @row',
+          [
+            '@uuid' => $possibleUUID,
+            '@row' => $index,
+            '@setid' => 1,
+          ]
+        );
+        $this->loggerFactory->get('ami')->warning($message);
       }
     }
     return $uuids;
