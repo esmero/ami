@@ -130,7 +130,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
           'attempt' => 1,
           'queue_name' => 'ami_action_ado',
           'time_submitted' => $run_timestamp,
-          'batch_size' => 50
+          'batch_size' => 25
         ];
         \Drupal::queue('ami_csv_ado')
           ->createItem($data_csv);
