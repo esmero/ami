@@ -212,6 +212,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // it simple for now.
     $this->loggerFactory->get('ami_file')->setLoggers([[$log]]);
 
+    /* $data will  contain a pluginconfig Object with at least
+        $data->pluginconfig->op;
+    */
     /* Data info for an ADO has this structure
       $data->info = [
         'row' => The actual data
@@ -1120,8 +1123,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @param mixed $data
    */
-  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null
-  {
+  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null {
     if (!($data->info['csv_filename'] ?? NULL)) {
       return NULL;
     }
