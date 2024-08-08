@@ -320,7 +320,6 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
             $success = TRUE;
-
           }
           catch (EntityStorageException $e) {
             $message = $this->t('Error executing @action on ADOs via Set @setid.', [
