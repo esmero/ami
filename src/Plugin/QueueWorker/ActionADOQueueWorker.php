@@ -235,7 +235,16 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     ]);
 
     if ($this->processAction($data) === FALSE) {
-      return;
+      $message = $this->t('Action Processing SET @setid with action @action for @uuids failed',
+        [
+          '@setid' => $data->info['set_id'],
+          '@action' => $data->info['action'],
+          '@uuids' => implode(",", $data->info['uuids'] ?? []),
+        ]);
+      $this->loggerFactory->get('ami_file')->warning($message, [
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
     }
     return;
   }
@@ -243,9 +252,25 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   private function processAction($data): bool|null {
     $success = FALSE;
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
-    $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
-      ['uuid' => $data->info['uuids']]
-    );
+    try {
+      $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
+        ['uuid' => $data->info['uuids']]
+      );
+    }
+    catch (\Exception $e) {
+      error_log($e->getMessage());
+      $message = $this->t('Error loading NODES for @action on ADOs via Set @setid.', [
+        '@setid' => $data->info['set_id'],
+        '@action' => $data->info['action'],
+        '@error' => $e->getMessage(),
+      ]);
+      $this->loggerFactory->get('ami_file')->warning($message, [
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+      return FALSE;
+    }
+
     // We need to log if number of requested to be deleted != number the user can delete.
     // Not a blocker to abort all actions but the user needs to know not all what was requested
     // Could be processed.
@@ -254,9 +279,10 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
       // Each Action might have its own check/permission. But we know for sure delete requires `delete`
       $access_type = "delete";
+      error_log($account->getAccountName());
 
-      if ($account && $existing && count($existing) == 1) {
-        foreach ($existing as $key => &$existing_object) {
+      if ($account) {
+        foreach ($existing as $key => $existing_object) {
           if (!$existing_object->access($access_type, $account)) {
             $message = $this->t('Sorry you have no system permission to execute action @action on ADOs with UUID @uuid via Set @setid. Skipping', [
               '@uuid' => $existing_object->uuid(),
@@ -283,14 +309,30 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           }
         }
         $existing = array_filter($existing);
+        error_log("number to delete". count($existing));
         if ($data->info['action'] ?? NULL == 'delete') {
           try {
             $this->entityTypeManager->getStorage('node')->delete($existing);
+            $message = $this->t('Deleting UUIDs @uuid via Set @setid.', [
+              '@uuid' => $existing_object->uuid(),
+              '@setid' => $data->info['set_id'],
+              '@action' => $data->info['action'],
+            ]);
+            $this->loggerFactory->get('ami_file')->info($message, [
+              'setid' => $data->info['set_id'] ?? NULL,
+              'time_submitted' => $data->info['time_submitted'] ?? '',
+            ]);
+            $success = TRUE;
           }
           catch (EntityStorageException $e) {
             $message = $this->t('Error executing @action on ADOs via Set @setid.', [
               '@setid' => $data->info['set_id'],
               '@action' => $data->info['action'],
+              '@error' => $e->getMessage(),
+            ]);
+            $this->loggerFactory->get('ami_file')->warning($message, [
+              'setid' => $data->info['set_id'] ?? NULL,
+              'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
           }
         }
