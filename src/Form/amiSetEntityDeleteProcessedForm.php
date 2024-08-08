@@ -110,7 +110,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
        'zip_file' => Zip File/File Entity
        'queue_name' => because well ... we use Hydroponics too
        'time_submitted' => Timestamp on when the queue was send. All Entries will share the same
-       'batch_size' =>  the number of ADOs to process via a batch action. Some actions like detele can/should handle multiple UUIDs at the same time in a single Queue item
+       'batch_size' =>  the number of ADOs to process via a batch action. Some actions like delete can/should handle multiple UUIDs at the same time in a single Queue item
      ];
 */
         // Overrides the original OP
