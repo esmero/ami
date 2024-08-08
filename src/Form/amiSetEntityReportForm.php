@@ -15,6 +15,7 @@ use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\File\FileSystemInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Link;
 use Drupal\Core\Url;
 use Monolog\Logger;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -93,7 +94,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
   }
 
   public function getDescription() {
-    return $this->t('Download Log File');
+    return $this->t('');
   }
 
 
@@ -110,21 +111,6 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
    */
   public function getCancelUrl() {
     return new Url('entity.ami_set_entity.collection');
-  }
-
-  /**
-   * {@inheritdoc}
-   */
-  protected function actions(array $form, FormStateInterface $form_state) {
-    $actions = parent::actions($form, $form_state);
-    $actions['submit_download'] = [
-      '#type' => 'submit',
-      '#value' => t('Download Logs'),
-      '#submit' => [
-        [$this, 'submitFormDownload'],
-      ],
-    ];
-    return [];
   }
 
   /**
@@ -380,6 +366,19 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       '#type' => 'submit',
       '#value' => $this->t('Submit'),
     );
+
+    $form['actions']['submit_download'] = [
+      '#type' => 'link',
+      '#title' => $this->t('Download Log'),
+      '#access' => $this->entity->access('process'),
+      '#attributes' => [
+        'class' => ['button', 'btn', 'btn-secondary'],
+      ],
+      '#url' =>  Url::fromRoute('ami.download_log', [
+        'ami_set_entity' => $this->entity->id(),
+      ]),
+    ];
+
     // Because this form has no real submissions and the entity itself is not changing
     // we had users seen stale (no reports) but other user loging in can see them
     // Maybe this helps?
@@ -391,10 +390,10 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
 
   public function myAjaxCallback(array &$form, FormStateInterface $form_state) {
     foreach ([
-      AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
-      FormBuilderInterface::AJAX_FORM_REQUEST,
-      MainContentViewSubscriber::WRAPPER_FORMAT,
-    ] as $key) {
+               AjaxResponseSubscriber::AJAX_REQUEST_PARAMETER,
+               FormBuilderInterface::AJAX_FORM_REQUEST,
+               MainContentViewSubscriber::WRAPPER_FORMAT,
+             ] as $key) {
       if ($this->getRequest()) {
         $this->getRequest()->query->remove($key);
         $this->getRequest()->request->remove($key);
