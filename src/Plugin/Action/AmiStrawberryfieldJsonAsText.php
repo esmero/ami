@@ -24,6 +24,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
  * @Action(
  *   id = "entity:ami_jsontext_action",
  *   action_label = @Translation("Text based find and replace Metadata for Archipelago Digital Objects"),
+ *   label = @Translation("Text based find and replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
  *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
