@@ -1759,6 +1759,9 @@ class AmiUtilityService {
    */
   public function preprocessAmiSet(File $file, \stdClass $data, array &$invalid = [], $strict = FALSE): array {
 
+    // Use the AMI set user ID for checking access to entity operations.
+    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+
     $file_data_all = $this->csv_read($file);
     // We want to validate here if the found Headers match at least the
     // Mapped ones during AMI setup. If not we will return an empty array
@@ -1839,7 +1842,7 @@ class AmiUtilityService {
           // In case access changes later of course
           // Processors do NOT delete. So we only check for Update.
           $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
-          if (!$existing_object || !$existing_object->access('update')) {
+          if (!$existing_object || !$existing_object->access('update', $account)) {
             unset($ado);
             $invalid = $invalid + [$index => $index];
           }
@@ -2122,6 +2125,9 @@ class AmiUtilityService {
    */
   public function getProcessedAmiSetNodeUUids(File $file, \stdClass $data, $op = NULL) {
 
+    // Use the AMI set user ID for checking access to entity operations.
+    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+
     $file_data_all = $this->csv_read($file);
     // we may want to check if saved metadata headers == csv ones first.
     // $data->column_keys
@@ -2142,7 +2148,7 @@ class AmiUtilityService {
           // In case access changes later of course
           // This does NOT delete. So we only check for Update.
           $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
-          if ($existing_object && $existing_object->access($op)) {
+          if ($existing_object && $existing_object->access($op, $account)) {
             $uuids[] = $possibleUUID;
           }
         }
