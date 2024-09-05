@@ -197,7 +197,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           return;
         }
 
-
         foreach ($info as $item) {
           // We set current User here since we want to be sure the final owner of
           // the object is this and not the user that runs the queue
