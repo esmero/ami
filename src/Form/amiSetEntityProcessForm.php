@@ -170,6 +170,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ->createItem($data_csv);
       }
       else {
+        // Add 'uid' to $data->info to unify with new account loader at \Drupal\ami\AmiUtilityService::preprocessAmiSet
+        $data->info['uid'] = $this->currentUser()->id();
         $info = $this->AmiUtilityService->preprocessAmiSet($file, $data, $invalid, FALSE);
         // Means preprocess set
         if (count($invalid)) {
