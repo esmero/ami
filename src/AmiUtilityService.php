@@ -1760,7 +1760,8 @@ class AmiUtilityService {
   public function preprocessAmiSet(File $file, \stdClass $data, array &$invalid = [], $strict = FALSE): array {
 
     // Use the AMI set user ID for checking access to entity operations.
-    $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+    $uid = $data->info['uid'] ?? \Drupal::currentUser()->id();
+    $account = $uid == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($uid);
 
     $file_data_all = $this->csv_read($file);
     // We want to validate here if the found Headers match at least the

@@ -85,6 +85,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
     }
     if ($file && $data!== new \stdClass()) {
       // Only UUIDs you can delete will be added.
+      $data->info['uid'] = $this->currentUser()->id();
       $uuids = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data, 'delete');
       if (empty($uuids)) {
         $form_state->setRebuild();
