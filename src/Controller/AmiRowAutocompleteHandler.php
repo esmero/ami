@@ -189,6 +189,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $mimetype = $form_state->getValue('mimetype');
           $mimetype = !empty($mimetype) ? $mimetype[0]['value'] : 'text/html';
           $show_render_native = $form_state->getValue('render_native');
+
           if ($show_render_native) {
             set_error_handler('_format_strawberryfield_metadata_preview_error_handler');
           }
