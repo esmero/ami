@@ -5,6 +5,7 @@ namespace Drupal\ami\Plugin\QueueWorker;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Entity\amiSetEntity;
+use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\file\FileInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -12,6 +13,8 @@ use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\strawberryfield\Event\StrawberryfieldFileEvent;
+use Drupal\strawberryfield\StrawberryfieldEventType;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Monolog\Handler\StreamHandler;
@@ -21,6 +24,7 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use \Drupal\Core\TempStore\PrivateTempStoreFactory;
+use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 
 /**
  * Processes and Ingests each AMI Set CSV row.
@@ -103,11 +107,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @var array
    */
-  private CONST OP_HUMAN = [
+  protected CONST OP_HUMAN = [
     'create' => 'created',
     'update' => 'updated',
     'patch' => 'patched',
   ];
+
+  /**
+   * The event dispatcher.
+   *
+   * @var EventDispatcherInterface
+   */
+  protected EventDispatcherInterface $eventDispatcher;
 
   /**
    * Constructor.
@@ -115,19 +126,20 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param array $configuration
    * @param string $plugin_id
    * @param mixed $plugin_definition
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
-   * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface $logger_factory
-   * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
-   * @param \Drupal\ami\AmiUtilityService $ami_utility
-   * @param \Drupal\ami\AmiLoDService $ami_lod
-   * @param \Drupal\Core\Messenger\MessengerInterface $messenger
-   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberry_filepersister
-   * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
+   * @param EntityTypeManagerInterface $entity_type_manager
+   * @param LoggerChannelFactoryInterface $logger_factory
+   * @param StrawberryfieldUtilityService $strawberryfield_utility_service
+   * @param AmiUtilityService $ami_utility
+   * @param AmiLoDService $ami_lod
+   * @param MessengerInterface $messenger
+   * @param StrawberryfieldFilePersisterService $strawberry_filepersister
+   * @param PrivateTempStoreFactory $temp_store_factory
+   * @param EventDispatcherInterface $event_dispatcher
    */
   public function __construct(
     array $configuration,
-    $plugin_id,
-    $plugin_definition,
+          $plugin_id,
+          $plugin_definition,
     EntityTypeManagerInterface $entity_type_manager,
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
@@ -135,7 +147,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     AmiLoDService $ami_lod,
     MessengerInterface $messenger,
     StrawberryfieldFilePersisterService $strawberry_filepersister,
-    PrivateTempStoreFactory $temp_store_factory
+    PrivateTempStoreFactory $temp_store_factory,
+    EventDispatcherInterface $event_dispatcher
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -147,6 +160,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->strawberryfilepersister = $strawberry_filepersister;
     $this->store = $temp_store_factory->get('ami_queue_worker_file');
     $this->statusStore = $temp_store_factory->get('ami_queue_status');
+    $this->eventDispatcher = $event_dispatcher;
   }
 
   /**
@@ -162,8 +176,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   public static function create(
     ContainerInterface $container,
     array $configuration,
-    $plugin_id,
-    $plugin_definition
+                       $plugin_id,
+                       $plugin_definition
   ) {
     return new static(
       empty($configuration) ? [] : $configuration,
@@ -176,7 +190,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('ami.lod'),
       $container->get('messenger'),
       $container->get('strawberryfield.file_persister'),
-      $container->get('tempstore.private')
+      $container->get('tempstore.private'),
+      $container->get('event_dispatcher')
     );
   }
 
@@ -395,15 +410,28 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     if ($data->mapping->globalmapping == "custom") {
       $file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files ?? NULL;
+      $csv_file_object =  $data->mapping->custommapping_settings->{$data->info['row']['type']}->files_csv ?? NULL;
     }
     else {
       $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
+      $csv_file_object = $data->mapping->globalmapping_settings->files_csv ?? NULL;
     }
 
     $file_columns = [];
+    $file_csv_columns = [];
+
+
     $ado_columns = [];
     if ($file_object && is_object($file_object)) {
       $file_columns = array_values(get_object_vars($file_object));
+    }
+    // CSV (nested ones) can not be processed as "pre-files", but still need to be processed as files.
+    // There might be an edge case where the user decides that the CSV that generated the children
+    // Should also be attached to the parent ADO.Still, we need to be sure the ADO itself was ingesed
+    // before treating the CSV as a source for children objects.
+
+    if ($csv_file_object && is_object($csv_file_object)) {
+      $file_csv_columns = array_values(get_object_vars($csv_file_object));
     }
 
     if ($ado_object && is_object($ado_object)) {
@@ -543,7 +571,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
 
     if ($process_files_via_queue && empty($data->info['waiting_for_files'])) {
-      // If so we need to push this one to the end..
+      // If so we need to push this one to the end.
       // Reset the attempts
       $data->info['waiting_for_files'] = TRUE;
       $data->info['attempt'] = $data->info['attempt'] ? $data->info['attempt'] + 1 : 0;
@@ -565,7 +593,38 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       return;
     }
     // Only persist if we passed this.
-    $this->persistEntity($data, $processed_metadata);
+    // True if all ok, to the best of our knowledge of course
+    $persisted = $this->persistEntity($data, $processed_metadata);
+    // We only process a CSV column IF and only if the row that contains it generated an ADO.
+    if ($persisted && !empty($file_csv_columns)) {
+      $current_uuid = $data->info['row']['uuid'] ?? NULL;
+      $current_row_id = $data->info['row']['row_id'] ?? NULL;
+      $data_csv = clone $data;
+      unset($data_csv->info['row']);
+      foreach ($file_csv_columns as $file_csv_column) {
+        if (isset($data->info['row']['data'][$file_csv_column]) && strlen(trim($data->info['row']['data'][$file_csv_column])) >= 5) {
+          $filenames = trim($data->info['row']['data'][$file_csv_column]);
+          $filenames = array_map(function($value) {
+            $value = $value ?? '';
+            return trim($value);
+          }, explode(';', $filenames));
+          $filenames = array_filter($filenames);
+          // We will keep the original row ID, so we can log it.
+          $data_csv->info['row']['row_id'] = $current_row_id;
+          foreach($filenames as $filename) {
+            $data_csv->info['csv_filename'] = $filename;
+            $csv_file = $this->processCSvFile($data_csv);
+            if ($csv_file) {
+              $data_csv->info['csv_file'] = $csv_file;
+              // Push to the CSV  queue
+              \Drupal::queue('ami_csv_ado')
+                ->createItem($data_csv);
+            }
+          }
+        }
+      }
+    }
+    return;
   }
 
 
@@ -601,7 +660,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   private function persistEntity(\stdClass $data, array $processed_metadata) {
 
     if (!$this->canProcess($data)) {
-      return;
+      return FALSE;
     }
 
     //OP can be one of:
@@ -636,7 +695,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-      return;
+      return FALSE;
     }
 
     $bundle = $property_path_split[0];
@@ -650,12 +709,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $status = $data->info['status'][$bundle] ?? 0;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
-    if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
-      $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
-    }
-    else {
-      $processed_metadata['ap:tasks'] = [];
-      $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+    // We can't blindly override ap:tasks if we are dealing with an update operation. So make an exception here for only create
+    // And deal with the same for update but later
+    if ($op ==='create') {
+      if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
+        $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+      } else {
+        $processed_metadata['ap:tasks'] = [];
+        $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+      }
     }
 
     // JSON_ENCODE AGAIN!
@@ -768,7 +830,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   $processed_metadata = $original_value;
                 }
 
-
                 if (isset($data->info['log_jsonpatch']) && $data->info['log_jsonpatch']) {
                   $this->patchJson($original_value ?? [], $processed_metadata ?? [], true);
                 }
@@ -832,8 +893,18 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                   }
                   $processed_metadata = $original_value;
                 }
-                // @TODO. Log this?
-                // $this->patchJson($original_value, $processed_metadata);
+
+                // Now deal again with ap:tasks only if the replace/append operation stripped the basics out
+
+                if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
+                  // basically reuse what is there (which at this stage will be a mix of original data and new or default to the $sort file defined before
+                  $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? $sort_files;
+                } else {
+                  // Only set if after all the options it was removed at all.
+                  $processed_metadata['ap:tasks'] = [];
+                  $processed_metadata['ap:tasks']['ap:sortfiles'] = $sort_files;
+                }
+
 
                 $itemfield->setMainValueFromArray($processed_metadata);
                 break;
@@ -877,6 +948,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
         $this->setStatus(amiSetEntity::STATUS_PROCESSING, $data);
+        return TRUE;
       }
       catch (\Exception $exception) {
         $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
@@ -889,7 +961,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
         $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-        return;
+        return FALSE;
       }
     }
     else {
@@ -903,6 +975,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
+      return FALSE;
     }
   }
 
@@ -979,7 +1052,6 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       );
       if (!$file) {
         $data->info['force_file_process'] = TRUE;
-        // OK still there and alive. If not we have to force reprocessing!
       }
       elseif (file_exists($file->getFileUri()) == FALSE) {
         $data->info['force_file_process'] = TRUE;
@@ -992,7 +1064,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // First check if we already have the info here and not forced to recreate, if so do nothing.
     if (($data->info['force_file_process'] ?? FALSE)) {
       $file = $this->AmiUtilityService->file_get(trim($data->info['filename']),
-        $data->info['zip_file']);
+        $data->info['zip_file'], $data->info['force_file_process']);
       if ($file) {
         $force_destination = isset($data->info['ops_forcemanaged_destination_file']) ? (bool) $data->info['ops_forcemanaged_destination_file'] : TRUE;
         $reduced = $data->info['reduced'] ?? FALSE;
@@ -1021,6 +1093,44 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
       }
+    }
+  }
+
+  /**
+   * Processes a CSV File without technical metadata. This is just for the purpose of input for the CSV queue worker
+   *
+   * @param mixed $data
+   */
+  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null
+  {
+    if (!($data->info['csv_filename'] ?? NULL)) {
+      return NULL;
+    }
+    $file = $this->AmiUtilityService->file_get(trim($data->info['csv_filename']),
+      $data->info['zip_file'] ?? NULL, TRUE);
+    if ($file) {
+      $event_type = StrawberryfieldEventType::TEMP_FILE_CREATION;
+      $current_timestamp = (new DrupalDateTime())->getTimestamp();
+      $event = new StrawberryfieldFileEvent($event_type, 'ami', $file->getFileUri(), $current_timestamp);
+      // This will allow the extracted CSV from the zip to be composted, even if it was not a CSV.
+      // IN a queue by \Drupal\strawberryfield\EventSubscriber\StrawberryfieldEventCompostBinSubscriber
+      $this->eventDispatcher->dispatch($event, $event_type);
+    }
+    if ($file && $file->getMimeType() == 'text/csv') {
+      return $file;
+    }
+    else {
+      $message = $this->t('The referenced nested CSV @filename on row id @rowid from Set @setid could not be found or had the wrong format. Skipping',
+        [
+          '@setid' => $data->info['set_id'],
+          '@filename' => $data->info['csv_filename'],
+          '@rowid' => $data->info['row']['row_id'] ?? '0',
+        ]);
+      $this->loggerFactory->get('ami_file')->warning($message ,[
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+      return NULL;
     }
   }
 
@@ -1102,7 +1212,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param string    $status
    * @param \stdClass $data
    */
-  private function setStatus(string $status, \stdClass $data) {
+  protected function setStatus(string $status, \stdClass $data) {
     try {
       $set_id = $data->info['set_id'];
       if (!empty($set_id)) {
