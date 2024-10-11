@@ -64,7 +64,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     $form_state->setAlwaysProcess(TRUE);
     $webform = $this->AmiUtilityService->getWebforms();
     $form['#tree'] = TRUE;
-    $form['webform'] =[
+    $form['webform'] = [
       '#type' => 'select',
       '#title' => $this->t('Select which Webform you want to use'),
       '#options' => $webform,

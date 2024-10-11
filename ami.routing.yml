@@ -87,6 +87,15 @@ entity.ami_set_entity.delete_process_form:
   requirements:
     _entity_access: 'ami_set_entity.deleteados'
 
+entity.ami_set_entity.action_process_form:
+  path: '/amiset/{ami_set_entity}/actionprocessed'
+  defaults:
+    _entity_form: ami_set_entity.actionprocessed
+    _title: 'Run Action on Ami Set'
+  requirements:
+    _entity_access: 'ami_set_entity.actionados'
+
+
 entity.ami_set_entity.reconcile_form:
   path: '/amiset/{ami_set_entity}/reconcile'
   defaults:

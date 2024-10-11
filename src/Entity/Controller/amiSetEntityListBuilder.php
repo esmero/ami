@@ -88,6 +88,13 @@ class amiSetEntityListBuilder extends EntityListBuilder {
           'url' => $this->ensureDestination($entity->toUrl('delete-process-form')),
         ];
       }
+      if ($entity->access('actionados') && $entity->hasLinkTemplate('action-process-form')) {
+        $operations['action_processed'] = [
+          'title' => $this->t('Run Action on Processed ADOs'),
+          'weight' => 12,
+          'url' => $this->ensureDestination($entity->toUrl('action-process-form')),
+        ];
+      }
     }
     return $operations;
   }
