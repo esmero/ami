@@ -26,6 +26,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
  * @Action(
  *   id = "entity:ami_jsonwebform_action",
  *   action_label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
+ *   label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
  *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
@@ -63,7 +64,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     $form_state->setAlwaysProcess(TRUE);
     $webform = $this->AmiUtilityService->getWebforms();
     $form['#tree'] = TRUE;
-    $form['webform'] =[
+    $form['webform'] = [
       '#type' => 'select',
       '#title' => $this->t('Select which Webform you want to use'),
       '#options' => $webform,
