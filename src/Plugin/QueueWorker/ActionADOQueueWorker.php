@@ -258,7 +258,6 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       );
     }
     catch (\Exception $e) {
-      error_log($e->getMessage());
       $message = $this->t('Error loading NODES for @action on ADOs via Set @setid.', [
         '@setid' => $data->info['set_id'],
         '@action' => $data->info['action'],
@@ -279,8 +278,6 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
       // Each Action might have its own check/permission. But we know for sure delete requires `delete`
       $access_type = "delete";
-      error_log($account->getAccountName());
-
       if ($account) {
         foreach ($existing as $key => $existing_object) {
           if (!$existing_object->access($access_type, $account)) {
@@ -309,7 +306,6 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           }
         }
         $existing = array_filter($existing);
-        error_log("number to delete". count($existing));
         if ($data->info['action'] ?? NULL == 'delete') {
           try {
             $this->entityTypeManager->getStorage('node')->delete($existing);

@@ -2729,7 +2729,7 @@ class AmiUtilityService {
         if ($set_field instanceof \Drupal\strawberryfield\Field\StrawberryFieldItemList) {
           $set = json_decode($entity->get('set')->getString(), TRUE);
           if (json_last_error() == JSON_ERROR_NONE) {
-            $deleteados_access = (empty($set['pluginconfig']['op']) || !in_array($set['pluginconfig']['op'], ['update', 'patch']));
+            $deleteados_access = (empty($set['pluginconfig']['op']) || !in_array($set['pluginconfig']['op'], ['update', 'patch', 'sync']));
             \Drupal::cache()->set($cache_id, $deleteados_access);
           }
         }

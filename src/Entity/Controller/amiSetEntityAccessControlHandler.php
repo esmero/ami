@@ -94,6 +94,18 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
             ->cachePerPermissions()
             ->addCacheableDependency($entity);
         }
+      case 'actionados':
+        if ($account->hasPermission('actionados amiset entity')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        if ($account->hasPermission('actionados own amiset entity') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+        }
       default:
         return AccessResult::neutral()->cachePerPermissions();
     }
