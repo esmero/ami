@@ -2468,7 +2468,7 @@ class AmiUtilityService {
       }
       catch (\Exception $error) {
           $message = $this->t(
-            'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig Rendered error is %output. Please check your template against that row data and make sure you are handling values, arrays and filters correctly.',
+            'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
             [
               '@metadatadisplayid' => $metadatadisplay_id,
               '@uuid' => $data->info['row']['uuid'],
