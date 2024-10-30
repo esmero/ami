@@ -2458,12 +2458,28 @@ class AmiUtilityService {
       $cacheabledata = [];
       // @see https://www.drupal.org/node/2638686 to understand
       // What cacheable, Bubbleable metadata and early rendering means.
-      $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
-        new RenderContext(),
-        function () use ($context, $metadatadisplay_entity) {
-          return $metadatadisplay_entity->renderNative($context);
-        }
-      );
+      try {
+        $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
+          new RenderContext(),
+          function () use ($context, $metadatadisplay_entity) {
+            return $metadatadisplay_entity->renderNative($context);
+          }
+        );
+      }
+      catch (\Exception $error) {
+          $message = $this->t(
+            'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
+            [
+              '@metadatadisplayid' => $metadatadisplay_id,
+              '@uuid' => $data->info['row']['uuid'],
+              '@row' => $row_id,
+              '@setid' => $set_id,
+              '%output' => $error->getMessage(),
+            ]
+          );
+          $this->loggerFactory->get('ami')->error($message);
+          return NULL;
+      }
       if (count($cacheabledata)) {
         $jsonstring = $cacheabledata->__toString();
         $jsondata = json_decode($jsonstring, TRUE);

@@ -691,6 +691,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $label_column = $data->adomapping->base->label ?? 'label';
     // Always (because of processed metadata via template) try to fetch again the mapped version
     $label = $processed_metadata[$label_column] ?? ($processed_metadata['label'] ?? NULL);
+    // SOME PEOPLE USING LABEL AS AN ARRAY? GOSH.
+    if (is_array($label)) {
+      $label = reset($label);
+      $label = is_string($label) ?  $label : NULL;
+    }
+    elseif (is_object($label)) {
+      // No guessing. People get your data right. We NULL-i-fy
+      $label = NULL;
+    }
+
     $property_path_split = explode(':', $property_path);
 
     if (!$property_path_split || count($property_path_split) < 2 ) {
@@ -732,6 +742,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
     if ($jsonstring) {
+      // Correct to send Label as NULL here if the user messed up..
       $nodeValues = [
         'uuid' =>  $data->info['row']['uuid'],
         'type' => $bundle,
@@ -948,7 +959,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
           ':link' => $link,
-          '%title' => $label,
+          '%title' => $label ?? 'UNAMED ADO',
           '@ophuman' => static::OP_HUMAN[$op]
         ]);
         $this->loggerFactory->get('ami_file')->info($message ,[
