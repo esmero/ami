@@ -1983,32 +1983,56 @@ class AmiUtilityService {
       // To help users debug which row has issues in case of ingest errors
       $ado['row_id'] = $index;
     }
-    // Now reoder, add parents first then the rest.
-    $newinfo = [];
 
-    // parent hash flat contains keys with all the properties and then a numeric array with their children.
-    $added = [];
-
-    // Would be easier to have just the children without property right?
-    foreach ($parent_hash_flat as $row_id => $all_children) {
-      $this->sortTreeByChildren($row_id, $parent_hash_flat, $added, []);
-    }
-    foreach ($added as $order => $row_id) {
-      if (isset($info[$row_id])) {
-        $newinfo[] = $info[$row_id];
-        unset($info[$row_id]);
+    // Before attempting a re-order. Give the user the chance to be right.
+    // We will validate the given order. If not, or already having an invalid we will sort.
+    $seen = [];
+    $needs_sorting = FALSE;
+    if (empty($invalid)) {
+      foreach ($info as $entry) {
+        $seen[$entry['uuid']] = $entry['uuid'];
+        foreach(($entry['parent'] ?? [] ) as $rel => $uuids) {
+          $uuids = array_filter($uuids);
+          foreach ($uuids as $parent_uuid) {
+            // Means the UUID is pointing to the same CSV but we have not seen the parent yet
+            if ((string)$parent_uuid !='' && isset($uuid_to_row_index_hash[$parent_uuid]) && !isset($seen[$parent_uuid])) {
+                $needs_sorting = TRUE;
+                break 3;
+            }
+          }
+        }
       }
     }
-    // In theory $info will only contain Objects that have no Children...
-    $newinfo = array_merge($newinfo, array_values($info));
-    unset($info);
-    unset($added);
+    else {
+      $needs_sorting = TRUE;
+    }
+    unset($seen);
+
+    if ($needs_sorting) {
+      // Now reoder, add parents first then the rest.
+      $newinfo = [];
+      // parent hash flat contains keys with all the properties and then a numeric array with their children.
+      $added = [];
+      foreach ($parent_hash_flat as $row_id => $all_children) {
+        $this->sortTreeByChildren($row_id, $parent_hash_flat, $added, []);
+      }
+      foreach ($added as $order => $row_id) {
+        if (isset($info[$row_id])) {
+          $newinfo[] = $info[$row_id];
+          unset($info[$row_id]);
+        }
+      }
+      // In theory $info will only contain Objects that have no Children and are no child of others.
+      $info = array_merge($newinfo, array_values($info));
+      unset($newinfo);
+      unset($added);
+    }
+
     unset($parent_hash_flat);
     unset($parent_hash);
     unset($uuid_to_row_index_hash);
 
-    // @TODO Should we do a final check here? Alert the user the rows are less/equal/more to the desired?
-    return $newinfo;
+    return $info;
   }
 
   protected function sortTreeByChildren($row_id, $tree, &$ordered, $ordered_completetree) {
@@ -2018,7 +2042,8 @@ class AmiUtilityService {
       foreach ($tree[$row_id] as $child_id) {
         if (in_array($child_id, $ordered)) {
           // When a child is found, we don't add it again to the main order.
-          $child_offset =array_search($child_id, $ordered, TRUE);
+          // Maybe we should delete it?
+          $child_offset = array_search($child_id, $ordered, TRUE);
           // When multiple offsets are present we take the one that inserts the subtree earlier.
           if ($offset !== NULL) {
             $offset = min($offset, $child_offset);
