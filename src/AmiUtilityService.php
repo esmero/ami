@@ -456,7 +456,7 @@ class AmiUtilityService {
    *
    * @return mixed
    *   One of these possibilities:
-   *   - If it succeeds an managed file object
+   *   - If it succeeds, a managed file object
    *   - If it fails, FALSE.
    */
   public function retrieve_remote_file(
