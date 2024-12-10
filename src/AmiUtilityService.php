@@ -962,10 +962,10 @@ class AmiUtilityService {
    */
   public function csv_touch(string $filename = NULL, ?string $subpath = NULL) {
     if (!$subpath) {
-      $path = 'private://ami/csv';
+      $path = 'public://ami/csv';
     }
     else {
-      $path = 'private://ami/csv/'.$subpath;
+      $path = 'public://ami/csv/'.$subpath;
     }
     // Check if dealing with an existing file first
     if ($filename && is_file($filename) && $this->streamWrapperManager->isValidUri($filename)) {
