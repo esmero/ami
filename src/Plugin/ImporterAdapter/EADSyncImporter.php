@@ -152,7 +152,7 @@ class EADSyncImporter extends SpreadsheetImporter {
 
     /* @var File $file */
     $zip_file = $this->entityTypeManager->getStorage('file')
-      ->load($config['zip_file'][0]);
+      ->load($config['zip_file']);
     if (!$zip_file) {
       $this->messenger()->addMessage(
         $this->t(
@@ -238,6 +238,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     // Here we need to write the CSV file back to ZIP file.
     if (count($new_data['children_data_with_headers'] ?? [])) {
       foreach ($new_data['children_data_with_headers'] as $child_row) {
+        error_log(print_r($child_row,true));
         // @TODO: HERE NEEDS TO GO THE CSV OUTPUT ... AND THAT CSV THEN NEEDS TO BE ADDED TO THE ZIP.
       }
     }
@@ -248,7 +249,18 @@ class EADSyncImporter extends SpreadsheetImporter {
   }
 
   public function getInfo(array $config, FormStateInterface $form_state, $page = 0, $per_page = 20): array {
-    return [];
+    // Fixed getInfo.
+    $headers['type'] = 'type';
+    $headers['ismemberof'] = 'ismemberof';
+    $headers['ispartof'] = 'ispartof';
+    $headers['ispartof'] = 'iscontainedby';
+    $headers['node_uuid'] = 'node_uuid';
+    $headers['label'] = 'label';
+    $headers['documents'] = 'documents';
+    $headers['dsc_csv'] = 'dsc_csv';
+    $data = array_values($headers);
+    $tabdata = ['headers' => array_keys($headers), 'data' => array_values($headers), 'totalrows' => 1];
+    return $tabdata;
   }
 
   public function provideTypes(array $config, array $data): array
@@ -349,13 +361,18 @@ class EADSyncImporter extends SpreadsheetImporter {
       'finished' => '\Drupal\ami\Plugin\ImporterAdapter\EADSyncImporter::finishfetchFromZip',
       'progress_message' => t('Processing Set @current of @total.'),
     ];
-    $file = $this->entityTypeManager->getStorage('file')->load($amisetdata->zip);
-    if (!$file) {
-      // We want an error message here in case there is no ZIP file. Should never happen.
+    $zipfile = $this->entityTypeManager->getStorage('file')->load($amisetdata->zip);
+    if (!$zipfile) {
+      // @TODO ERROR
       return FALSE;
     }
-    $xml_files = $this->AmiUtilityService->listZipFileContent($file, 'xml');
+    $xml_files = $this->AmiUtilityService->listZipFileContent($zipfile, 'xml');
     $config['xml_files'] = $xml_files;
+    $file = $this->entityTypeManager->getStorage('file')->load($amisetdata->csv);
+    if (!$file) {
+      // @TODO ERROR
+      return FALSE;
+    }
     $batch['operations'][] = [
       '\Drupal\ami\Plugin\ImporterAdapter\EADSyncImporter::fetchBatch',
       [$config, $this, $file, $amisetdata],
@@ -428,21 +445,18 @@ class EADSyncImporter extends SpreadsheetImporter {
       // And not the mess each doc returns
       $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
       $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
-
+      $config['zip_file'] = $amisetdata->zip;
+      $config['xml_file'] = $config['xml_files'][$context['sandbox']['prev_index']];
       $data = $plugin_instance->getData($config, 0,
         1);
 
       if ($data['totalrows'] == 0) {
+        //@TODO. Not accurate. This should be when we run out of XML files.
         $context['finished'] = 1;
       }
       else {
         $context['sandbox']['prev_index'] = $context['sandbox']['prev_index'] + $data['totalfound'];
         $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
-        // New here or @TODO. We should append to CSV sooner instead of moving data around
-        // Why? A single Solr query data structure with children might fill up
-        // The PHP memory
-        // $amisetdata->adomapping['uuid']['uuid'] for this case will always be node_uuid and autouuid always TRUE.
-        // This is the form settings. Wonder if for safety i should just still fix the values here?
 
         $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
         // Update context
@@ -613,7 +627,7 @@ class EADSyncImporter extends SpreadsheetImporter {
           }
           // Means we can't keep flattening
           if (is_array($value)) {
-            if (!arrayIsMultiSimple($value)) {
+            if (!static::arrayIsMultiSimple($value)) {
               foreach ($value as &$item) {
                 if (isset($item[$key])) {
                   unset($item[$key]);
@@ -938,6 +952,10 @@ class EADSyncImporter extends SpreadsheetImporter {
     $tabdata['data_with_headers'] = $resulting_row_clean;
 
     return $tabdata;
+  }
+
+  static function arrayIsMultiSimple(array $sourcearray =  []) {
+    return !empty(array_filter(array_keys($sourcearray), 'is_string'));
   }
 
 
