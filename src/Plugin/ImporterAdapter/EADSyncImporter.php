@@ -135,7 +135,10 @@ class EADSyncImporter extends SpreadsheetImporter {
     // Bundle config
     // $config['
     // generate the same UUIDs using the Archivespace ID(s).
-    $destination = $config['eadsync_config']['tmp_folder'];
+
+    // This is where we will write the CSV? Actually we can just use TMP://
+    $destination = $config['eadsync_config']['tmp_folder'] ?? '';
+
     $seed_uuid_for_uuidv5 =  $config['eadsync_config']['uuidV5seed'];
     $config_bundle['component'] = $config['eadsync_config']['bundle_component'] ;
     $config_bundle['container'] = $config['eadsync_config']['bundle_container'];
@@ -244,7 +247,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     }
 
     // This is just the Top EAD data.
-    $tabdata = ['headers' => array_keys($new_data['data_with_headers'][0]), 'data' => array_values($new_data['data_with_headers'][0]), 'totalrows' => 1, 'errors' => []];
+    $tabdata = ['headers' => array_keys($new_data['data_with_headers'] ?? []), 'data' => [array_values($new_data['data_with_headers'] ?? [])], 'totalrows' => 1, 'errors' => []];
     return $tabdata;
   }
 
@@ -394,15 +397,17 @@ class EADSyncImporter extends SpreadsheetImporter {
   public static function fetchBatch(array $config, ImporterPluginAdapterInterface $plugin_instance, File $file, \stdClass $amisetdata, array &$context):void {
 
     $increment = static::BATCH_INCREMENTS;
-    $xml_files = count($config['xml_files']);
+    $xml_files_count = count($config['xml_files']);
+    $config['ead_sync']['bundle_component'] = $amisetdata->mapping->custommapping_settings->ArchiveComponent->bundle ?? 'digital_object_collection:field_descriptive_metadata';
+    $config['ead_sync']['bundle_container'] = $amisetdata->mapping->custommapping_settings->ArchiveContainer->bundle ?? 'digital_object:field_descriptive_metadata';
+
     if (!isset($context['sandbox']['progress'])) {
       $context['sandbox']['progress'] = 0;
-      $context['sandbox']['totalfound'] = 0;
     }
 
     if (!array_key_exists('max',
-        $context['sandbox']) || $context['sandbox']['max'] < $xml_files) {
-      $context['sandbox']['max'] = $xml_files;
+        $context['sandbox']) || $context['sandbox']['max'] < $xml_files_count) {
+      $context['sandbox']['max'] = $xml_files_count;
     }
     if (!array_key_exists('prev_index',
       $context['sandbox'])) {
@@ -411,27 +416,23 @@ class EADSyncImporter extends SpreadsheetImporter {
     $context['finished'] = 0;
     try {
       // Our increment here is always 1. EAD XML files can be huge.
-      $next_increment = ($context['sandbox']['progress'] + $increment > $xml_files)
-        ? ($xml_files - $context['sandbox']['progress']) : $increment;
 
       if ($context['sandbox']['progress'] == 0) {
         $title = t(
-          'Attempting to process first %progress of <b>%count</b> Objects.',
+          'Attempting to process first XML of <b>%count</b> total.',
           [
-            '%count'    => $xml_files,
-            '%progress' => $context['sandbox']['progress'] + $next_increment,
+            '%count'    => $xml_files_count,
+            '%progress' => $context['sandbox']['progress'] + $increment,
           ]
         );
       }
       else {
-        $progress = $context['sandbox']['progress'] + $next_increment;
-        $progress = ($progress >= $xml_files) ? $xml_files : $progress;
+        $progress = $context['sandbox']['progress'] + $increment;
         $title = t(
-          'Fetching %progress of <b>%count</b> Objects with <b>%total</b> total rows retrieved so far.',
+          'Processing %progress of <b>%count</b> XMLs so far.',
           [
-            '%count'    => $xml_files,
+            '%count'    => $xml_files_count,
             '%progress' => $progress,
-            '%total'    => $context['sandbox']['totalfound']
           ]
         );
       }
@@ -443,30 +444,14 @@ class EADSyncImporter extends SpreadsheetImporter {
       // Parents/Children.
       // Pass the headers into the config, so we have a unified/normalized version
       // And not the mess each doc returns
-      $config['headers'] = !empty($amisetdata->column_keys) ? $amisetdata->column_keys : (!empty($config['headers']) ? $config['headers'] : []);
-      $config['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
       $config['zip_file'] = $amisetdata->zip;
-      $config['xml_file'] = $config['xml_files'][$context['sandbox']['prev_index']];
+      $config['xml_file'] = $config['xml_files'][$context['sandbox']['progress']];
       $data = $plugin_instance->getData($config, 0,
         1);
-
-      if ($data['totalrows'] == 0) {
-        //@TODO. Not accurate. This should be when we run out of XML files.
-        $context['finished'] = 1;
-      }
-      else {
-        $context['sandbox']['prev_index'] = $context['sandbox']['prev_index'] + $data['totalfound'];
         $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
-
-        $context['sandbox']['progress'] = $context['sandbox']['progress'] + $data['totalrows'];
-        // Update context
-        $context['sandbox']['totalfound'] = $context['sandbox']['totalfound'] + $data['totalfound'];
-
         $context['results']['processed']['fileuuid'] = $file->uuid();
 
         $context['results']['processed']['headers'] = $data['headers'];
-        $context['results']['processed']['total_rows'] = $data['totalrows'] ?? 0;
-        $context['results']['processed']['headerswithdata'] = $data['headerswithdata'] ?? [];
         $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
         $file_csv_uuid = $context['results']['processed']['fileuuid'] ?? NULL;
         if ($file_csv_uuid) {
@@ -477,7 +462,7 @@ class EADSyncImporter extends SpreadsheetImporter {
             \Drupal::service('ami.utility')->csv_append($data, $file_csv, $amisetdata->adomapping['uuid']['uuid'], $append_headers, TRUE, FALSE);
           }
         }
-      }
+      $context['sandbox']['progress']++;
     } catch (\Exception $e) {
       // In case of any other kind of exception, log it
       $logger = \Drupal::logger('ami');
@@ -674,6 +659,7 @@ class EADSyncImporter extends SpreadsheetImporter {
   static function jsonContainerADO($numeric_id, $parent_uuid): array {
     $container_csv = [];
     $container_csv['node_uuid'] = Uuid::uuid5($parent_uuid, $numeric_id['@id']);
+    $container_csv['node_uuid'] = $container_csv['node_uuid']->toString();
     foreach ($numeric_id as $container_key => $key_value) {
       if ($container_key == "did") {
         foreach ($key_value[0] ?? [] as $did_key => $did_value) {
@@ -754,6 +740,8 @@ class EADSyncImporter extends SpreadsheetImporter {
     // Remove ; from file name;
     $file_name = str_replace(";","-", $file_name);
     $internalErrors = libxml_use_internal_errors(TRUE);
+    $csv_header = [];
+    $container_csv = [];
     libxml_clear_errors();
     libxml_use_internal_errors($internalErrors);
     $simplexml = simplexml_load_string($data);
@@ -849,6 +837,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       try {
         $seed = is_string($resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value']) ? $resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value'] : reset($resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value']);
         $resulting_row['node_uuid'] = Uuid::uuid5($seed_uuid_for_uuidv5, $seed);
+        $resulting_row['node_uuid'] =$resulting_row['node_uuid']->toString();
       }
       catch (\Exception $error) {
         $tabdata['errors'] = [$this->t('@UUID or @ID are not good for generating an UUIDV5 Identifier ', ['@UUID'=>$seed_uuid_for_uuidv5, '@ID' => $seed])];
