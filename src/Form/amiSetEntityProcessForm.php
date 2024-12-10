@@ -492,7 +492,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     $entity = $this->entityTypeManager->getStorage('node')->create(array(
       'type'  => $bundle,
     ));
-    $bundle_label = $entity->type->entity->label() ?? $bundle;
+    // previously we were accessing a protected method ->type and then ->label(), that would explode in PHP 8.4. So we do this now.
+    $bundle_label = $this->entityTypeManager->getStorage('node_type')->load($bundle)->label() ?? $bundle;
 
     if (\Drupal::moduleHandler()->moduleExists('content_moderation')) {
       /** @var \Drupal\content_moderation\ModerationInformation $moderationInformation */

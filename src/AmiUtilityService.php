@@ -39,6 +39,7 @@ use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 use SplFileObject;
 use Drupal\Core\File\Exception\InvalidStreamWrapperException;
+use Drupal\Core\File\FileExists;
 
 class AmiUtilityService {
 
@@ -373,7 +374,7 @@ class AmiUtilityService {
               return FALSE;
             }
             $localfile = $this->retrieve_fromzip_file($uri, $destination_zip,
-              FileSystemInterface::EXISTS_REPLACE, $zip_file);
+              FileExists::Replace, $zip_file);
           }
         }
         $finaluri = $localfile;
@@ -663,7 +664,7 @@ class AmiUtilityService {
    *   - If it succeeds an managed file object
    *   - If it fails or NULL, FALSE.
    */
-  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file = NULL) {
+  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, File $zip_file = NULL) {
     if (!$zip_file) {
       return FALSE;
     }
@@ -732,6 +733,74 @@ class AmiUtilityService {
     }
     return FALSE;
   }
+
+  /**
+   * @param \Drupal\file\Entity\File $zip_file
+   * @param null $extension
+   *      If passed, we will only return files with that extension.
+   *
+   * @return array
+   *    All the names of the ZIP file. We won't yet extract them there.
+   */
+  public function listZipFileContent(File $zip_file, $extension = NULL): array {
+    $files = [];
+    $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+    if (!$zip_realpath) {
+      // This will add a delay once...
+      $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+    }
+    if ($zip_realpath) {
+      $z = new \ZipArchive();
+      $z->open($zip_realpath);
+      $files = [];
+      if ($z) {
+        for ($i = 0; $i < $z->numFiles; $i++) {
+          $file_name = $z->getNameIndex($i);
+          if ($extension) {
+            if (strpos($file_name, '.' . $extension) !== FALSE || strpos($file_name, '.' . strtoupper($extension) !== FALSE)) {
+              $files[] = $file_name;
+            }
+            else {
+              $files[] = $file_name;
+            }
+          }
+        }
+        $z->close();
+      }
+    }
+    return $files;
+  }
+
+  /**
+   * @param \Drupal\file\Entity\File $zip_file
+   * @param $file_path
+   *    This is only safe if $file_path is a text,xml,yml (text type)
+   *    Up to the caller to handle Binary if they decide to use it like that.
+   * @return string|null
+   */
+  public function getZipFileContent(File $zip_file, $file_path): ?string {
+    $content = NULL;
+    $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+    if (!$zip_realpath) {
+      // This will add a delay once...
+      $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+    }
+    if ($zip_realpath) {
+      $z = new \ZipArchive();
+      $z->open($zip_realpath);
+      if ($z) {
+        $stream = $z->getStream($file_path);
+        if (FALSE !== $stream) {
+          $content = stream_get_contents($stream);
+        }
+        $z->close();
+      }
+    }
+    return $content;
+  }
+
+
+
 
   /**
    * Creates File from a local accessible Path/URI.
@@ -886,12 +955,18 @@ class AmiUtilityService {
    *    If given it will use that, if null will create a new one.
    *    If filename is the full uri to an existing file it will update that one
    *    and its entity too.
+   * @param string|null $subpath
+   *    If set, it should be a folder structure without a leading slash. eg. set1/anothersubfolder/
    *
    * @return int|string|null
-   * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_touch(string $filename = NULL) {
-    $path = 'public://ami/csv';
+  public function csv_touch(string $filename = NULL, ?string $subpath = NULL) {
+    if (!$subpath) {
+      $path = 'private://ami/csv';
+    }
+    else {
+      $path = 'private://ami/csv/'.$subpath;
+    }
     // Check if dealing with an existing file first
     if ($filename && is_file($filename) && $this->streamWrapperManager->isValidUri($filename)) {
       $uri = $filename;
@@ -916,7 +991,7 @@ class AmiUtilityService {
       }
     }
 
-    $file = \Drupal::service('file.repository')->writeData('', $uri, FileSystemInterface::EXISTS_REPLACE);
+    $file = \Drupal::service('file.repository')->writeData('', $uri, FileExists::Replace);
 
     if (!$file) {
       $this->messenger()->addError(
@@ -1720,7 +1795,7 @@ class AmiUtilityService {
             /** @var \Drupal\file\FileRepositoryInterface $file_repository */
             $file_repository = \Drupal::service('file.repository');
             try {
-              $zipfile = $file_repository->move($zipfile, $target_directory, FileSystemInterface::EXISTS_RENAME);
+              $zipfile = $file_repository->move($zipfile, $target_directory, FileExists::Rename);
             }
             catch (InvalidStreamWrapperException $e) {
               $zipfail = TRUE;
