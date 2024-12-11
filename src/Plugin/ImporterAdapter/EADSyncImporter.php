@@ -128,13 +128,18 @@ class EADSyncImporter extends SpreadsheetImporter {
    */
   public function getData(array $config,  $page = 0, $per_page = 20): array {
     // $config['xml_file'] will contain the filename we want
-    // $config['zip_file'][0] will contain the original ZIP file ... sadly we need to reload it here.
+    // $config['zip_file'] will contain the original ZIP file ... sadly we need to reload it here.
     // $config['eadsync_config']['uuidV5seed'] needs to contain the seed used to consistently
     // $config['eadsync_config']['tmp_folder'] temp folder for this run, to be set by the batch and used
     // to reload afterward?(or here?) all CSV files and attach them to the existing ZIP.
     // Bundle config
     // $config['
     // generate the same UUIDs using the Archivespace ID(s).
+
+    // Note. Every XML Might generate a different list of Headers.
+    // Means we need to return the $data with their own headers
+    // Fetch will write it to temporary ->key DB storage
+    // and then the finalizer will have to normalize everything
 
     // This is where we will write the CSV? Actually we can just use TMP://
     $destination = $config['eadsync_config']['tmp_folder'] ?? '';
@@ -245,9 +250,8 @@ class EADSyncImporter extends SpreadsheetImporter {
         // @TODO: HERE NEEDS TO GO THE CSV OUTPUT ... AND THAT CSV THEN NEEDS TO BE ADDED TO THE ZIP.
       }
     }
-
     // This is just the Top EAD data.
-    $tabdata = ['headers' => array_keys($new_data['data_with_headers'] ?? []), 'data' => [array_values($new_data['data_with_headers'] ?? [])], 'totalrows' => 1, 'errors' => []];
+    $tabdata = ['headers' => array_keys($new_data['data_with_headers'] ?? []), 'data' => [$new_data['data_with_headers']], 'totalrows' => 1, 'errors' => []];
     return $tabdata;
   }
 
@@ -358,6 +362,8 @@ class EADSyncImporter extends SpreadsheetImporter {
    * {@inheritdoc}
    */
   public function getBatch(FormStateInterface $form_state, array $config, \stdClass $amisetdata) {
+    $temp_uuid = Uuid::uuid4()->toString();
+    $config['temp_store_id'] = $temp_uuid;
     $batch = [
       'title' => $this->t('Batch processing from XML files inside your attached ZIP file'),
       'operations' => [],
@@ -398,12 +404,14 @@ class EADSyncImporter extends SpreadsheetImporter {
 
     $increment = static::BATCH_INCREMENTS;
     $xml_files_count = count($config['xml_files']);
-    $config['ead_sync']['bundle_component'] = $amisetdata->mapping->custommapping_settings->ArchiveComponent->bundle ?? 'digital_object_collection:field_descriptive_metadata';
-    $config['ead_sync']['bundle_container'] = $amisetdata->mapping->custommapping_settings->ArchiveContainer->bundle ?? 'digital_object:field_descriptive_metadata';
+    $config['eadsync_config']['bundle_component'] = $amisetdata->mapping->custommapping_settings->ArchiveComponent->bundle ?? 'digital_object_collection:field_descriptive_metadata';
+    $config['eadsync_config']['bundle_container'] = $amisetdata->mapping->custommapping_settings->ArchiveContainer->bundle ?? 'digital_object:field_descriptive_metadata';
 
     if (!isset($context['sandbox']['progress'])) {
       $context['sandbox']['progress'] = 0;
     }
+    $context['results']['processed']['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
+    $context['results']['processed']['tempstore_ids'] =  $context['results']['processed']['tempstore_ids'] ?? [];
 
     if (!array_key_exists('max',
         $context['sandbox']) || $context['sandbox']['max'] < $xml_files_count) {
@@ -444,25 +452,37 @@ class EADSyncImporter extends SpreadsheetImporter {
       // Parents/Children.
       // Pass the headers into the config, so we have a unified/normalized version
       // And not the mess each doc returns
-      $config['zip_file'] = $amisetdata->zip;
-      $config['xml_file'] = $config['xml_files'][$context['sandbox']['progress']];
-      $data = $plugin_instance->getData($config, 0,
-        1);
-        $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
-        $context['results']['processed']['fileuuid'] = $file->uuid();
 
-        $context['results']['processed']['headers'] = $data['headers'];
-        $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
-        $file_csv_uuid = $context['results']['processed']['fileuuid'] ?? NULL;
-        if ($file_csv_uuid) {
-          $file_csv = \Drupal::service('entity.repository')->loadEntityByUuid(
-            'file', $file_csv_uuid
-          );
-          if ($file_csv) {
-            \Drupal::service('ami.utility')->csv_append($data, $file_csv, $amisetdata->adomapping['uuid']['uuid'], $append_headers, TRUE, FALSE);
+      $context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
+      if ($context['finished'] !== 1) {
+        $config['zip_file'] = $amisetdata->zip;
+        if (isset($config['xml_files'][$context['sandbox']['progress']])) {
+          $config['xml_file'] = $config['xml_files'][$context['sandbox']['progress']];
+          $data = $plugin_instance->getData($config, 0,
+            1);
+          $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
+          $context['results']['processed']['fileuuid'] = $file->uuid();
+          if (!empty($data['errors']) && is_array($data['errors'])) {
+            foreach ($data['errors'] as $getdataerror) {
+              $context['results']['errors'][] = $getdataerror;
+              }
           }
+
+          $context['results']['processed']['headers'] = $data['headers'];
+          $context['results']['processed']['headerswithdata'] = array_unique($data['headers'] + $context['results']['processed']['headerswithdata']);
+
+          $file_csv_uuid = $context['results']['processed']['fileuuid'] ?? NULL;
+          if (count($data['headers'] ?? [])) {
+            // Only store if we really got data.
+            $tempstore = \Drupal::service('tempstore.private')
+              ->get('ami_multistep_batch_data');
+            $temp_store_row_id = md5($config['temp_store_id'] . $config['xml_file']);
+            $context['results']['processed']['tempstore_ids'][] = $temp_store_row_id;
+            $tempstore->set($temp_store_row_id, $data['data']);
+          }
+          $context['sandbox']['progress']++;
         }
-      $context['sandbox']['progress']++;
+      }
     } catch (\Exception $e) {
       // In case of any other kind of exception, log it
       $logger = \Drupal::logger('ami');
@@ -474,10 +494,9 @@ class EADSyncImporter extends SpreadsheetImporter {
 
   public static function finishfetchFromZip($success, $results, $operations) {
 
-    $allheaders = $results['processed']['headers'] ?? [];
-
-    $data['headers'] = array_values($allheaders);
-    $data['total_rows'] = $results['processed']['total_rows'] ?? 0;
+    $allheaders = $results['processed']['headerswithdata'] ?? [];
+    $tempstore = \Drupal::service('tempstore.private')
+      ->get('ami_multistep_batch_data');
     // Clean the CSV removing empty headers
     $file_csv_uuid = $results['processed']['fileuuid'] ?? NULL;
     if ($file_csv_uuid) {
@@ -485,9 +504,22 @@ class EADSyncImporter extends SpreadsheetImporter {
         'file', $file_csv_uuid
       );
       if ($file_csv) {
-        \Drupal::service('ami.utility')->csv_clean(
-          $file_csv, $results['processed']['headerswithdata']
-        );
+        // $append_headers only on the first row.
+        $i = 0;
+        foreach (($results['processed']['tempstore_ids'] ?? []) as $temp_id) {
+          $data_rows = $tempstore->get($temp_id);
+          $data = [];
+          $data['data'] = $data_rows;
+          $data['headers'] =  array_values($allheaders);
+          $append_headers = FALSE;
+          if  ($i == 0) {
+            $append_headers = TRUE;
+          }
+          \Drupal::service('ami.utility')->csv_append($data, $file_csv, 'node_uuid', $append_headers, TRUE, FALSE);
+
+          $data_rows = $tempstore->delete($temp_id);
+          $i++;
+        }
       }
     }
     else {
