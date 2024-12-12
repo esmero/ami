@@ -956,16 +956,25 @@ class AmiUtilityService {
    *    If filename is the full uri to an existing file it will update that one
    *    and its entity too.
    * @param string|null $subpath
-   *    If set, it should be a folder structure without a leading slash. eg. set1/anothersubfolder/
+   *    If set, it should be a folder structure without a leading slash. e.g. set1/anothersubfolder/
+   * @param bool $temp
+   *    If it should be generated in temporary storage or public (the latter for download)
    *
    * @return int|string|null
    */
-  public function csv_touch(string $filename = NULL, ?string $subpath = NULL) {
-    if (!$subpath) {
-      $path = 'public://ami/csv';
+  public function csv_touch(string $filename = NULL, ?string $subpath = NULL, bool $temp = FALSE): int|string|null {
+    if ($temp) {
+      $wrapper =  'temporary://';
     }
     else {
-      $path = 'public://ami/csv/'.$subpath;
+      $wrapper =  'public://';
+    }
+
+    if (!$subpath) {
+      $path = $wrapper.'ami/csv';
+    }
+    else {
+      $path = $wrapper.'ami/csv/'.$subpath;
     }
     // Check if dealing with an existing file first
     if ($filename && is_file($filename) && $this->streamWrapperManager->isValidUri($filename)) {
@@ -1129,6 +1138,8 @@ class AmiUtilityService {
    *
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
+   *   Needs to have a 'data' key with rows and a 'headers' key
+   *   with headers as values.
    *
    * @param \Drupal\file\Entity\File $file
    *
