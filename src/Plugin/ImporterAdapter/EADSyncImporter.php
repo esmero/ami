@@ -130,7 +130,6 @@ class EADSyncImporter extends SpreadsheetImporter {
     // $config['xml_file'] will contain the filename we want
     // $config['zip_file'] will contain the original ZIP file ... sadly we need to reload it here.
     // $config['eadsync_config']['uuidV5seed'] needs to contain the seed used to consistently
-    // $config['eadsync_config']['tmp_folder'] temp folder for this run, to be set by the batch and used
     // to reload afterward?(or here?) all CSV files and attach them to the existing ZIP.
     // Bundle config
     // $config['
@@ -141,23 +140,23 @@ class EADSyncImporter extends SpreadsheetImporter {
     // Fetch will write it to temporary ->key DB storage
     // and then the finalizer will have to normalize everything
 
-    // This is where we will write the CSV? Actually we can just use TMP://
-    $destination = $config['eadsync_config']['tmp_folder'] ?? '';
-
-    $seed_uuid_for_uuidv5 =  $config['eadsync_config']['uuidV5seed'];
-    $config_bundle['component'] = $config['eadsync_config']['bundle_component'] ;
+    $seed_uuid_for_uuidv5 = $config['eadsync_config']['uuidV5seed'];
+    $config_bundle['component'] = $config['eadsync_config']['bundle_component'];
     $config_bundle['container'] = $config['eadsync_config']['bundle_container'];
     $property_path_split_component = explode(':', $config_bundle['component']);
     $property_path_split_container = explode(':', $config_bundle['container']);
 
-    $data  = [];
+    $data = [];
     // We don't use an offset here.No $page nor $per_page
-    $tabdata = ['headers' => [], 'data' => $data, 'totalrows' => 0, 'errors' => []];
+    $tabdata = [
+      'headers' => [],
+      'data' => $data,
+      'totalrows' => 0,
+      'errors' => []
+    ];
 
     // Here it goes bananas.
-
     // First load the ZIP file to extract one of the XMLs
-
     /* @var File $file */
     $zip_file = $this->entityTypeManager->getStorage('file')
       ->load($config['zip_file']);
@@ -170,19 +169,24 @@ class EADSyncImporter extends SpreadsheetImporter {
       return $tabdata;
     }
 
-
     $resulting_row = [];
     $resulting_row_clean = [];
+    $file_name_without_extension = basename($config['xml_file'] ?? '', '.xml');
+    // Remove ; from file name;
+    $file_name_without_extension = str_replace(";","-", $file_name_without_extension);
+
     $data_from_new_xml = $this->AmiUtilityService->getZipFileContent($zip_file, $config['xml_file']);
     // process for the first XML
-    $new_data = $this->processCSVfromXML($config['xml_file'], $data_from_new_xml , $seed_uuid_for_uuidv5);
+    $new_data = $this->processCSVfromXML($file_name_without_extension, $data_from_new_xml, $seed_uuid_for_uuidv5);
     //  $tabdata = ['data_with_headers' => [], 'children_data_with_headers' => [], 'errors' => []];
     $original_value = NULL;
     $original_xml_file_id = NULL;
     if (isset($new_data['data_with_headers']) && is_array($new_data['data_with_headers']) && !empty($new_data['data_with_headers'])) {
-      $new_uuid = $new_data['data_with_headers'][0]['node_uuid'] ?? NULL;
+      // We have a single ROW PER XML, so not $new_data['data_with_headers'][0]['node_uuid']
+      $new_uuid = $new_data['data_with_headers']['node_uuid'] ?? NULL;
       if ($new_uuid) {
-        $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $new_uuid]);
+        $existing = $this->entityTypeManager->getStorage('node')
+          ->loadByProperties(['uuid' => $new_uuid]);
         if ($existing) {
           // @TODO make this configurable.
           // This allows us not to pass an offset if the SBF is multivalued.
@@ -212,18 +216,21 @@ class EADSyncImporter extends SpreadsheetImporter {
             }
             if ($original_xml_file_id) {
               /** @var File $original_xml_file */
-              $original_xml_file = $this->entityTypeManager->getStorage('file')->load(
-                $original_xml_file_id
-              );
+              $original_xml_file = $this->entityTypeManager->getStorage('file')
+                ->load(
+                  $original_xml_file_id
+                );
               if ($original_xml_file) {
                 $data_from_original_xml = @file_get_contents($original_xml_file->getFileUri());
                 if ($data_from_original_xml) {
-                  $original_data = $this->processCSVfromXML($config['xml_file'], $data_from_original_xml, $seed_uuid_for_uuidv5);
+                  $original_data = $this->processCSVfromXML($file_name_without_extension, $data_from_original_xml, $seed_uuid_for_uuidv5);
                   // We need to compare UUIDs only of containers. Ones that exist ONLY in the original data and not in the new processed data need to be marked for deletion
                   $new_uuids = [];
+                  $new_containers_headers = [];
                   foreach (($new_data['children_data_with_headers'] ?? []) as $child_row) {
                     $new_uuids[] = $child_row['node_uuid'];
-                    $new_containers_headers = array_keys($child_row);
+                    // We only need this one once, since ::processCSVfromXML already returns normalized ROWS.
+                    $new_containers_headers = !empty($new_containers_headers) ? $new_containers_headers : array_keys($child_row);
                   }
                   foreach (($original_data['children_data_with_headers'] ?? []) as &$child_row) {
                     if (!in_array($child_row['node_uuid'], $new_uuids)) {
@@ -231,7 +238,7 @@ class EADSyncImporter extends SpreadsheetImporter {
                       $new_row['node_uuid'] = $child_row['node_uuid'];
                       $new_row['label'] = $child_row['label'];
                       $new_row['type'] = $child_row['type'];
-                      $new_row['AMI_OP'] = "DELETE";
+                      $new_row['ami_sync_op'] = "delete";
                       $new_data['children_data_with_headers'][] = $new_row;
                     }
                   }
@@ -245,11 +252,21 @@ class EADSyncImporter extends SpreadsheetImporter {
     unset($original_data);
     // Here we need to write the CSV file back to ZIP file.
     if (count($new_data['children_data_with_headers'] ?? [])) {
-      foreach ($new_data['children_data_with_headers'] as $child_row) {
-        error_log(print_r($child_row,true));
-        // @TODO: HERE NEEDS TO GO THE CSV OUTPUT ... AND THAT CSV THEN NEEDS TO BE ADDED TO THE ZIP.
+      // we take the first one for the headers
+      $csv_header_array = array_fill_keys(array_keys($new_data['children_data_with_headers'][0]), NULL);
+      $file_name = $file_name_without_extension . '.csv';
+
+      $file_child_id = $this->AmiUtilityService->csv_touch($file_name, 'test', TRUE);
+      $file_child = $file_child_id ? $this->entityTypeManager->getStorage('file')->load(
+        $file_child_id) : NULL;
+      if ($file_child) {
+        $child_data['data'] = $new_data['children_data_with_headers'];
+        unset($new_data['children_data_with_headers']);
+        $child_data['headers'] = array_keys($csv_header_array);
+        $this->AmiUtilityService->csv_append($child_data, $file_child, 'node_uuid', TRUE, FALSE);
       }
     }
+
     // This is just the Top EAD data.
     $tabdata = ['headers' => array_keys($new_data['data_with_headers'] ?? []), 'data' => [$new_data['data_with_headers']], 'totalrows' => 1, 'errors' => []];
     return $tabdata;
@@ -520,7 +537,8 @@ class EADSyncImporter extends SpreadsheetImporter {
             return $toreturn;
           }, $data_rows);
           $data['data'] = $data_rows;
-          $data['headers'] =  array_values($allheaders);
+          // $template bc we sorted.
+          $data['headers'] =  array_keys($template);
           $append_headers = FALSE;
           if  ($i == 0) {
             $append_headers = TRUE;
@@ -777,9 +795,6 @@ class EADSyncImporter extends SpreadsheetImporter {
 
   private function processCSVfromXML(string $file_name, string $data, string $seed_uuid_for_uuidv5) {
     $tabdata = ['data_with_headers' => [], 'children_data_with_headers' => [], 'errors' => []];
-    $file_name = basename($file_name, '.xml');
-    // Remove ; from file name;
-    $file_name = str_replace(";","-", $file_name);
     $internalErrors = libxml_use_internal_errors(TRUE);
     $csv_header = [];
     $container_csv = [];
@@ -947,9 +962,7 @@ class EADSyncImporter extends SpreadsheetImporter {
 
 
     if (!empty($resulting_row["ap:importeddata"]["dsc_csv"]["content"])) {
-      $container_csv_data = [];
       $sort_predicate = 'iscontainedby';
-
       $container_csv_data = static::sortByParent($resulting_row["ap:importeddata"]["dsc_csv"]["content"], $sort_predicate);
       unset($resulting_row["ap:importeddata"]);
       if (count($csv_header)) {
