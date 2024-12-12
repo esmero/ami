@@ -189,6 +189,7 @@ class EADSyncImporter extends SpreadsheetImporter {
         $existing = $this->entityTypeManager->getStorage('node')
           ->loadByProperties(['uuid' => $new_uuid]);
         if ($existing) {
+          $new_data['data_with_headers']['node_uuid']['ami_sync_op'] = "update";
           // @TODO make this configurable.
           // This allows us not to pass an offset if the SBF is multivalued.
           // WE do not do this, Why would you want that? Who knows but possible.
@@ -228,8 +229,17 @@ class EADSyncImporter extends SpreadsheetImporter {
                   // We need to compare UUIDs only of containers. Ones that exist ONLY in the original data and not in the new processed data need to be marked for deletion
                   $new_uuids = [];
                   $new_containers_headers = [];
-                  foreach (($new_data['children_data_with_headers'] ?? []) as $child_row) {
+                  foreach (($new_data['children_data_with_headers'] ?? []) as &$child_row) {
                     $new_uuids[] = $child_row['node_uuid'];
+                    // Here we check if the to-be-created ADO (container) exists or not.
+                    $existing_child = $this->entityTypeManager->getStorage('node')
+                      ->loadByProperties(['uuid' => $new_uuid]);
+                    if ($existing_child) {
+                      $child_row['ami_sync_op'] = "update";
+                    }
+                    else {
+                      $child_row['ami_sync_op'] = "create";
+                    }
                     // We only need this one once, since ::processCSVfromXML already returns normalized ROWS.
                     $new_containers_headers = !empty($new_containers_headers) ? $new_containers_headers : array_keys($child_row);
                   }
@@ -247,6 +257,9 @@ class EADSyncImporter extends SpreadsheetImporter {
               }
             }
           }
+        }
+        else {
+          $new_data['data_with_headers']['node_uuid']['ami_sync_op'] = "create";
         }
       }
     }
