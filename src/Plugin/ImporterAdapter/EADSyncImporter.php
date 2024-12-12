@@ -498,6 +498,11 @@ class EADSyncImporter extends SpreadsheetImporter {
     $tempstore = \Drupal::service('tempstore.private')
       ->get('ami_multistep_batch_data');
     // Clean the CSV removing empty headers
+
+    // Normalize based on the accumulated_keys!
+    $template = array_fill_keys($allheaders, NULL);
+    ksort($template, SORT_NATURAL);
+
     $file_csv_uuid = $results['processed']['fileuuid'] ?? NULL;
     if ($file_csv_uuid) {
       $file_csv = \Drupal::service('entity.repository')->loadEntityByUuid(
@@ -509,6 +514,11 @@ class EADSyncImporter extends SpreadsheetImporter {
         foreach (($results['processed']['tempstore_ids'] ?? []) as $temp_id) {
           $data_rows = $tempstore->get($temp_id);
           $data = [];
+          $data_rows = array_map(function($item) use ($template) {
+            $toreturn = array_merge($template, (array) $item);
+            ksort($toreturn, SORT_NATURAL);
+            return $toreturn;
+          }, $data_rows);
           $data['data'] = $data_rows;
           $data['headers'] =  array_values($allheaders);
           $append_headers = FALSE;
@@ -516,8 +526,7 @@ class EADSyncImporter extends SpreadsheetImporter {
             $append_headers = TRUE;
           }
           \Drupal::service('ami.utility')->csv_append($data, $file_csv, 'node_uuid', $append_headers, TRUE, FALSE);
-
-          $data_rows = $tempstore->delete($temp_id);
+          $tempstore->delete($temp_id);
           $i++;
         }
       }
