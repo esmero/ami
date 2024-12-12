@@ -174,6 +174,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     $file_name_without_extension = basename($config['xml_file'] ?? '', '.xml');
     // Remove ; from file name;
     $file_name_without_extension = str_replace(";","-", $file_name_without_extension);
+    // Don't process DOT files.
 
     $data_from_new_xml = $this->AmiUtilityService->getZipFileContent($zip_file, $config['xml_file']);
     // process for the first XML
@@ -251,6 +252,8 @@ class EADSyncImporter extends SpreadsheetImporter {
     }
     unset($original_data);
     // Here we need to write the CSV file back to ZIP file.
+    $file_child = NULL;
+    $file_child_id = NULL;
     if (count($new_data['children_data_with_headers'] ?? [])) {
       // we take the first one for the headers
       $csv_header_array = array_fill_keys(array_keys($new_data['children_data_with_headers'][0]), NULL);
@@ -268,7 +271,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     }
 
     // This is just the Top EAD data.
-    $tabdata = ['headers' => array_keys($new_data['data_with_headers'] ?? []), 'data' => [$new_data['data_with_headers']], 'totalrows' => 1, 'errors' => []];
+    $tabdata = ['headers' => array_keys($new_data['data_with_headers'] ?? []), 'data' => [$new_data['data_with_headers']], 'child_csv_id' => $file_child_id, 'totalrows' => 1, 'errors' => []];
     return $tabdata;
   }
 
@@ -291,8 +294,8 @@ class EADSyncImporter extends SpreadsheetImporter {
   {
     // These are our discussed types. No flexibility here.
     return [
-      'ArchiveContainer' =>  'ArchiveContainer',
       'ArchiveComponent' => 'ArchiveComponent',
+      'ArchiveContainer' =>  'ArchiveContainer',
     ];
   }
 
@@ -479,10 +482,16 @@ class EADSyncImporter extends SpreadsheetImporter {
             1);
           $append_headers = $context['sandbox']['progress'] == 0 ? TRUE : FALSE;
           $context['results']['processed']['fileuuid'] = $file->uuid();
+          $context['results']['processed']['filezip'] = $amisetdata->zip ?? NULL;
           if (!empty($data['errors']) && is_array($data['errors'])) {
             foreach ($data['errors'] as $getdataerror) {
               $context['results']['errors'][] = $getdataerror;
-              }
+            }
+          }
+          if (!empty($data['child_csv_id'])) {
+            // If an XML generated an child CSV, the Drupal File ID will be accumulated here.
+            // And then iterated and added to the original ZIP on ::finishfetchFromZip
+            $context['results']['processed']['children_csv_ids'][] = $data['child_csv_id'];
           }
 
           $context['results']['processed']['headers'] = $data['headers'];
@@ -546,6 +555,32 @@ class EADSyncImporter extends SpreadsheetImporter {
           \Drupal::service('ami.utility')->csv_append($data, $file_csv, 'node_uuid', $append_headers, TRUE, FALSE);
           $tempstore->delete($temp_id);
           $i++;
+        }
+        if ($results['processed']['filezip'] ?? NULL) {
+          // Now deal with adding any/if any CSVs to the ZIP
+          /* @var File $zip_file */
+          $zip_file = \Drupal::entityTypeManager()->getStorage('file')
+            ->load($results['processed']['filezip']);
+          if ($zip_file) {
+            $to_be_zipped = [];
+            if (!empty($results['processed']['children_csv_ids']) && is_array($results['processed']['children_csv_ids'])) {
+              foreach ($results['processed']['children_csv_ids'] as $csv_id) {
+                $csv_file = \Drupal::entityTypeManager()
+                  ->getStorage('file')
+                  ->load($csv_id);
+                if ($csv_file) {
+                  $realpath = \Drupal::service('file_system')->realpath($csv_file->getFileUri());
+                  if ($realpath) {
+                    $to_be_zipped[] = ['path' => $realpath, 'dest' => basename($realpath)];
+                  }
+                }
+              }
+              error_log(print_r($to_be_zipped, true));
+              // Will accumulated. Now add to the ZIP file.
+              $success = \Drupal::service('ami.utility')->AddFilesToZip($zip_file, $to_be_zipped);
+              error_log(print_r($success, true));
+            }
+          }
         }
       }
     }
@@ -794,13 +829,23 @@ class EADSyncImporter extends SpreadsheetImporter {
   }
 
   private function processCSVfromXML(string $file_name, string $data, string $seed_uuid_for_uuidv5) {
-    $tabdata = ['data_with_headers' => [], 'children_data_with_headers' => [], 'errors' => []];
+    $tabdata = [
+      'data_with_headers' => [],
+      'children_data_with_headers' => [],
+      'errors' => []
+    ];
     $internalErrors = libxml_use_internal_errors(TRUE);
     $csv_header = [];
     $container_csv = [];
     libxml_clear_errors();
     libxml_use_internal_errors($internalErrors);
-    $simplexml = simplexml_load_string($data);
+    try {
+      $simplexml = @simplexml_load_string($data);
+    }
+    catch (\Throwable $e) {
+      $tabdata['errors'] = [$this->t('@file is not a valid XML', ['@file' => $file_name])];
+      return $tabdata;
+    }
     if (!$simplexml) {
       $tabdata['errors'] = [$this->t('@file is not a valid XML', ['@file' => $file_name])];
       return $tabdata;

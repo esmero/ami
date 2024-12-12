@@ -799,6 +799,49 @@ class AmiUtilityService {
     return $content;
   }
 
+  /**
+   * @param \Drupal\file\Entity\File $zip_file
+   * @param $files
+   *    an array of arrays with a structure containing File paths and internal File name/path destination
+   *    array [
+   *        array['path'] => '/tmp/path/filename.ext' Source file to be copied into ZIP
+   *        array['dest'] => 'path/filename.ext' inside the ZIP
+   * @return bool
+   *    TRUE if all went well.
+   */
+  public function AddFilesToZip(File $zip_file, array $files): ?string {
+    $success = FALSE;
+    $zip_realpath = $zip_original_path = $this->fileSystem->realpath($zip_file->getFileUri());
+    if (!$zip_realpath) {
+      // This will add a delay once...
+      $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+    }
+    error_log($zip_original_path);
+    error_log($zip_realpath);
+    if ($zip_realpath) {
+      $z = new \ZipArchive();
+      $z->open($zip_realpath);
+      if ($z) {
+        foreach ($files as $file) {
+          if (!empty($file['path']) && !empty($file['dest'])) {
+            if (file_exists($file['path'])) {
+              $z->addFile($file['path'], $file['dest']);
+            }
+          }
+        }
+        $success = $z->close();
+      }
+    }
+    // We should update the size/info here ...
+    clearstatcache(TRUE, $zip_realpath);
+    $size = filesize($zip_realpath);
+    // This is how you close a \SplFileObject
+    // Notify the filesystem of the size change
+    $zip_file->setSize($size);
+    $zip_file->save();
+    return $success;
+  }
+
 
 
 
