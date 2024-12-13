@@ -139,18 +139,21 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
             'time_submitted' => $data->info['time_submitted'],
           ];
           // Overrides in case we are in a sync operation.
+          $valid_op = TRUE;
           if ($data->pluginconfig->op == 'sync') {
-            if (isset($item['data']['ami_sync_op'])) {
-              error_log('Op from data is '. $item['data']['ami_sync_op']);
-              if ($item['data']['ami_sync_op'] == "create") {
-                $adodata->pluginconfig->op_secondary = "create";
+            // Important we will move the data driven (ami_sync_op) info the que info
+            // structure secondary.
+            // Fixed key:
+            $sync_op = $item['data']['ami_sync_op'] ?? 'create';
+              if ($sync_op === 'create') {
+                $adodata->info['op_secondary'] = 'create';
               }
-              if ($item['data']['ami_sync_op'] == "update") {
-                $adodata->pluginconfig->op_secondary = "update";
+              elseif ($sync_op === 'update') {
+                $adodata->info['op_secondary'] = 'update';
               }
-              if ($item['data']['ami_sync_op'] == "delete") {
+              elseif ($sync_op === 'delete') {
                 // This needs to go a different queue.
-                $adodata->pluginconfig->op = "action";
+                $adodata->pluginconfig->op = 'action';
                 // We only need the UUIDs to delete.
                 // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
                 // If so we need to pass the CSV data also to this array.
@@ -158,17 +161,19 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
                 // For now safer to not. We are deleting direct references of deletion of a ROW.
                 $uuids_sync_action[$item['row']['uuid']]= [];
               }
-            }
+              else {
+                $valid_op = FALSE;
+                // Flag as false?
+              }
             // the actual behavior will be determined by a column named "ami_sync_op"
           }
-          if ($adodata->pluginconfig->op !== "action") {
+          if ($adodata->pluginconfig->op !== 'action' && $valid_op) {
             // We skip any ADO listed to be deleted via Sync
             $added[] = \Drupal::queue($data->info['queue_name'])
               ->createItem($adodata);
           }
         }
       }
-
 
       if ( $data->pluginconfig->op === 'action' || count($uuids_sync_action)) {
         // We pass NULL as op here since access control will be done at the queue action worker level
@@ -182,7 +187,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
         }
         elseif ($data->pluginconfig->op === 'sync') {
           // TODO. Future this action could be also different, driven by ami_sync_op ?
-          $data->info['action'] = "delete";
+          $data->info['action'] = 'delete';
           $uuids = $uuids_sync_action;
         }
         if (empty($uuids)) {
