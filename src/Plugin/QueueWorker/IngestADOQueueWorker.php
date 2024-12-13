@@ -111,6 +111,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'create' => 'created',
     'update' => 'updated',
     'patch' => 'patched',
+    'sync' => 'synced',
   ];
 
   /**
@@ -680,9 +681,22 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'update' => 'Update existing ADOs',
     'patch' => 'Patch existing ADOs',
     'delete' => 'Delete existing ADOs',
+    'sync' => 'Sync' -> which will have op_secondary as the actual OP.
     */
-    $op = $data->pluginconfig->op;
+    $op = $op_original = $data->pluginconfig->op;
     $op_secondary =  $data->info['op_secondary'] ?? NULL;
+    $was_op_sync = FALSE;
+    if ($op == "sync") {
+      if ($op_secondary == "create") {
+        $op = "create";
+        $op_secondary = NULL;
+      }
+      if ($op_secondary == "update") {
+        $op = "update";
+        // $op_secondary stays untouched.
+      }
+    }
+
 
     if ($data->mapping->globalmapping == "custom") {
       $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
@@ -785,7 +799,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
           $field = $node->get($field_name);
-          if ($status && is_string($status)) {
+          // Ignore status for updates derived from sync ops.
+          if ($status && is_string($status) && $op_original !== 'sync') {
             $node->set('moderation_state', $status);
             $status = 0;
           }
@@ -949,11 +964,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
         // In case $status was not moderated.
         if ($status) {
-          $node->setPublished();
+          // We won't change status for sync op that generate an update
+          if (!($op_original == 'sync' && $op == 'update')) {
+            $node->setPublished();
+          }
         }
         elseif (!isset($nodeValues['moderation_state'])) {
-          // Only unpublish if not moderated.
-          $node->setUnpublished();
+          // Only unpublish if not moderated and not a sync -> update chain.
+          if (!($op_original == 'sync' && $op == 'update')) {
+            $node->setUnpublished();
+          }
         }
         $node->save();
 
@@ -963,7 +983,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@setid' => $data->info['set_id'],
           ':link' => $link,
           '%title' => $label ?? 'UNAMED ADO',
-          '@ophuman' => static::OP_HUMAN[$op]
+          '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
         $this->loggerFactory->get('ami_file')->info($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -976,7 +996,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => static::OP_HUMAN[$op],
+          '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
         $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -990,7 +1010,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $message = $this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => static::OP_HUMAN[$op],
+        '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
       ]);
       $this->loggerFactory->get('ami_file')->info($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
