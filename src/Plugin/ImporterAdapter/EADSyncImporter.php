@@ -507,7 +507,7 @@ class EADSyncImporter extends SpreadsheetImporter {
           }
 
           $context['results']['processed']['headers'] = $data['headers'];
-          $context['results']['processed']['headerswithdata'] = array_unique($data['headers'] + $context['results']['processed']['headerswithdata']);
+          $context['results']['processed']['headerswithdata'] = array_unique(array_merge($data['headers'],$context['results']['processed']['headerswithdata']));
 
           $file_csv_uuid = $context['results']['processed']['fileuuid'] ?? NULL;
           if (count($data['headers'] ?? [])) {
@@ -1041,12 +1041,18 @@ class EADSyncImporter extends SpreadsheetImporter {
     unset($resulting_row["c"]);
 
     foreach($resulting_row as $key => $fullvalue) {
-      if (!empty($fullvalue)) {
+      // Don't treat empty strings as empty
+      if (!empty($fullvalue) || $fullvalue === '') {
         $resulting_row_clean[$key] = is_array($fullvalue) ? json_encode($fullvalue,
           JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_HEX_QUOT,
           512) : $fullvalue;
       }
     }
+    // Just in case restore these, since they are required.
+    $resulting_row_clean['ispartof'] = $resulting_row_clean['ispartof'] ?? '';
+    $resulting_row_clean['ismemberof'] = $resulting_row_clean['ismemberof'] ?? '';
+    $resulting_row_clean['iscontainedby'] = $resulting_row_clean['iscontainedby'] ?? '';
+
     unset($resulting_row);
     unset($container_csv_data);
     $tabdata['data_with_headers'] = $resulting_row_clean;
