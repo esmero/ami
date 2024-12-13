@@ -306,11 +306,15 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         'create',
         'update',
         'patch',
+        'sync',
       ];
       $ops_update = [
         'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field(s) with new JSON values. Not provided JSON keys will be kept."),
         'update' =>  $this->t("Complete (All JSON keys) Update. Will update a complete existing ADO's JSON data with all new JSON data."),
         'append' =>  $this->t("Append Update. Will append values to existing JSON key(s) in an ADO's configured target field(s). New JSON keys will be added too."),
+      ];
+      $ops_update_sync = [
+        'update' =>  $this->t("Complete Update. Sync operations perform a complete (All JSON keys) Update. A complete existing ADO's JSON data with be replaced with new JSON data."),
       ];
 
       if (!in_array($op, $ops)) {
@@ -321,7 +325,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
+            'Sorry. This AMI set has no right Operation (Create, Update, Patch, Sync) set. Please fix this or contact your System Admin to fix it.'
           ),
         ];
         return $form;
@@ -352,6 +356,33 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ],
         ];
       }
+      if ($op == 'sync') {
+        $form['ops_secondary'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' => $this->t('Desired type of <em><b>@op</b></em> operation.',
+            ['@op' => $op]),
+          'ops_safefiles' => [
+            '#type' => 'checkbox',
+            '#title' => $this->t("Do not touch existing files"),
+            '#description' => $this->t("Sync Operations are not file save, and any existing ADO to be updated will get their files replaced."),
+            '#default_value' => FALSE,
+            '#disabled' => TRUE,
+          ],
+          'ops_secondary_update' => [
+            '#type' => 'select',
+            '#disabled' => TRUE,
+            '#title' => $this->t('Update Operation'),
+            '#description' => $this->t(
+              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+            '#options' => $ops_update_sync,
+            '#default_value' => 'update',
+            '#wrapper_attributes' => [
+              'class' => ['container-inline'],
+            ],
+            ]
+          ];
+      }
 
       /* Give users a view of Free space in temporary */
       $bytes = disk_free_space(\Drupal::service('file_system')->getTempDirectory());
@@ -371,7 +402,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           '#type'          => 'checkbox',
           '#title'         => $this->t("Let Archipelago organize my files"),
           '#description'   => $this->t(
-            "Enabled by default. All files referenced in this AMI set will be copied into an Archipelago managed location and sanitized.<br> Danger: If disabled files that share source location with this repositories configured <em>Storage Scheme for Persisting Files</em> will maintain its original location and it will be up to the manager to ensure they are not removed from there."
+            "Enabled by default. All files referenced in this AMI set will be copied into an Archipelago managed location and sanitized.<br> Danger: If disabled files that share source location with configured <em>Storage Scheme for Persisting Files</em> for this repository will maintain its original location, and it will be up to the manager to ensure they are not removed from there."
           ),
           '#default_value' => TRUE,
           '#access'        => $this->currentUser()->hasPermission(
@@ -392,6 +423,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ]
         ),
       ];
+      if ($op == 'sync') {
+        $form['status']['#title'] = $this->t('Desired statuses for newly created ADOs, after this <em><b>@op</b></em> operation process. Existing ones that are to be updated will keep their status.',
+          ['@op' => $op]);
+      }
       $access = TRUE;
       foreach($bundles as $propertypath) {
         // First Check which SBF bearing bundles the user has access to.
