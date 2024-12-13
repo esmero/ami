@@ -816,8 +816,6 @@ class AmiUtilityService {
       // This will add a delay once...
       $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
     }
-    error_log($zip_original_path);
-    error_log($zip_realpath);
     if ($zip_realpath) {
       $z = new \ZipArchive();
       $z->open($zip_realpath);
