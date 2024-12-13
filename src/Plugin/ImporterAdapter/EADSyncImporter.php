@@ -88,7 +88,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       '#type' => 'select',
       '#title' => $this->t('Operation'),
       '#options' => [
-        'create' => 'Sync ADOs',
+        'sync' => 'Sync ADOs',
       ],
       '#description' => $this->t('The desired Operation. This plugin can only perform Sync. New ADOs will be created, existing ones updated, removed Children (containers) of existing marked for removal.'),
       '#required' => TRUE,
@@ -259,7 +259,7 @@ class EADSyncImporter extends SpreadsheetImporter {
           }
         }
         else {
-          $new_data['data_with_headers']['node_uuid']['ami_sync_op'] = "create";
+          $new_data['data_with_headers']['ami_sync_op'] = "create";
         }
       }
     }
@@ -271,7 +271,6 @@ class EADSyncImporter extends SpreadsheetImporter {
       // we take the first one for the headers
       $csv_header_array = array_fill_keys(array_keys($new_data['children_data_with_headers'][0]), NULL);
       $file_name = $file_name_without_extension . '.csv';
-
       $file_child_id = $this->AmiUtilityService->csv_touch($file_name, 'test', TRUE);
       $file_child = $file_child_id ? $this->entityTypeManager->getStorage('file')->load(
         $file_child_id) : NULL;
