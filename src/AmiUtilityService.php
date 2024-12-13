@@ -2231,7 +2231,7 @@ class AmiUtilityService {
     $valid = $valid && isset($data->pluginconfig->op) && is_string($data->pluginconfig->op);
     $valid = $valid && $file_data_all && count($file_data_all['headers']);
     $valid = $valid && (!$strict || (is_array($data->column_keys) && count($data->column_keys)));
-    $valid = $valid && in_array($data->pluginconfig->op, ['create', 'update', 'patch']);
+    $valid = $valid && in_array($data->pluginconfig->op, ['create', 'update', 'patch', 'sync']);
     if ($valid) {
       $required_headers = array_values((array)$data->adomapping->base);
       $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->uuid));
