@@ -1989,13 +1989,36 @@ class AmiUtilityService {
       $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
       if ($possibleUUID && isset($uuid_to_row_index_hash[$possibleUUID])) {
         $ado['uuid'] = $possibleUUID;
-        // Now be more strict for action = update/patch
-        if ($data->pluginconfig->op !== 'create') {
+        // Now be more strict for action = update/patch or sync
+        // With the introduction of sync this gets more complex
+        if ($data->pluginconfig->op === 'sync') {
+          $sync_op = $ado['data']['ami_sync_op'] ?? 'create';
+          // only valid sync_ops are these 3
+          if ($sync_op != 'create' && in_array($sync_op, ['create','delete','update'] )) {
+            $existing_objects = $this->entityTypeManager->getStorage('node')
+              ->loadByProperties(['uuid' => $ado['uuid']]);
+            // Do access control here, will be done again during the atomic operation
+            // In case access changes later of course
+            $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+            if (!$existing_object || !$existing_object->access($sync_op, $account)) {
+              unset($ado);
+              $invalid = $invalid + [$index => $index];
+            }
+          }
+          elseif (!in_array($sync_op, ['create','delete','update'])) {
+            // means invalid sync_op
+            unset($ado);
+            $invalid = $invalid + [$index => $index];
+          }
+          // Will have to read the actual OP from $ado['data']['ami_sync_op']
+          // if missing we assume ingest. Worst case it will fail bc it is already there.
+        }
+        elseif ($data->pluginconfig->op !== 'create') {
           $existing_objects = $this->entityTypeManager->getStorage('node')
             ->loadByProperties(['uuid' => $ado['uuid']]);
           // Do access control here, will be done again during the atomic operation
           // In case access changes later of course
-          // Processors do NOT delete. So we only check for Update.
+
           $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
           if (!$existing_object || !$existing_object->access('update', $account)) {
             unset($ado);
