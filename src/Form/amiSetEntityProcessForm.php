@@ -196,7 +196,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           $form_state->setRebuild();
           return;
         }
-
+        $uuids_sync_action = [];
+        // Similar to Class CsvADOQueueWorker logic, but simpler.
         foreach ($info as $item) {
           // We set current User here since we want to be sure the final owner of
           // the object is this and not the user that runs the queue
@@ -219,8 +220,65 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
             'time_submitted' => $run_timestamp
           ];
-          $added[] = \Drupal::queue($queue_name)
-            ->createItem($data);
+
+          $valid_ado_ingest_op = TRUE;
+          if ($data->pluginconfig->op == 'sync') {
+            // Important we will move the data driven (ami_sync_op) info the que info
+            // structure secondary.
+            // Fixed key:
+            $sync_op = $item['data']['ami_sync_op'] ?? 'create';
+            if ($sync_op === 'create') {
+              $data->info['op_secondary'] = 'create';
+            }
+            elseif ($sync_op === 'update') {
+              $data->info['op_secondary'] = 'update';
+            }
+            elseif ($sync_op === 'delete') {
+              $valid_ado_ingest_op = FALSE;
+              // We only need the UUIDs to delete.
+              // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
+              // If so we need to pass the CSV data also to this array.
+              // $uuids_sync_action should be formed the way $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL); would.
+              // For now safer to not. We are deleting direct references of deletion of a ROW.
+              $uuids_sync_action[$item['row']['uuid']]= [];
+            }
+            else {
+              $valid_ado_ingest_op = FALSE;
+              // Flag as false?
+            }
+          }
+
+          if ($data->pluginconfig->op !== 'action' && $valid_ado_ingest_op) {
+            $added[] = \Drupal::queue($queue_name)
+              ->createItem($data);
+          }
+        }
+        // Deal with Top level deletes if it was Sync.
+        // Note. the EAD_SYNC plugin NEVER deletes tops
+        // But Users could modify the CSV...
+        if (count($uuids_sync_action) && $data->pluginconfig->op === 'sync') {
+          // We pass NULL as op here since access control will be done at the queue action worker level
+          // based on what the actual action does. E.g if exporting to another format, there is no need to check
+          // for delete/update/etc.
+          // Top level UUIDs.
+          $data->info['action'] = 'delete';
+          foreach (array_chunk($uuids_sync_action, $data->info['batch_size'] ?? 10) as $batch_data_uuid) {
+            $data->info = [
+              'uuids' => $batch_data_uuid,
+              'set_id' => $data->info['set_id'],
+              'uid' => $data->info['uid'],
+              'action' => $data->info['action'] ?? NULL,
+              'action_config' => $data->info['action_config'] ?? [],
+              'set_url' => $data->info['set_url'],
+              'attempt' => 1,
+              'queue_name' => "ami_action_ado",
+              'time_submitted' => $data->info['time_submitted'],
+              'batch_size' => $data->info['batch_size'] ?? 10,
+            ];
+            // Sent to background anyways.
+            $added[] = \Drupal::queue("ami_action_ado")
+              ->createItem($data);
+          }
         }
         $count = count(array_filter($added));
       }
@@ -245,11 +303,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $form_state->setRedirectUrl($this->getCancelUrl());
       }
       elseif ($count) {
-          $processed_set_status['processed'] =  0;
-          $processed_set_status['errored'] =  0;
-          $processed_set_status['total'] = $count;
-          $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
-          $this->submitBatch($form_state, $queue_name, $count);
+        $processed_set_status['processed'] =  0;
+        $processed_set_status['errored'] =  0;
+        $processed_set_status['total'] = $count;
+        $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
+        $this->submitBatch($form_state, $queue_name, $count);
       }
       else {
         $this->messenger()->addError(
@@ -338,16 +396,16 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           '#title' => $this->t('Desired type of <em><b>@op</b></em> operation.',
             ['@op' => $op]),
           'ops_safefiles' => [
-             '#type' => 'checkbox',
-             '#title' => $this->t("Do not touch existing files"),
-             '#description' => $this->t("If enabled, update operations will not be able to remove/change/destroy any files already present in an ADO. Enabled by default for your own safety."),
-             '#default_value' => TRUE,
+            '#type' => 'checkbox',
+            '#title' => $this->t("Do not touch existing files"),
+            '#description' => $this->t("If enabled, update operations will not be able to remove/change/destroy any files already present in an ADO. Enabled by default for your own safety."),
+            '#default_value' => TRUE,
           ],
           'ops_secondary_update' => [
             '#type' => 'select',
             '#title' => $this->t('Update Operation'),
             '#description' => $this->t(
-            'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update,
             '#default_value' => 'replace',
             '#wrapper_attributes' => [
@@ -380,8 +438,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             '#wrapper_attributes' => [
               'class' => ['container-inline'],
             ],
-            ]
-          ];
+          ]
+        ];
       }
 
       /* Give users a view of Free space in temporary */
@@ -419,7 +477,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ['@op' => $op]
         ),
         '#description' => $this->t('You have @free remaining free space on your Drupal temporary filesystem. Please be aware of that before running a batch with large files', [
-          '@free' => sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class],
+            '@free' => sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class],
           ]
         ),
       ];
