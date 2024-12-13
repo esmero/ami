@@ -2,25 +2,10 @@
 
 namespace Drupal\ami\Plugin\QueueWorker;
 
-use Drupal\ami\AmiLoDService;
-use Drupal\ami\AmiUtilityService;
-use Drupal\ami\Entity\amiSetEntity;
 use Drupal\file\FileInterface;
-use Drupal\Core\Entity\EntityTypeManagerInterface;
-use Drupal\Core\Logger\LoggerChannelFactoryInterface;
-use Drupal\Core\Messenger\MessengerInterface;
-use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
-use Drupal\Core\Queue\QueueWorkerBase;
-use Drupal\Core\StringTranslation\StringTranslationTrait;
-use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
-use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
 use Monolog\Formatter\JsonFormatter;
-use Symfony\Component\DependencyInjection\ContainerInterface;
-use Swaggest\JsonDiff\JsonDiff;
-use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
-use \Drupal\Core\TempStore\PrivateTempStoreFactory;
 
 /**
  * Processes CSVs generating in turn Other ADO Queue worker entries.
@@ -111,6 +96,10 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
       // chunks. Basically what the \Drupal\ami\Form\amiSetEntityProcessForm::submitForm already does.
       // But the ADO worker itself will (new code) extract a CSV and then again, enqueue back to this so this one can yet again
       // split into smaller chuncks and so on.
+
+      // we will use this to accumulated UUIDs that will become a delete action from a sync operation.
+      $uuids_sync_action = [];
+
       if ($data->pluginconfig->op !== 'action') {
         $info = $this->AmiUtilityService->preprocessAmiSet($data->info['csv_file'], $data, $invalid, FALSE);
         if (!count($info)) {
@@ -127,6 +116,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
         }
 
         foreach ($info as $item) {
+
           // We set current User here since we want to be sure the final owner of
           // the object is this and not the user that runs the queue
           $adodata->info = [
@@ -148,17 +138,53 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
             'ops_forcemanaged_destination_file' => $data->info['ops_forcemanaged_destination_file'],
             'time_submitted' => $data->info['time_submitted'],
           ];
-          $added[] = \Drupal::queue($data->info['queue_name'])
-            ->createItem($adodata);
+          // Overrides in case we are in a sync operation.
+          if ($data->pluginconfig->op == 'sync') {
+            if (isset($item['data']['ami_sync_op'])) {
+              error_log('Op from data is '. $item['data']['ami_sync_op']);
+              if ($item['data']['ami_sync_op'] == "create") {
+                $adodata->pluginconfig->op_secondary = "create";
+              }
+              if ($item['data']['ami_sync_op'] == "update") {
+                $adodata->pluginconfig->op_secondary = "update";
+              }
+              if ($item['data']['ami_sync_op'] == "delete") {
+                // This needs to go a different queue.
+                $adodata->pluginconfig->op = "action";
+                // We only need the UUIDs to delete.
+                // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
+                // If so we need to pass the CSV data also to this array.
+                // $uuids_sync_action should be formed the way $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL); would.
+                // For now safer to not. We are deleting direct references of deletion of a ROW.
+                $uuids_sync_action[$item['row']['uuid']]= [];
+              }
+            }
+            // the actual behavior will be determined by a column named "ami_sync_op"
+          }
+          if ($adodata->pluginconfig->op !== "action") {
+            // We skip any ADO listed to be deleted via Sync
+            $added[] = \Drupal::queue($data->info['queue_name'])
+              ->createItem($adodata);
+          }
         }
       }
-      elseif ( $data->pluginconfig->op === 'action') {
+
+
+      if ( $data->pluginconfig->op === 'action' || count($uuids_sync_action)) {
         // We pass NULL as op here since access control will be done at the queue action worker level
         // based on what the actual action does. E.g if exporting to another format, there is no need to check
         // for delete/update/etc.
         // Top level UUIDs.
-        $uuids_and_csvs = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL);
-        $uuids = array_unique(array_keys($uuids_and_csvs));
+        $uuids = [];
+        if ($data->pluginconfig->op === 'action') {
+          $uuids_and_csvs = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL);
+          $uuids = array_unique(array_keys($uuids_and_csvs));
+        }
+        elseif ($data->pluginconfig->op === 'sync') {
+          // TODO. Future this action could be also different, driven by ami_sync_op ?
+          $data->info['action'] = "delete";
+          $uuids = $uuids_sync_action;
+        }
         if (empty($uuids)) {
           $message = $this->t('There are no ADO UUIDs in @csv for Set @setid that can be processed via an action.', [
             '@setid' => $data->info['set_id'],
@@ -188,6 +214,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
               ->createItem($adodata);
           }
           foreach ($uuids_and_csvs as $uuid => $children_csvs) {
+            // For sync delete this will be empty...
             if (count($children_csvs)) {
               $current_uuid = $uuid;
               $data_csv = clone $data;
@@ -217,8 +244,15 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           }
         }
       }
-      else {
-        error_log('wrong op');
+      if (!in_array($adodata->pluginconfig->op ?? 'missing op', ['action', 'sync', 'create', 'update', 'patch'] )) {
+        $message = $this->t( 'Set @setid has a non valid Operation @op. We can not expand the CSV', [
+          '@setid' => $data->info['set_id'],
+          '@op' => $data->pluginconfig->op,
+        ]);
+        $this->loggerFactory->get('ami_file')->error($message, [
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
       }
       if (count($added)) {
         $message = $this->t('CSV @csv for Set @setid was expanded to @count ADOs', [
