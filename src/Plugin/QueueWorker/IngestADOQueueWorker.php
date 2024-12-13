@@ -686,7 +686,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $op = $op_original = $data->pluginconfig->op;
     $op_secondary =  $data->info['op_secondary'] ?? NULL;
     $was_op_sync = FALSE;
-    if ($op == "sync") {
+    if ($op === 'sync') {
       if ($op_secondary == "create") {
         $op = "create";
         $op_secondary = NULL;
@@ -770,7 +770,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
-        if ($op ==='create') {
+        if ($op === 'create') {
           if ($status && is_string($status)) {
             // String here means we got moderation_status;
             $nodeValues['moderation_state'] = $status;
@@ -788,6 +788,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
             ['uuid' => $data->info['row']['uuid']]
           );
+          // Ups ... should never happen but what if just after checking race/condition it is gone?
           $existing_object = reset($existing);
 
           $vid = $this->entityTypeManager
@@ -795,7 +796,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             ->getLatestRevisionId($existing_object->id());
 
           $node = $vid ? $this->entityTypeManager->getStorage('node')
-            ->loadRevision($vid) : $existing[0];
+            ->loadRevision($vid) : $existing_object;
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
           $field = $node->get($field_name);
@@ -1195,14 +1196,24 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'update' => 'Update existing ADOs',
     'patch' => 'Patch existing ADOs',
     'delete' => 'Delete existing ADOs',
+    'sync' => 'Sync' with either create/update/delete as sub operation.
     */
+
+    $op = $data->pluginconfig->op;
+    if ($data->pluginconfig->op == 'sync') {
+      // We relay on the CSV expander to set this correctly
+      // We always default to create. Worst case scenario it will
+      // fail bc we can't if already there
+      $op = $data->info['op_secondary'] ?? 'create';
+      $op = in_array($op, ['create','update','delete']) ? $op : NULL;
+    }
 
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
     );
 
-    if (count($existing) && $data->pluginconfig->op == 'create') {
+    if (count($existing) && $op === 'create') {
       $message = $this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
@@ -1215,11 +1226,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return NULL;
     }
-    elseif (!count($existing) && $data->pluginconfig->op !== 'create') {
+    elseif (!count($existing) && $op !== 'create') {
       $message = $this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+        '@ophuman' => static::OP_HUMAN[$op],
       ]);
       $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
@@ -1230,13 +1241,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
 
-    if ($data->pluginconfig->op !== 'create' && $account && $existing && count($existing) == 1) {
+    if ($op !== 'create' && $account && $existing && count($existing) == 1) {
       $existing_object = reset($existing);
       if (!$existing_object->access('update', $account)) {
         $message = $this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+          '@ophuman' => static::OP_HUMAN[$op],
         ]);
         $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
