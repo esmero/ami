@@ -280,7 +280,6 @@ class EADSyncImporter extends SpreadsheetImporter {
     if (count($new_data['children_data_with_headers'] ?? [])) {
       // we take the first one for the headers
       $csv_header_array = array_keys($new_data['children_data_with_headers'][0] ?? []);
-      error_log(print_r($csv_header_array, true));
       $file_name = $file_name_without_extension . '.csv';
       $file_child_id = $this->AmiUtilityService->csv_touch($file_name, 'ami_sync/'.$temp_store_id, TRUE);
       $file_child = $file_child_id ? $this->entityTypeManager->getStorage('file')->load(
@@ -598,10 +597,8 @@ class EADSyncImporter extends SpreadsheetImporter {
                   }
                 }
               }
-              error_log(print_r($to_be_zipped, true));
               // Will accumulated. Now add to the ZIP file.
               $success = \Drupal::service('ami.utility')->AddFilesToZip($zip_file, $to_be_zipped);
-              error_log(print_r($success, true));
             }
           }
         }
