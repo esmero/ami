@@ -145,6 +145,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     $config_bundle['container'] = $config['eadsync_config']['bundle_container'];
     $property_path_split_component = explode(':', $config_bundle['component']);
     $property_path_split_container = explode(':', $config_bundle['container']);
+    $temp_store_id = $config['temp_store_id'];
 
     $data = [];
     // We don't use an offset here.No $page nor $per_page
@@ -188,8 +189,9 @@ class EADSyncImporter extends SpreadsheetImporter {
       if ($new_uuid) {
         $existing = $this->entityTypeManager->getStorage('node')
           ->loadByProperties(['uuid' => $new_uuid]);
+        $existing = reset($existing);
         if ($existing) {
-          $new_data['data_with_headers']['node_uuid']['ami_sync_op'] = "update";
+          $new_data['data_with_headers']['ami_sync_op'] = "update";
           // @TODO make this configurable.
           // This allows us not to pass an offset if the SBF is multivalued.
           // WE do not do this, Why would you want that? Who knows but possible.
@@ -229,26 +231,34 @@ class EADSyncImporter extends SpreadsheetImporter {
                   // We need to compare UUIDs only of containers. Ones that exist ONLY in the original data and not in the new processed data need to be marked for deletion
                   $new_uuids = [];
                   $new_containers_headers = [];
-                  foreach (($new_data['children_data_with_headers'] ?? []) as &$child_row) {
-                    $new_uuids[] = $child_row['node_uuid'];
-                    // Here we check if the to-be-created ADO (container) exists or not.
-                    $existing_child = $this->entityTypeManager->getStorage('node')
-                      ->loadByProperties(['uuid' => $new_uuid]);
-                    if ($existing_child) {
-                      $child_row['ami_sync_op'] = "update";
+                  // Edge case. Original data has children, but new 0.
+                  // So we need to use either headers.
+                  if (isset($new_data['children_data_with_headers']) && is_array($new_data['children_data_with_headers'])) {
+                    $new_containers_headers = array_keys($new_data['children_data_with_headers'][0] ?? []);
+                    foreach ($new_data['children_data_with_headers'] as &$child_row) {
+                      $new_uuids[] = $child_row['node_uuid'];
+                      $child_row['ami_sync_op'] = "";
+                      // Here we check if the to-be-created ADO (container) exists or not.
+                      $existing_child = $this->entityTypeManager->getStorage('node')
+                        ->loadByProperties(['uuid' => $child_row['node_uuid'] ?? '']);
+                      if ($existing_child) {
+                        $child_row['ami_sync_op'] = "update";
+                      }
+                      else {
+                        $child_row['ami_sync_op'] = "create";
+                      }
+                      // We only need this one once, since ::processCSVfromXML already returns normalized ROWS.
+                      $new_containers_headers = array_keys($child_row);
                     }
-                    else {
-                      $child_row['ami_sync_op'] = "create";
-                    }
-                    // We only need this one once, since ::processCSVfromXML already returns normalized ROWS.
-                    $new_containers_headers = !empty($new_containers_headers) ? $new_containers_headers : array_keys($child_row);
                   }
-                  foreach (($original_data['children_data_with_headers'] ?? []) as &$child_row) {
-                    if (!in_array($child_row['node_uuid'], $new_uuids)) {
+                  // either new or old.
+                  $new_containers_headers = $new_containers_headers ?? array_keys($original_data['children_data_with_headers'][0] ?? []);
+                  foreach (($original_data['children_data_with_headers'] ?? []) as $original_child_row) {
+                    if (!in_array($original_child_row['node_uuid'], $new_uuids)) {
                       $new_row = array_fill_keys($new_containers_headers, NULL);
-                      $new_row['node_uuid'] = $child_row['node_uuid'];
-                      $new_row['label'] = $child_row['label'];
-                      $new_row['type'] = $child_row['type'];
+                      $new_row['node_uuid'] = $original_child_row['node_uuid'];
+                      $new_row['label'] = $original_child_row['label'];
+                      $new_row['type'] = $original_child_row['type'];
                       $new_row['ami_sync_op'] = "delete";
                       $new_data['children_data_with_headers'][] = $new_row;
                     }
@@ -269,15 +279,16 @@ class EADSyncImporter extends SpreadsheetImporter {
     $file_child_id = NULL;
     if (count($new_data['children_data_with_headers'] ?? [])) {
       // we take the first one for the headers
-      $csv_header_array = array_fill_keys(array_keys($new_data['children_data_with_headers'][0]), NULL);
+      $csv_header_array = array_keys($new_data['children_data_with_headers'][0] ?? []);
+      error_log(print_r($csv_header_array, true));
       $file_name = $file_name_without_extension . '.csv';
-      $file_child_id = $this->AmiUtilityService->csv_touch($file_name, 'test', TRUE);
+      $file_child_id = $this->AmiUtilityService->csv_touch($file_name, 'ami_sync/'.$temp_store_id, TRUE);
       $file_child = $file_child_id ? $this->entityTypeManager->getStorage('file')->load(
         $file_child_id) : NULL;
       if ($file_child) {
         $child_data['data'] = $new_data['children_data_with_headers'];
         unset($new_data['children_data_with_headers']);
-        $child_data['headers'] = array_keys($csv_header_array);
+        $child_data['headers'] = $csv_header_array;
         $this->AmiUtilityService->csv_append($child_data, $file_child, 'node_uuid', TRUE, FALSE);
       }
     }
@@ -972,6 +983,8 @@ class EADSyncImporter extends SpreadsheetImporter {
     $resulting_row['ispartof'] = $resulting_row['ispartof'] ?? '';
     $resulting_row['ismemberof'] = $resulting_row['ismemberof'] ?? '';
     $resulting_row['iscontainedby'] = $resulting_row['iscontainedby'] ?? '';
+    // This might change afterwards once original XMLs (if any) are processed and compared.
+    $resulting_row['ami_sync_op'] = 'create';
     // Now transform $resulting_row['c'] into the proper expected structure
     // as Individual ADOs
     $k = 1;
@@ -1012,6 +1025,8 @@ class EADSyncImporter extends SpreadsheetImporter {
       $container_csv['type'] = 'ArchiveContainer';
       $container_csv['ispartof'] = (string)  $resulting_row['node_uuid'];
       $container_csv['ismemberof'] = '';
+      // This might be updated to "update" once the parent method checks of there are existing ADOs with the same UUID.
+      $container_csv['ami_sync_op'] = 'create';
       $resulting_row["ap:importeddata"]["dsc_csv"]["content"][(string)$numeric_ids_id[$id]] = $container_csv;
       // Now accumulate all keys of this container to build the CSV header
       $csv_header = array_unique(array_filter(array_merge($csv_header, array_keys($container_csv))));
