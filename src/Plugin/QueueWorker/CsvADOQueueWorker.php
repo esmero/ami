@@ -144,6 +144,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
             // Important we will move the data driven (ami_sync_op) info the que info
             // structure secondary.
             // Fixed key:
+            $skip = FALSE;
             $sync_op = $item['data']['ami_sync_op'] ?? 'create';
               if ($sync_op === 'create') {
                 $adodata->info['op_secondary'] = 'create';
@@ -153,21 +154,21 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
               }
               elseif ($sync_op === 'delete') {
                 // This needs to go a different queue.
-                $adodata->pluginconfig->op = 'action';
+               $skip = TRUE;
                 // We only need the UUIDs to delete.
                 // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
                 // If so we need to pass the CSV data also to this array.
                 // $uuids_sync_action should be formed the way $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL); would.
                 // For now safer to not. We are deleting direct references of deletion of a ROW.
-                $uuids_sync_action[$item['row']['uuid']]= [];
+                $uuids_sync_action[$item['uuid'] ?? '']= [];
               }
               else {
-                $valid_op = FALSE;
+                $skip = TRUE;
                 // Flag as false?
               }
             // the actual behavior will be determined by a column named "ami_sync_op"
           }
-          if ($adodata->pluginconfig->op !== 'action' && $valid_op) {
+          if ($adodata->pluginconfig->op !== 'action' && !$skip) {
             // We skip any ADO listed to be deleted via Sync
             $added[] = \Drupal::queue($data->info['queue_name'])
               ->createItem($adodata);
@@ -181,14 +182,17 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
         // for delete/update/etc.
         // Top level UUIDs.
         $uuids = [];
+        $uuids_and_csvs = [];
         if ($data->pluginconfig->op === 'action') {
+          // queue item data is action
           $uuids_and_csvs = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL);
-          $uuids = array_unique(array_keys($uuids_and_csvs));
+          $uuids = array_filter(array_unique(array_keys($uuids_and_csvs)));
         }
         elseif ($data->pluginconfig->op === 'sync') {
+          // queue item data is sync
           // TODO. Future this action could be also different, driven by ami_sync_op ?
           $data->info['action'] = 'delete';
-          $uuids = $uuids_sync_action;
+          $uuids = array_filter(array_unique(array_keys($uuids_sync_action)));
         }
         if (empty($uuids)) {
           $message = $this->t('There are no ADO UUIDs in @csv for Set @setid that can be processed via an action.', [
@@ -203,6 +207,9 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
         }
         else {
           foreach (array_chunk($uuids, $data->info['batch_size']?? 10) as $batch_data_uuid) {
+            // We just do this here bc a sync op op will not be action but uuids
+            // might have been collected there we want to be sure the action queue gets the right data.
+            $adodata->pluginconfig->op = 'action';
             $adodata->info = [
               'uuids' => $batch_data_uuid,
               'set_id' => $data->info['set_id'],
