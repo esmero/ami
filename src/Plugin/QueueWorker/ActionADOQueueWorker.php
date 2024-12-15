@@ -295,7 +295,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             //$this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
           }
           else {
-            $message = $this->t('You have permission to execute action @action on ADOs with UUID @uuid via Set @setid. Skipping', [
+            $message = $this->t('You have permission to execute action @action on ADOs with UUID @uuid via Set @setid. Executed', [
               '@uuid' => $existing_object->uuid(),
               '@setid' => $data->info['set_id'],
               '@action' => $data->info['action'],
@@ -327,7 +327,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               '@action' => $data->info['action'],
               '@error' => $e->getMessage(),
             ]);
-            $this->loggerFactory->get('ami_file')->warning($message, [
+            $this->loggerFactory->get('ami_file')->error($message, [
               'setid' => $data->info['set_id'] ?? NULL,
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
