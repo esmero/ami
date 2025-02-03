@@ -1011,12 +1011,16 @@ class AmiUtilityService {
       else {
         // In case Data is passed as an associative Array
         if (StrawberryfieldJsonHelper::arrayIsMultiSimple($row)) {
-          if (!isset($row[$uuid_key]) || empty(trim($row[$uuid_key])) || !Uuid::isValid(trim($row[$uuid_key]))) {
+          $possible_uuid = $row[$uuid_key] ?? '';
+          $possible_uuid = is_string($possible_uuid) ? trim($possible_uuid) : $possible_uuid;
+          if (empty($possible_uuid) || !Uuid::isValid($possible_uuid)) {
             $row[$uuid_key] = Uuid::uuid4();
           }
         }
         else {
-          if (empty(trim($row[$haskey])) || !Uuid::isValid(trim($row[$haskey]))) {
+          $possible_uuid = $row[$haskey] ?? '';
+          $possible_uuid = is_string($possible_uuid) ? trim($possible_uuid) : $possible_uuid;
+          if (empty($possible_uuid) || !Uuid::isValid((string)$possible_uuid)) {
             $row[$haskey] = Uuid::uuid4();
           }
         }
