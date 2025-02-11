@@ -406,10 +406,10 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $form['zip'] = [
         '#type' => 'managed_file',
         '#title' => $this->t('Provide an ZIP file.'),
-        '#required' => false,
+        '#required' => $plugin_instance->getPluginId() == 'ead_sync' ? true : false,
         '#multiple' => false,
         '#default_value' => isset($fileid) ? [$fileid] : NULL,
-        '#description' => $this->t('Provide an optional ZIP file containing your assets.'),
+        '#description' =>  $plugin_instance->getPluginId() == 'ead_sync' ? $this->t('Provide a ZIP file containing your XML files directly on the root folder. Container CSVs (children) will be added by this plugin to that ZIP.'): $this->t('Provide an optional ZIP file containing your assets.'),
         '#upload_location' => 'temporary://ami',
         '#upload_validators' => [
           'file_validate_extensions' => ['zip'],
