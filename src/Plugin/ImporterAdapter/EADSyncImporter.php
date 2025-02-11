@@ -38,7 +38,7 @@ class EADSyncImporter extends SpreadsheetImporter {
   use StringTranslationTrait;
 
   const FILE_COLUMNS = [
-    'documents',
+    'document',
     'dsc_csv'
   ];
 
@@ -301,7 +301,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     $headers['ispartof'] = 'iscontainedby';
     $headers['node_uuid'] = 'node_uuid';
     $headers['label'] = 'label';
-    $headers['documents'] = 'documents';
+    $headers['document'] = 'document';
     $headers['dsc_csv'] = 'dsc_csv';
     $data = array_values($headers);
     $tabdata = ['headers' => array_keys($headers), 'data' => array_values($headers), 'totalrows' => 1];
@@ -952,7 +952,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     $number_of_containers = count( $resulting_row['c']);
     unset($c01, $c02, $c03, $c04);
 
-    $resulting_row['documents'] = $file_name.'.xml';
+    $resulting_row['document'] = $file_name.'.xml';
     if ($seed_uuid_for_uuidv5 && !empty($resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value'])) {
       $seed = '';
       try {
