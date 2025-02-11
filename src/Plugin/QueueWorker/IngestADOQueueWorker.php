@@ -866,8 +866,15 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                       return (string)$needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
                     }
                   }
+                  // New in 0.9.0. Also protect "label" and "type" those are always strings.
+                  // We should never add to them.
                   $contract_keys = array_filter($processed_metadata_keys, function ($value) {
-                    return (str_starts_with($value, "as:") || str_starts_with($value, "ap:"));
+                    return (
+                      str_starts_with($value, "as:") ||
+                      str_starts_with($value, "ap:") ||
+                      $value == "label" ||
+                      $value == "type"
+                    );
                   }
                   );
                   $processed_metadata_keys = array_diff($processed_metadata_keys, $contract_keys);
@@ -878,7 +885,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                       $new = [$processed_metadata[$processed_metadata_key]];
                       $old = [$original_value[$processed_metadata_key]];
                       if (is_array($original_value[$processed_metadata_key])) {
-                        // If we are dealing with an associative array we treat is an an object that might be
+                        // If we are dealing with an associative array we treat is an object that might be
                         // 1 of many
                         if (StrawberryfieldJsonHelper::arrayIsMultiSimple($original_value[$processed_metadata_key])) {
                           $old[] = $original_value[$processed_metadata_key];
