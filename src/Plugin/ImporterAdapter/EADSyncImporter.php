@@ -269,10 +269,15 @@ class EADSyncImporter extends SpreadsheetImporter {
     // Here we need to write the CSV file back to ZIP file.
     $file_child = NULL;
     $file_child_id = NULL;
+    // Let's add forceed the CSV colum to hold it. Might not have a value
+    // if there were none, and no new ones are added neither
+    $new_data['data_with_headers']['dsc_csv'] = NULL;
     if (count($new_data['children_data_with_headers'] ?? [])) {
       // we take the first one for the headers
       $csv_header_array = array_keys($new_data['children_data_with_headers'][0] ?? []);
       $file_name = $file_name_without_extension . '.csv';
+      // append to the actual data bc we have children to output.
+      $new_data['data_with_headers']['dsc_csv'] = $file_name;
       $file_child_id = $this->AmiUtilityService->csv_touch($file_name, 'ami_sync/'.$temp_store_id, TRUE);
       $file_child = $file_child_id ? $this->entityTypeManager->getStorage('file')->load(
         $file_child_id) : NULL;
@@ -1033,7 +1038,6 @@ class EADSyncImporter extends SpreadsheetImporter {
           $csv_header_combined = array_merge($csv_header_array, $extra_csv_row);
           $tabdata['children_data_with_headers'][] = $csv_header_combined;
         }
-        $resulting_row['dsc_csv'] = $file_name.'.csv';
       }
     }
 
