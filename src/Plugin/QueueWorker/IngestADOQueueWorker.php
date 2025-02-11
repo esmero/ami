@@ -823,7 +823,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     $processed_metadata['ap:entitymapping']['entity:file'][] = $filekey;
                   }
                   else {
-                    // Means new processing is adding these and they are already in the mapping. Is safe Files enabled?
+                    // Means new processing is adding these, and they are already in the mapping. Is safe Files enabled?
                     if ($data->info['ops_safefiles']) {
                       // We take the old file ids and merge the new ones. Nothing gets lost ever.
                       // If there were no new ones, or new ones were URLs and failed processing
