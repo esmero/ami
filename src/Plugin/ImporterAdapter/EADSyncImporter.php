@@ -269,9 +269,8 @@ class EADSyncImporter extends SpreadsheetImporter {
     // Here we need to write the CSV file back to ZIP file.
     $file_child = NULL;
     $file_child_id = NULL;
-    // Let's add forceed the CSV colum to hold it. Might not have a value
+    // Let's add forced the CSV colum to hold it. Might not have a value
     // if there were none, and no new ones are added neither
-    $new_data['data_with_headers']['dsc_csv'] = NULL;
     if (count($new_data['children_data_with_headers'] ?? [])) {
       // we take the first one for the headers
       $csv_header_array = array_keys($new_data['children_data_with_headers'][0] ?? []);
@@ -415,7 +414,11 @@ class EADSyncImporter extends SpreadsheetImporter {
       return FALSE;
     }
     $xml_files = $this->AmiUtilityService->listZipFileContent($zipfile, 'xml');
-    $config['xml_files'] = $xml_files;
+    $xml_files = array_filter($xml_files?? [], function ($filepath)  {
+      // remove any dot files.
+      return !str_starts_with(basename((string)($filepath ?? '')), '.');
+    });
+    $config['xml_files'] = $xml_files ?? [];
     $file = $this->entityTypeManager->getStorage('file')->load($amisetdata->csv);
     if (!$file) {
       // @TODO ERROR
@@ -955,7 +958,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       try {
         $seed = is_string($resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value']) ? $resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value'] : reset($resulting_row['ead.archdesc.[*].did.[*].unitid.[*].@value']);
         $resulting_row['node_uuid'] = Uuid::uuid5($seed_uuid_for_uuidv5, $seed);
-        $resulting_row['node_uuid'] =$resulting_row['node_uuid']->toString();
+        $resulting_row['node_uuid'] = $resulting_row['node_uuid']->toString();
       }
       catch (\Exception $error) {
         $tabdata['errors'] = [$this->t('@UUID or @ID are not good for generating an UUIDV5 Identifier ', ['@UUID'=>$seed_uuid_for_uuidv5, '@ID' => $seed])];
@@ -1038,6 +1041,7 @@ class EADSyncImporter extends SpreadsheetImporter {
           $csv_header_combined = array_merge($csv_header_array, $extra_csv_row);
           $tabdata['children_data_with_headers'][] = $csv_header_combined;
         }
+        $resulting_row['dsc_csv'] = $file_name.'.csv';
       }
     }
 
