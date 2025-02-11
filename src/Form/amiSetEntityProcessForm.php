@@ -122,7 +122,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
 
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
-      $queue_name = 'ami_ingest_ado';
+      $queue_name = $queue_name_background = 'ami_ingest_ado';
       if (!$notprocessnow) {
         // These queues have no queue workers. That is intended since they
         // are always processed by the ami_ingest_ado one manually.
@@ -201,6 +201,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         foreach ($info as $item) {
           // We set current User here since we want to be sure the final owner of
           // the object is this and not the user that runs the queue
+          // Because of sync or EAD nested situation, after we process one
+          // we might generate a new one. Issue is the queue_name will be passed
+          // around and won't match anything anymore (background)
+          // So 'queue_name' here will have to be $queue_name_background
+          // Even if this item is being processed by the dynamic ajax $queue_name
           $data->info = [
             'zip_file' => $zip_file,
             'row' => $item,
@@ -212,7 +217,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'log_jsonpatch' => FALSE,
             'set_url' => $SetURL,
             'attempt' => 1,
-            'queue_name' => $queue_name,
+            'queue_name' => $queue_name_background,
             'force_file_queue' => (bool)$form_state->getValue('force_file_queue', FALSE),
             'force_file_process' => (bool)$form_state->getValue('force_file_process', FALSE),
             'manyfiles' => $manyfiles,
