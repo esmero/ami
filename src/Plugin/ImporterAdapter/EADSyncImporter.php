@@ -20,7 +20,7 @@ use Drupal\ami\simpleXMLtoArrayEAD;
 use Ramsey\Uuid\Uuid;
 
 /**
- * ADO importer from EAD XMLs .
+ * ADO importer from EAD XMLs with SYNC .
  *
  * @ImporterAdapter(
  *   id = "ead_sync",
@@ -102,7 +102,6 @@ class EADSyncImporter extends SpreadsheetImporter {
       '#tree' => TRUE,
       '#type' => 'fieldset',
       '#title' => 'EAD Sync Configuration',
-      //'#element_validate' => [[get_class($this), 'validateSolrConfig']],
       'uuidV5seed' => [
         '#type' => 'textfield',
         '#required' => TRUE,
@@ -110,13 +109,6 @@ class EADSyncImporter extends SpreadsheetImporter {
         '#description' => $this->t('This value needs to be the same everytime a sync Operation runs to ensure EAD XML processed and their containers preserve their UUIDs and can be identified and marked for Update or deletion'),
         '#default_value' => $form_state->getValue(array_merge($parents,
           ['eadsync_config', 'uuidV5seed'])),
-      ],
-      'unpublish' => [
-        '#type' => 'checkbox',
-        '#required' => FALSE,
-        '#title' => $this->t('If checked, every EAD Container (ADO of type ArchiveContainer marked to be deleted.) will be unpublished instead') ,
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['eadsync_config', 'unpublish'])),
       ],
     ];
     return $form;
