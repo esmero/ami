@@ -434,9 +434,10 @@ class EADSyncImporter extends SpreadsheetImporter {
       // remove any dot files.
       return !str_starts_with(basename((string)($filepath ?? '')), '.');
     });
-    $config['xml_files'] = $xml_files ?? [];
+    // We need to re-index if not our increment/to file marker dies.
+    $config['xml_files'] = array_values($xml_files ?? []);
     $file = $this->entityTypeManager->getStorage('file')->load($amisetdata->csv);
-    if (!$file) {
+    if (!$file || empty($config['xml_files'])) {
       // @TODO ERROR
       return FALSE;
     }
@@ -479,7 +480,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       $context['sandbox'])) {
       $context['sandbox']['prev_index'] = 0;
     }
-    $context['finished'] = 0;
+    $context['finished'] = $context['finished'] ?? 0;
     try {
       // Our increment here is always 1. EAD XML files can be huge.
 
@@ -493,12 +494,11 @@ class EADSyncImporter extends SpreadsheetImporter {
         );
       }
       else {
-        $progress = $context['sandbox']['progress'] + $increment;
         $title = t(
           'Processing %progress of <b>%count</b> XMLs so far.',
           [
             '%count'    => $xml_files_count,
-            '%progress' => $progress,
+            '%progress' =>  $context['sandbox']['progress'] + $increment,
           ]
         );
       }
@@ -527,7 +527,7 @@ class EADSyncImporter extends SpreadsheetImporter {
             }
           }
           if (!empty($data['child_csv_id'])) {
-            // If an XML generated an child CSV, the Drupal File ID will be accumulated here.
+            // If an XML generated a child CSV, the Drupal File ID will be accumulated here.
             // And then iterated and added to the original ZIP on ::finishfetchFromZip
             $context['results']['processed']['children_csv_ids'][] = $data['child_csv_id'];
           }
@@ -546,7 +546,13 @@ class EADSyncImporter extends SpreadsheetImporter {
           }
           $context['sandbox']['progress']++;
         }
+        else {
+          // The progress key exceeds the number of files or we have a file missing. Mark this done.
+          $context['finished'] == 1;
+        }
       }
+      // We might had already processed the last one. So we double check here. We can bail out sooner.
+			$context['finished'] = $context['sandbox']['progress'] / $context['sandbox']['max'];
     } catch (\Exception $e) {
       // In case of any other kind of exception, log it
       $logger = \Drupal::logger('ami');
@@ -624,6 +630,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       $data['results']['errors'][] = t('Error. We could not save your Process data from XML to CSV!');
     }
     \Drupal::service('tempstore.private')->get('ami_multistep_data')->set('batch_finished', $data);
+		\Drupal::service('tempstore.private')->get('ami_multistep_data')->set('zip', NULL);
   }
 
   protected static function arrayToFlatJsonPropertyPathsXML(&$flat, array $sourcearray = [], $propertypath = '', $excludepaths = [], $excludekeys = [], $useNumericKeys = FALSE, $pastpost = NULL) {
