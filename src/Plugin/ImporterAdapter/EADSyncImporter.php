@@ -239,6 +239,15 @@ class EADSyncImporter extends SpreadsheetImporter {
                       else {
                         $child_row['ami_sync_op'] = "create";
                       }
+                      // Just in case we make these required, but then the list only contains
+                      // ispartof (all series?). This restores them. We add also document/dsc_csv because
+                      // we might by mistake map also those for the container part.
+                      // Very opinionanted
+                      $child_row['ispartof'] = $child_row['ispartof'] ?? '';
+                      $child_row['ismemberof'] = $child_row['ismemberof'] ?? '';
+                      $child_row['iscontainedby'] = $child_row['iscontainedby'] ?? '';
+                      $child_row['document'] = $child_row['document'] ?? '';
+                      $child_row['dsc_csv'] = $child_row['dsc_csv'] ?? '';
                       // We only need this one once, since ::processCSVfromXML already returns normalized ROWS.
                       $new_containers_headers = array_keys($child_row);
                     }
@@ -252,6 +261,13 @@ class EADSyncImporter extends SpreadsheetImporter {
                       $new_row['label'] = $original_child_row['label'];
                       $new_row['type'] = $original_child_row['type'];
                       $new_row['ami_sync_op'] = "delete";
+                      // These can't be null bc we might have just a "delete" one and we need to be sure we always preserve them
+                      // For the AMI set/mapping to validate. Thank you @alliomera!
+                      $new_row['ispartof'] = $original_child_row['ispartof'] ?? '';
+                      $new_row['ismemberof'] = $original_child_row['ismemberof'] ?? '';
+                      $new_row['iscontainedby'] = $original_child_row['iscontainedby'] ?? '';
+                      $new_row['document'] = $original_child_row['document'] ?? '';
+                      $new_row['dsc_csv'] = $original_child_row['dsc_csv'] ?? '';
                       $new_data['children_data_with_headers'][] = $new_row;
                     }
                   }
@@ -298,7 +314,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     $headers['type'] = 'type';
     $headers['ismemberof'] = 'ismemberof';
     $headers['ispartof'] = 'ispartof';
-    $headers['ispartof'] = 'iscontainedby';
+    $headers['iscontainedby'] = 'iscontainedby';
     $headers['node_uuid'] = 'node_uuid';
     $headers['label'] = 'label';
     $headers['document'] = 'document';
