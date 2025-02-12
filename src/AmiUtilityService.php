@@ -736,7 +736,7 @@ class AmiUtilityService {
 
   /**
    * @param \Drupal\file\Entity\File $zip_file
-   * @param null $extension
+   * @param null|string $extension
    *      If passed, we will only return files with that extension.
    *
    * @return array
@@ -757,13 +757,16 @@ class AmiUtilityService {
         for ($i = 0; $i < $z->numFiles; $i++) {
           $file_name = $z->getNameIndex($i);
           if ($extension) {
-            if (strpos($file_name, '.' . $extension) !== FALSE || strpos($file_name, '.' . strtoupper($extension) !== FALSE)) {
-              $files[] = $file_name;
-            }
-            else {
+						$basename = basename($file_name);
+						$info = pathinfo($basename);
+            if ((strtoupper($info['extension'] ?? '') == strtoupper($extension)) && !str_starts_with($basename,'.')) {
               $files[] = $file_name;
             }
           }
+					else {
+						// NO extension.
+						$files[] = $file_name;
+					}
         }
         $z->close();
       }
