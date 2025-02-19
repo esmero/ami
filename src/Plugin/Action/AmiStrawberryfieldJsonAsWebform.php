@@ -228,7 +228,8 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
             // - If not we replace the found one
             $decoded_jsonfind = json_decode($this->configuration['jsonfind'], TRUE);
             $decoded_jsonreplace = json_decode($this->configuration['jsonreplace'], TRUE);
-            $key = reset(array_keys($decoded_jsonfind));
+            $decoded_keys = array_keys($decoded_jsonfind);
+            $key = reset($decoded_keys);
             if ($key) {
               $isAssociativeOriginal = FALSE;
               if (!empty($fullvaluesmodified[$key])) {

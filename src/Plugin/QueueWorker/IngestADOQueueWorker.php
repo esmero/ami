@@ -866,39 +866,55 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                       return (string)$needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
                     }
                   }
+                  // New in 0.9.0. Also protect "label" and "type" those are always strings.
+                  // We should never add to them.
                   $contract_keys = array_filter($processed_metadata_keys, function ($value) {
-                    return (str_starts_with($value, "as:") || str_starts_with($value, "ap:"));
+                    return (
+                      str_starts_with($value, "as:") ||
+                      str_starts_with($value, "ap:") ||
+                      $value == "label" ||
+                      $value == "type"
+                    );
                   }
                   );
                   $processed_metadata_keys = array_diff($processed_metadata_keys, $contract_keys);
+                  function _update_append_array_unique_multidimensional($input) {
+                    $serialized = array_map('serialize', $input);
+                    $unique = array_unique($serialized);
+                    return array_intersect_key($input, $unique);
+                  }
+
                   foreach ($processed_metadata_keys as $processed_metadata_key) {
                     if (isset($original_value[$processed_metadata_key])) {
-                      // Initialize this as if we were dealing with string/numbers and not arrays
-                      // We check later if any/old/new are indeed arrays or not
-                      $new = [$processed_metadata[$processed_metadata_key]];
-                      $old = [$original_value[$processed_metadata_key]];
-                      if (is_array($original_value[$processed_metadata_key])) {
-                        // If we are dealing with an associative array we treat is an an object that might be
-                        // 1 of many
-                        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($original_value[$processed_metadata_key])) {
-                          $old[] = $original_value[$processed_metadata_key];
-                        }
-                        else {
-                          $old = $original_value[$processed_metadata_key];
-                        }
+                      // Only make array out of non arrays.
+                      if (!is_array($processed_metadata[$processed_metadata_key])) {
+                        $new = [$processed_metadata[$processed_metadata_key]];
                       }
-                      if (is_array($processed_metadata[$processed_metadata_key])) {
-                        // If we are dealing with an associative array we treat is an an object that might be
-                        // 1 of many
-                        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($processed_metadata[$processed_metadata_key])) {
-                          $new[] = $processed_metadata[$processed_metadata_key];
-                        }
-                        else {
-                          $new = $processed_metadata[$processed_metadata_key];
-                        }
+                      else {
+                        $new = $processed_metadata[$processed_metadata_key];
                       }
-                      // This should help avoiding duplicates.
-                      $original_value[$processed_metadata_key] = $old + $new;
+                      if (!is_array($original_value[$processed_metadata_key])) {
+                        $old = [$original_value[$processed_metadata_key]];
+                      }
+                      else {
+                        $old = $original_value[$processed_metadata_key];
+                      }
+                      if (!StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && !StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        // Both are numeric indexed arrays.
+                        $original_value[$processed_metadata_key] = [...$old,...$new];
+                        $original_value[$processed_metadata_key] = _update_append_array_unique_multidimensional($original_value[$processed_metadata_key]);
+                      }
+                      else if(StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        $original_value[$processed_metadata_key] = $old + $new;
+                      }
+                      else if(StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && !StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        $original_value[$processed_metadata_key] = [...[$old],...$new];
+                        $original_value[$processed_metadata_key] = _update_append_array_unique_multidimensional($original_value[$processed_metadata_key]);
+                      }
+                      else if(!StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        $original_value[$processed_metadata_key] = [...$old,...[$new]];
+                        $original_value[$processed_metadata_key] = _update_append_array_unique_multidimensional($original_value[$processed_metadata_key]);
+                      }
                     }
                     else {
                       $original_value[$processed_metadata_key] = $processed_metadata[$processed_metadata_key];
