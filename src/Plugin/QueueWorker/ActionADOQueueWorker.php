@@ -5,8 +5,11 @@ namespace Drupal\ami\Plugin\QueueWorker;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Entity\amiSetEntity;
+use Drupal\Core\Access\AccessResultReasonInterface;
+use Drupal\Core\Action\ActionInterface;
 use Drupal\Core\Datetime\DrupalDateTime;
 use Drupal\Core\Entity\EntityStorageException;
+use Drupal\facets\Exception\Exception;
 use Drupal\file\FileInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
@@ -18,6 +21,8 @@ use Drupal\strawberryfield\Event\StrawberryfieldFileEvent;
 use Drupal\strawberryfield\StrawberryfieldEventType;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
+use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionManager;
+use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionProcessorInterface;
 use Monolog\Handler\StreamHandler;
 use Monolog\Logger;
 use Monolog\Formatter\JsonFormatter;
@@ -111,6 +116,21 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected EventDispatcherInterface $eventDispatcher;
 
   /**
+   * @var ViewsBulkOperationsActionManager
+   */
+  protected ViewsBulkOperationsActionManager $actionManager;
+
+  /**
+   * @var ViewsBulkOperationsActionProcessorInterface
+   */
+  protected ViewsBulkOperationsActionProcessorInterface $actionProcessor;
+
+  /**
+   * @var \Drupal\Core\TempStore\PrivateTempStoreFactory
+   */
+  protected PrivateTempStoreFactory $privateStoreFactory;
+
+  /**
    * Constructor.
    *
    * @param array $configuration
@@ -125,6 +145,8 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param StrawberryfieldFilePersisterService $strawberry_filepersister
    * @param PrivateTempStoreFactory $temp_store_factory
    * @param EventDispatcherInterface $event_dispatcher
+   * @param ViewsBulkOperationsActionManager $actionManager
+   * @param ViewsBulkOperationsActionProcessorInterface $actionProcessor
    */
   public function __construct(
     array $configuration,
@@ -138,7 +160,9 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     MessengerInterface $messenger,
     StrawberryfieldFilePersisterService $strawberry_filepersister,
     PrivateTempStoreFactory $temp_store_factory,
-    EventDispatcherInterface $event_dispatcher
+    EventDispatcherInterface $event_dispatcher,
+    ViewsBulkOperationsActionManager $actionManager,
+    ViewsBulkOperationsActionProcessorInterface $actionProcessor
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -148,9 +172,14 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->messenger = $messenger;
     $this->AmiLoDService = $ami_lod;
     $this->strawberryfilepersister = $strawberry_filepersister;
-    $this->store = $temp_store_factory->get('ami_queue_worker_file');
-    $this->statusStore = $temp_store_factory->get('ami_queue_status');
+    $this->privateStoreFactory = $temp_store_factory;
+    $this->store =  $this->privateStoreFactory->get('ami_queue_worker_file');
+    $this->statusStore =  $this->privateStoreFactory->get('ami_queue_status');
     $this->eventDispatcher = $event_dispatcher;
+    /** @var ViewsBulkOperationsActionManager $actionManager */
+    $this->actionManager = $actionManager;
+    /** @var ViewsBulkOperationsActionProcessorInterface $actionProcessor */
+    $this->actionProcessor = $actionProcessor;
   }
 
   /**
@@ -163,11 +192,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @return static
    */
-  public static function create(
-    ContainerInterface $container,
-    array $configuration,
-                       $plugin_id,
-                       $plugin_definition
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition
   ) {
     return new static(
       empty($configuration) ? [] : $configuration,
@@ -181,7 +206,9 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('messenger'),
       $container->get('strawberryfield.file_persister'),
       $container->get('tempstore.private'),
-      $container->get('event_dispatcher')
+      $container->get('event_dispatcher'),
+      $container->get('plugin.manager.views_bulk_operations_action'),
+      $container->get('views_bulk_operations.processor')
     );
   }
 
@@ -252,6 +279,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
   private function processAction($data): bool|null {
     $success = FALSE;
+    $existing = [];
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     try {
       $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
@@ -274,12 +302,11 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // We need to log if number of requested to be deleted != number the user can delete.
     // Not a blocker to abort all actions but the user needs to know not all what was requested
     // Could be processed.
-
-    if (count($existing)) {
-      $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+    $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+    if (count($existing) && $account) {
       // Each Action might have its own check/permission. But we know for sure delete requires `delete`
-      $access_type = "delete";
-      if ($account) {
+      if (($data->info['action'] ?? NULL) == 'delete') {
+        $access_type = "delete";
         foreach ($existing as $key => $existing_object) {
           if (!$existing_object->access($access_type, $account)) {
             $message = $this->t('Sorry you have no system permission to execute action @action on ADOs with UUID @uuid via Set @setid. Skipping', [
@@ -307,7 +334,6 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           }
         }
         $existing = array_filter($existing);
-        if ($data->info['action'] ?? NULL == 'delete') {
           try {
             $this->entityTypeManager->getStorage('node')->delete($existing);
             $message = $this->t('Deleting UUIDs @uuid via Set @setid.', [
@@ -332,8 +358,88 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
           }
+      }
+      elseif (!empty($data->info['action'])) {
+        try {
+          $action_config = $data->info['action_config'] ?? [];
+          /* @var $action ActionInterface */
+          $action = $this->actionManager->createInstance($data->info['action'], $action_config);
+          if ($action && \method_exists($action, 'setContext')) {
+            $context_keystore_id = 'ami_action_'. $data->info['set_id'] .'_'.$data->info['time_submitted'];
+            $context = [
+              'sandbox' => [
+                'processed' => 0,
+                'total' => 0,
+                'page' => 0,
+                'current_batch' => 1,
+              ],
+              'results' => [
+                'operations' => [],
+              ],
+            ];
+
+            // Simulate a Batch Context on a Queue.
+            $context = $this->privateStoreFactory->get('ami_action_context')->get($context_keystore_id) ?? $context;
+            if (empty($context['sandbox']['total'])) {
+              $batch_size = count($data->info['uuids'] ?? []) ?? ($data->info['batch_size'] ?? 10);
+              $context['sandbox']['total'] =  $data->info['batch_total'] ?? $batch_size;
+              $context['sandbox']['batch_size'] = $batch_size;
+              // Fake data. VBO is meant for Views!
+              $context['view_id'] = 'ami_set';
+              $context['display_id'] =  $data->info['set_id'];
+              $context['action_id'] = $data->info['action'];
+              $context['action_config'] = $action_config;
+              // Also Fake. used to fill with some-how useful data for actions that
+              // Normally would run on a Batch/Interactive queue
+              $context['list'] = array_combine($data->info['uuids'], $data->info['uuids']);
+            }
+            $action->setContext($context);
+            foreach ($existing as $key => $existing_object) {
+              if (\method_exists($action, 'access')) {
+              $accessResult = $action->access($existing_object, $account, TRUE);
+              if ($accessResult->isAllowed() === FALSE) {
+                $reason = '';
+                if ($accessResult instanceof AccessResultReasonInterface) {
+                  $reason = $accessResult->getReason();
+                }
+                $message = $this->t('Sorry you have no system permission to execute action @action on ADOs with UUID @uuid via Set @setid. Skipping', [
+                  '@uuid' => $existing_object->uuid(),
+                  '@setid' => $data->info['set_id'],
+                  '@action' => $data->info['action'],
+                  '@reason' => $reason,
+                ]);
+                $this->loggerFactory->get('ami_file')->error($message, [
+                  'setid' => $data->info['set_id'] ?? NULL,
+                  'time_submitted' => $data->info['time_submitted'] ?? '',
+                ]);
+                unset($existing[$key]);
+              }
+            }
+            }
+            $existing = array_filter($existing);
+              // Process queue.
+            if (count($existing)) {
+              $results = $action->executeMultiple($existing);
+              $results = $results;
+              $context = $context;
+            }
+            // Even if nothing was processed or we did not have permissions we will increment the processed
+            // by the original size. If not the Batch will basically never be assumed as DONE
+            $context['sandbox']['processed'] =  $context['sandbox']['processed'] + $batch_size;
+            // Write context back. Wonder if i should add a small pause here? Like a second?
+            // Maybe in the future. People run huge batches and DB read committed might be an issue?
+            $this->privateStoreFactory->get('ami_action_context')->set($context_keystore_id, $context);
+          }
+        }
+        catch (\Exception $e) {
+          $message = $this->t('Sorry, the action @action configured to run on Set @setid does not exist. Skipping', [
+            '@setid' => $data->info['set_id'],
+            '@action' => $data->info['action'],
+          ]);
+          return FALSE;
         }
       }
+
     }
     else {
       $message = $this->t('Sorry none of the following UUIDs @uuids from Set @setid are present in your system. Skipping @action.', [
