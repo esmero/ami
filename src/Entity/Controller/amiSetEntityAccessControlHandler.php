@@ -81,6 +81,18 @@ class amiSetEntityAccessControlHandler extends EntityAccessControlHandler {
             ->cachePerPermissions()
             ->addCacheableDependency($entity);
         }
+      case 'deletelogs':
+        if ($account->hasPermission('delete amiset process logs')) {
+          return AccessResult::allowed()->cachePerPermissions();
+        }
+        if ($account->hasPermission('delete amiset own process logs') && $is_owner) {
+          return AccessResult::allowed()->cachePerPermissions()->cachePerUser()->addCacheableDependency($entity);
+        }
+        else {
+          return AccessResult::neutral()
+            ->cachePerPermissions()
+            ->addCacheableDependency($entity);
+        }
 
       case 'deleteados':
         if ($account->hasPermission('deleteados amiset entity')) {

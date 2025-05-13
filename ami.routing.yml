@@ -144,3 +144,16 @@ ami.download_log:
     _entity_access: 'ami_set_entity.process'
     _permission: 'access content'
     _csrf_token: 'TRUE'
+
+ami.delete_log:
+  path: '/amiset/{ami_set_entity}/report/delete'
+  options:
+    parameters:
+      ami_set_entity:
+        type: 'entity:ami_set_entity'
+  defaults:
+    _controller: '\Drupal\ami\Entity\Controller\amiSetLogDeleteController::delete'
+  requirements:
+    _entity_access: 'ami_set_entity.process'
+    _permission: 'access content'
+    _csrf_token: 'TRUE'

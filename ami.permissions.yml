@@ -27,6 +27,11 @@ delete amiset entity:
   restrict access: TRUE
 delete own amiset entity:
   title: 'Delete own AMI Set Entities'
+delete amiset process logs:
+  title: 'Delete any AMI Set report logs'
+  restrict access: TRUE
+delete own amiset process logs:
+  title: 'Delete own AMI Set report logs'
 process amiset entity:
   title: 'Process any AMI Set Entities'
   restrict access: TRUE

@@ -348,6 +348,28 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
         '#suffix' => '</div>',
         '#parameters' => ['level' => $level]
       ];
+      $form['actions']['submit_download'] = [
+        '#type' => 'link',
+        '#title' => $this->t('Download Log'),
+        '#access' => $this->entity->access('process'),
+        '#attributes' => [
+          'class' => ['button', 'btn', 'btn-secondary', 'me-2'],
+        ],
+        '#url' =>  Url::fromRoute('ami.download_log', [
+          'ami_set_entity' => $this->entity->id(),
+        ]),
+      ];
+      $form['actions']['submit_delete'] = [
+        '#type' => 'link',
+        '#title' => $this->t('Download and Clear Log afterwards'),
+        '#access' => $this->entity->access('deletelogs'),
+        '#attributes' => [
+          'class' => ['button', 'btn', 'btn-danger', 'me-2'],
+        ],
+        '#url' =>  Url::fromRoute('ami.delete_log', [
+          'ami_set_entity' => $this->entity->id(),
+        ]),
+      ];
     }
     else {
       $form['logs'] = [
@@ -365,19 +387,10 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     $form['actions']['submit'] = array(
       '#type' => 'submit',
       '#value' => $this->t('Submit'),
-    );
-
-    $form['actions']['submit_download'] = [
-      '#type' => 'link',
-      '#title' => $this->t('Download Log'),
-      '#access' => $this->entity->access('process'),
       '#attributes' => [
-        'class' => ['button', 'btn', 'btn-secondary'],
+        'class' => ['js-hide'],
       ],
-      '#url' =>  Url::fromRoute('ami.download_log', [
-        'ami_set_entity' => $this->entity->id(),
-      ]),
-    ];
+    );
 
     // Because this form has no real submissions and the entity itself is not changing
     // we had users seen stale (no reports) but other user loging in can see them
