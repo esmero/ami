@@ -268,7 +268,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
         ]);
       }
       if (count($added)) {
-        $message = $this->t('CSV @csv for Set @setid was expanded to @count ADOs', [
+        $message = $this->t('CSV @csv for Set @setid was expanded to @count individual Queue Item entries', [
           '@setid' => $data->info['set_id'],
           '@csv' => $csv_file->getFilename(),
           '@count' => count($added),
