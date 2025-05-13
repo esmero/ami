@@ -150,8 +150,8 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   public function __construct(
     array $configuration,
-          $plugin_id,
-          $plugin_definition,
+    $plugin_id,
+    $plugin_definition,
     EntityTypeManagerInterface $entity_type_manager,
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
@@ -334,38 +334,42 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           }
         }
         $existing = array_filter($existing);
-          try {
-            $this->entityTypeManager->getStorage('node')->delete($existing);
-            $message = $this->t('Deleting UUIDs @uuid via Set @setid.', [
-              '@uuid' => $existing_object->uuid(),
-              '@setid' => $data->info['set_id'],
-              '@action' => $data->info['action'],
-            ]);
-            $this->loggerFactory->get('ami_file')->info($message, [
-              'setid' => $data->info['set_id'] ?? NULL,
-              'time_submitted' => $data->info['time_submitted'] ?? '',
-            ]);
-            $success = TRUE;
-          }
-          catch (EntityStorageException $e) {
-            $message = $this->t('Error executing @action on ADOs via Set @setid.', [
-              '@setid' => $data->info['set_id'],
-              '@action' => $data->info['action'],
-              '@error' => $e->getMessage(),
-            ]);
-            $this->loggerFactory->get('ami_file')->error($message, [
-              'setid' => $data->info['set_id'] ?? NULL,
-              'time_submitted' => $data->info['time_submitted'] ?? '',
-            ]);
-          }
+        try {
+          $this->entityTypeManager->getStorage('node')->delete($existing);
+          $message = $this->t('Deleting UUIDs @uuid via Set @setid.', [
+            '@uuid' => $existing_object->uuid(),
+            '@setid' => $data->info['set_id'],
+            '@action' => $data->info['action'],
+          ]);
+          $this->loggerFactory->get('ami_file')->info($message, [
+            'setid' => $data->info['set_id'] ?? NULL,
+            'time_submitted' => $data->info['time_submitted'] ?? '',
+          ]);
+          $success = TRUE;
+        }
+        catch (EntityStorageException $e) {
+          $message = $this->t('Error executing @action on ADOs via Set @setid.', [
+            '@setid' => $data->info['set_id'],
+            '@action' => $data->info['action'],
+            '@error' => $e->getMessage(),
+          ]);
+          $this->loggerFactory->get('ami_file')->error($message, [
+            'setid' => $data->info['set_id'] ?? NULL,
+            'time_submitted' => $data->info['time_submitted'] ?? '',
+          ]);
+        }
       }
       elseif (!empty($data->info['action'])) {
         try {
           $action_config = $data->info['action_config'] ?? [];
           /* @var $action ActionInterface */
           $action = $this->actionManager->createInstance($data->info['action'], $action_config);
+          // Not all actions use context.
+          $context = NULL;
+          $context_keystore_id = NULL;
           if ($action && \method_exists($action, 'setContext')) {
-            $context_keystore_id = 'ami_action_'. $data->info['set_id'] .'_'.$data->info['time_submitted'];
+            $context_keystore_id = 'ami_action_' . $data->info['set_id'] . '_' . $data->info['time_submitted'];
+            // We set current_batch 0 so we can increment upfront?
             $context = [
               'sandbox' => [
                 'processed' => 0,
@@ -379,14 +383,15 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             ];
 
             // Simulate a Batch Context on a Queue.
-            $context = $this->privateStoreFactory->get('ami_action_context')->get($context_keystore_id) ?? $context;
+            $context = $this->privateStoreFactory->get('ami_action_context')
+              ->get($context_keystore_id) ?? $context;
+            $batch_size = count($data->info['uuids'] ?? []) ?? ($data->info['batch_size'] ?? 10);
             if (empty($context['sandbox']['total'])) {
-              $batch_size = count($data->info['uuids'] ?? []) ?? ($data->info['batch_size'] ?? 10);
-              $context['sandbox']['total'] =  $data->info['batch_total'] ?? $batch_size;
+              $context['sandbox']['total'] = $data->info['batch_total'] ?? $batch_size;
               $context['sandbox']['batch_size'] = $batch_size;
               // Fake data. VBO is meant for Views!
               $context['view_id'] = 'ami_set';
-              $context['display_id'] =  $data->info['set_id'];
+              $context['display_id'] = $data->info['set_id'];
               $context['action_id'] = $data->info['action'];
               $context['action_config'] = $action_config;
               // Also Fake. used to fill with some-how useful data for actions that
@@ -394,8 +399,9 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               $context['list'] = array_combine($data->info['uuids'], $data->info['uuids']);
             }
             $action->setContext($context);
-            foreach ($existing as $key => $existing_object) {
-              if (\method_exists($action, 'access')) {
+          }
+          foreach ($existing as $key => $existing_object) {
+            if (\method_exists($action, 'access')) {
               $accessResult = $action->access($existing_object, $account, TRUE);
               if ($accessResult->isAllowed() === FALSE) {
                 $reason = '';
@@ -415,20 +421,31 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                 unset($existing[$key]);
               }
             }
-            }
-            $existing = array_filter($existing);
-              // Process queue.
-            if (count($existing)) {
-              $results = $action->executeMultiple($existing);
-              $results = $results;
-              $context = $context;
-            }
+          }
+          $existing = array_filter($existing);
+          // Process Action on loaded entities.
+          if (count($existing)) {
+            $results = $action->executeMultiple($existing);
+            // Increment the current batch
             // Even if nothing was processed or we did not have permissions we will increment the processed
             // by the original size. If not the Batch will basically never be assumed as DONE
-            $context['sandbox']['processed'] =  $context['sandbox']['processed'] + $batch_size;
-            // Write context back. Wonder if i should add a small pause here? Like a second?
-            // Maybe in the future. People run huge batches and DB read committed might be an issue?
-            $this->privateStoreFactory->get('ami_action_context')->set($context_keystore_id, $context);
+            if ($context && $context_keystore_id) {
+              $context['sandbox']['current_batch'] = ($context['sandbox']['current_batch'] ?? 1) + 1;
+              $context['sandbox']['processed'] = $context['sandbox']['processed'] + $batch_size;
+              // Not sure i should fill the Key Store with the results data. Might end being huge?
+              // Better to output to the logs?
+              //$context['results'] = array_merge($results, $results);
+              // Write context back. Wonder if i should add a small pause here? Like a second?
+              // Maybe in the future. People run huge batches and DB read committed might be an issue?
+              $this->privateStoreFactory->get('ami_action_context')
+                ->set($context_keystore_id, $context);
+            }
+            foreach ($results as $result) {
+              $this->loggerFactory->get('ami_file')->info($result);
+            }
+          }
+          else {
+            // Nothing could be processed.
           }
         }
         catch (\Exception $e) {
