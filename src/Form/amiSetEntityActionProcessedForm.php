@@ -124,9 +124,8 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       /* @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
     }
+    // We only run this in background
     if ($file && $data!== new \stdClass()) {
-
-      if (TRUE) {
         $data_csv = clone $data;
 /*
         $data->info = [
@@ -140,7 +139,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
         'attempt' => The number of attempts to process. We always start with a 1
        'zip_file' => Zip File/File Entity
        'queue_name' => because well ... we use Hydroponics too
-       'time_submitted' => Timestamp on when the queue was send. All Entries will share the same
+       'time_submitted' => Timestamp on when the queue was send. All Entries will share the same. We will use this value + set_id to generate a temporary key store to be used as batch context,
        'batch_size' =>  the number of ADOs to process via a batch action. Some actions like detele can/should handle multiple UUIDs at the same time in a single Queue item
      ];
 */
@@ -170,37 +169,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
           $this->t('Your ADOs have been enqueued for Action Processing')
         );
       }
-      else {
-      // Only UUIDs you can delete will be added.
-      // 0.9.0 Change: This method now returns UUIDs in the keys. The values are/if any/children CSVs.
-      $data->info['uid'] = $this->currentUser()->id();
-      $uuids = array_keys($this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data, 'edit'));
-      $uuids = array_unique($uuids);
-      if (empty($uuids)) {
-        $form_state->setRebuild();
-        $this->messenger()->addWarning(
-          $this->t('So Sorry. There either no ADOs in the current CSV that can be processed or that you have permission to. Please correct or try to manually process actions on your ADOs. You may already have delete them too!')
-        );
-        return;
-      }
-      $operations = [];
-      foreach (array_chunk($uuids, 50) as $batch_data_uuid) {
-        $operations[] = ['\Drupal\ami\Form\amiSetEntityActionProcessedForm::batchAction'
-          , [$batch_data_uuid]];
-      }
-      // Setup and define batch information.
-      $batch = array(
-        'title' => t('processing action on ADOs in batch...'),
-        'operations' => $operations,
-        'finished' => '\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchFinished',
-      );
-      $this->entity->setStatus(amiSetEntity::STATUS_ENQUEUED);
-      $this->entity->save();
-      $form_state->setRedirectUrl($this->getCancelUrl());
-      batch_set($batch);
-    }
-
-    } else {
+     else {
       $this->messenger()->addError(
         $this->t('So Sorry. Ami Set @label has incorrect Metadata and/or has its CSV file missing. We need it to know which ADOs where generated via this Set. Please correct or manually delete your ADOs.',
           [
