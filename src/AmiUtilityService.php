@@ -1118,9 +1118,11 @@ class AmiUtilityService {
     $url = $wrapper->getUri();
     $fh = new SplFileObject($url, 'w');
     if (!$fh) {
+      $message = $this->t('Error reading back the just written CSV file by AMI!.');
       $this->messenger()->addError(
-        $this->t('Error reading back the just written file!.')
+        $message
       );
+      $this->loggerFactory->get('ami')->error($message);
       return NULL;
     }
     // How we want to get the key number that contains the $uuid_key
@@ -1167,16 +1169,15 @@ class AmiUtilityService {
     $file->save();
 
     // Tell the user where we have it.
-    $this->messenger()->addMessage(
-      $this->t(
-        'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
-        [
-          '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
-          '@filename' => $file->getFilename(),
-        ]
-      )
+    $message = $this->t(
+      'Your source data was saved by AMI and is available as CSV at. <a href="@url">@filename</a>.',
+      [
+        '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
+        '@filename' => $file->getFilename(),
+      ]
     );
-
+    $this->messenger()->addMessage($message);
+    $this->loggerFactory->get('ami')->info($message);
     return $file->id();
   }
 
