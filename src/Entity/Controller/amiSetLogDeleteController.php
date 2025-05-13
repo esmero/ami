@@ -47,7 +47,7 @@ class amiSetLogDeleteController extends ControllerBase {
   }
 
   /**
-   * Handles private AMI set Log Delete and download at the same time Controller.
+   * Handles private AMI set Log Delete and download (at the same time) Controller.
    *
    * @param \Symfony\Component\HttpFoundation\Request $request
    *   The request object.
