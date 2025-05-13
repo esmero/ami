@@ -221,6 +221,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
               'queue_name' => "ami_action_ado",
               'time_submitted' => $data->info['time_submitted'],
               'batch_size' => $data->info['batch_size'] ?? 10,
+              'batch_total' => count($uuids),
             ];
             $added[] = \Drupal::queue("ami_action_ado")
               ->createItem($adodata);
