@@ -1124,7 +1124,7 @@ class AmiUtilityService {
       $this->messenger()->addError(
         $message
       );
-      $this->loggerFactory->get('ami')->error($message);
+      $this->loggerFactory->get($logger_channel)->error($message);
       return NULL;
     }
     // How we want to get the key number that contains the $uuid_key
@@ -1181,7 +1181,7 @@ class AmiUtilityService {
       ]
     );
     $this->messenger()->addMessage($message);
-    $this->loggerFactory->get('ami')->info($message);
+    $this->loggerFactory->get($logger_channel)->info($message);
     return $file->id();
   }
 
