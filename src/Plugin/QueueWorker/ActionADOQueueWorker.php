@@ -12,6 +12,7 @@ use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
+use Drupal\Core\Session\AccountSwitcherInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
@@ -123,6 +124,13 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   protected PrivateTempStoreFactory $privateStoreFactory;
 
   /**
+   * The current_user service used by this plugin.
+   *
+   * @var \Drupal\Core\Session\AccountSwitcherInterface|null
+   */
+  protected $accountSwitcher;
+
+  /**
    * Constructor.
    *
    * @param array $configuration
@@ -154,7 +162,8 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     PrivateTempStoreFactory $temp_store_factory,
     EventDispatcherInterface $event_dispatcher,
     ViewsBulkOperationsActionManager $actionManager,
-    ViewsBulkOperationsActionProcessorInterface $actionProcessor
+    ViewsBulkOperationsActionProcessorInterface $actionProcessor,
+    AccountSwitcherInterface $accountSwitcher,
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -170,6 +179,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->eventDispatcher = $event_dispatcher;
     $this->actionManager = $actionManager;
     $this->actionProcessor = $actionProcessor;
+    $this->accountSwitcher = $accountSwitcher;
   }
 
   /**
@@ -198,7 +208,8 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('tempstore.private'),
       $container->get('event_dispatcher'),
       $container->get('plugin.manager.views_bulk_operations_action'),
-      $container->get('views_bulk_operations.processor')
+      $container->get('views_bulk_operations.processor'),
+      $container->get('account_switcher'),
     );
   }
 
@@ -270,6 +281,23 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
   private function processAction($data): bool|null {
     $success = FALSE;
     $existing = [];
+
+    $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+    if ($account && !$account->isAnonymous()) {
+      $this->accountSwitcher->switchTo($account);
+    }
+    else {
+      $message = $this->t('Not so great. @action via Set @setid can not run as anonymous user. Bailing out.', [
+        '@setid' => $data->info['set_id'],
+        '@action' => $data->info['action'],
+      ]);
+      $this->loggerFactory->get('ami_file')->error($message, [
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+      return FALSE;
+    }
+
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     try {
       $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
@@ -291,13 +319,12 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // We need to log if number of requested to be deleted != number the user can delete.
     // Not a blocker to abort all actions but the user needs to know not all what was requested
     // Could be processed.
-    $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
     // What if no a whole chunk is missing?
     // We still need to keep adding context to the action/storing it, etc. In
     // the hope other batches have enough data.
 
     // Each Action might have its own check/permission. But we know for sure delete requires `delete`
-    if (($data->info['action'] ?? NULL) == 'delete' && $account) {
+    if (($data->info['action'] ?? NULL) == 'delete') {
       if (count($existing)) {
         $access_type = "delete";
         foreach ($existing as $key => $existing_object) {
@@ -355,7 +382,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
       }
     }
-    elseif (!empty($data->info['action']) && $account) {
+    elseif (!empty($data->info['action'])) {
       try {
         // To make $context work we need to run this even if $existing is empty.
         $action_config = $data->info['action_config'] ?? [];
@@ -463,6 +490,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       // Incomplete Queue worker entry.
       $success = FALSE;
     }
+    $this->accountSwitcher->switchBack();
     return $success;
   }
 }
