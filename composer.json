@@ -13,7 +13,7 @@
         }
     ],
     "require": {
-        "drupal/core": "^10",
+        "drupal/core": "^10.3",
         "ext-zip": "*",
         "ext-json": "*",
         "drupal/views_bulk_operations": "^4.2",
@@ -24,7 +24,9 @@
         "maennchen/zipstream-php": "^1.2 || ^2.1",
         "drupal/google_api_client": "^3.2 || ^4.3",
         "ramsey/uuid": "^4",
-        "monolog/monolog": "^2.9"
+        "monolog/monolog": "^2.9",
+        "ext-simplexml": "*",
+        "ext-libxml": "*"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,

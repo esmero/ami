@@ -39,12 +39,15 @@ use Ramsey\Uuid\Uuid;
 use Drupal\Core\File\Exception\FileException;
 use SplFileObject;
 use Drupal\Core\File\Exception\InvalidStreamWrapperException;
+use Drupal\Core\File\FileExists;
 
 class AmiUtilityService {
 
   use StringTranslationTrait;
   use MessengerTrait;
   use StringTranslationTrait;
+
+  public const AMI_CSV_FOLDER = 'ami/csv';
 
   /**
    * @var array
@@ -373,7 +376,7 @@ class AmiUtilityService {
               return FALSE;
             }
             $localfile = $this->retrieve_fromzip_file($uri, $destination_zip,
-              FileSystemInterface::EXISTS_REPLACE, $zip_file);
+              FileExists::Replace, $zip_file);
           }
         }
         $finaluri = $localfile;
@@ -456,7 +459,7 @@ class AmiUtilityService {
    *
    * @return mixed
    *   One of these possibilities:
-   *   - If it succeeds an managed file object
+   *   - If it succeeds, a managed file object
    *   - If it fails, FALSE.
    */
   public function retrieve_remote_file(
@@ -663,7 +666,7 @@ class AmiUtilityService {
    *   - If it succeeds an managed file object
    *   - If it fails or NULL, FALSE.
    */
-  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileSystemInterface::EXISTS_RENAME, File $zip_file = NULL) {
+  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, File $zip_file = NULL) {
     if (!$zip_file) {
       return FALSE;
     }
@@ -732,6 +735,118 @@ class AmiUtilityService {
     }
     return FALSE;
   }
+
+  /**
+   * @param \Drupal\file\Entity\File $zip_file
+   * @param null|string $extension
+   *      If passed, we will only return files with that extension.
+   *
+   * @return array
+   *    All the names of the ZIP file. We won't yet extract them there.
+   */
+  public function listZipFileContent(File $zip_file, $extension = NULL): array {
+    $files = [];
+    $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+    if (!$zip_realpath) {
+      // This will add a delay once...
+      $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+    }
+    if ($zip_realpath) {
+      $z = new \ZipArchive();
+      $z->open($zip_realpath);
+      $files = [];
+      if ($z) {
+        for ($i = 0; $i < $z->numFiles; $i++) {
+          $file_name = $z->getNameIndex($i);
+          if ($extension) {
+						$basename = basename($file_name);
+						$info = pathinfo($basename);
+            if ((strtoupper($info['extension'] ?? '') == strtoupper($extension)) && !str_starts_with($basename,'.')) {
+              $files[] = $file_name;
+            }
+          }
+					else {
+						// NO extension.
+						$files[] = $file_name;
+					}
+        }
+        $z->close();
+      }
+    }
+    return $files;
+  }
+
+  /**
+   * @param \Drupal\file\Entity\File $zip_file
+   * @param $file_path
+   *    This is only safe if $file_path is a text,xml,yml (text type)
+   *    Up to the caller to handle Binary if they decide to use it like that.
+   * @return string|null
+   */
+  public function getZipFileContent(File $zip_file, $file_path): ?string {
+    $content = NULL;
+    $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+    if (!$zip_realpath) {
+      // This will add a delay once...
+      $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+    }
+    if ($zip_realpath) {
+      $z = new \ZipArchive();
+      $z->open($zip_realpath);
+      if ($z) {
+        $stream = $z->getStream($file_path);
+        if (FALSE !== $stream) {
+          $content = stream_get_contents($stream);
+        }
+        $z->close();
+      }
+    }
+    return $content;
+  }
+
+  /**
+   * @param \Drupal\file\Entity\File $zip_file
+   * @param $files
+   *    an array of arrays with a structure containing File paths and internal File name/path destination
+   *    array [
+   *        array['path'] => '/tmp/path/filename.ext' Source file to be copied into ZIP
+   *        array['dest'] => 'path/filename.ext' inside the ZIP
+   * @return bool
+   *    TRUE if all went well.
+   */
+  public function AddFilesToZip(File $zip_file, array $files): ?string {
+    $success = FALSE;
+    $zip_realpath = $zip_original_path = $this->fileSystem->realpath($zip_file->getFileUri());
+    if (!$zip_realpath) {
+      // This will add a delay once...
+      $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+    }
+    if ($zip_realpath) {
+      $z = new \ZipArchive();
+      $z->open($zip_realpath);
+      if ($z) {
+        foreach ($files as $file) {
+          if (!empty($file['path']) && !empty($file['dest'])) {
+            if (file_exists($file['path'])) {
+              $z->addFile($file['path'], $file['dest']);
+            }
+          }
+        }
+        $success = $z->close();
+      }
+    }
+    // We should update the size/info here ...
+    clearstatcache(TRUE, $zip_realpath);
+    $size = filesize($zip_realpath);
+    // This is how you close a \SplFileObject
+    // Notify the filesystem of the size change
+    $zip_file->setSize($size);
+    $zip_file->save();
+    return $success;
+  }
+
+
+
 
   /**
    * Creates File from a local accessible Path/URI.
@@ -886,12 +1001,27 @@ class AmiUtilityService {
    *    If given it will use that, if null will create a new one.
    *    If filename is the full uri to an existing file it will update that one
    *    and its entity too.
+   * @param string|null $subpath
+   *    If set, it should be a folder structure without a leading slash. e.g. set1/anothersubfolder/
+   * @param bool $temp
+   *    If it should be generated in temporary storage or public (the latter for download)
    *
    * @return int|string|null
-   * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_touch(string $filename = NULL) {
-    $path = 'public://ami/csv';
+  public function csv_touch(string $filename = NULL, ?string $subpath = NULL, bool $temp = FALSE): int|string|null {
+    if ($temp) {
+      $wrapper =  'temporary://';
+    }
+    else {
+      $wrapper =  'public://';
+    }
+
+    if (!$subpath) {
+      $path = $wrapper.static::AMI_CSV_FOLDER;
+    }
+    else {
+      $path = $wrapper.static::AMI_CSV_FOLDER.'/'.$subpath;
+    }
     // Check if dealing with an existing file first
     if ($filename && is_file($filename) && $this->streamWrapperManager->isValidUri($filename)) {
       $uri = $filename;
@@ -916,7 +1046,7 @@ class AmiUtilityService {
       }
     }
 
-    $file = \Drupal::service('file.repository')->writeData('', $uri, FileSystemInterface::EXISTS_REPLACE);
+    $file = \Drupal::service('file.repository')->writeData('', $uri, FileExists::Replace);
 
     if (!$file) {
       $this->messenger()->addError(
@@ -948,7 +1078,7 @@ class AmiUtilityService {
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE) {
+  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE, $permanent = TRUE, $logger_channel = 'ami') {
 
     //$temporary_directory = $this->fileSystem->getTempDirectory();
     // We should be allowing downloads for this from temp
@@ -958,7 +1088,7 @@ class AmiUtilityService {
     // We just get a lot of access denied in temporary:// and in private://
     // Solution either attach to an entity SOFORT so permissions can be
     // inherited or create a custom endpoint like '\Drupal\format_strawberryfield\Controller\IiifBinaryController::servetempfile'
-    $path = 'public://ami/csv';
+    $path = 'private://'.static::AMI_CSV_FOLDER;
     $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
@@ -990,9 +1120,11 @@ class AmiUtilityService {
     $url = $wrapper->getUri();
     $fh = new SplFileObject($url, 'w');
     if (!$fh) {
+      $message = $this->t('Error reading back the just written CSV file by AMI!.');
       $this->messenger()->addError(
-        $this->t('Error reading back the just written file!.')
+        $message
       );
+      $this->loggerFactory->get($logger_channel)->error($message);
       return NULL;
     }
     // How we want to get the key number that contains the $uuid_key
@@ -1035,20 +1167,21 @@ class AmiUtilityService {
     $fh = NULL;
     // Notify the filesystem of the size change
     $file->setSize($size);
-    $file->setPermanent();
+    if ($permanent) {
+      $file->setPermanent();
+    }
     $file->save();
 
     // Tell the user where we have it.
-    $this->messenger()->addMessage(
-      $this->t(
-        'Your source data was saved and is available as CSV at. <a href="@url">@filename</a>.',
-        [
-          '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
-          '@filename' => $file->getFilename(),
-        ]
-      )
+    $message = $this->t(
+      'Your source data was saved by AMI and is available as CSV at. <a href="@url">@filename</a>.',
+      [
+        '@url' => \Drupal::service('file_url_generator')->generateString($file->getFileUri()),
+        '@filename' => $file->getFilename(),
+      ]
     );
-
+    $this->messenger()->addMessage($message);
+    $this->loggerFactory->get($logger_channel)->info($message);
     return $file->id();
   }
 
@@ -1058,6 +1191,8 @@ class AmiUtilityService {
    *
    * @param array $data
    *   Same as import form handles, to be dumped to CSV.
+   *   Needs to have a 'data' key with rows and a 'headers' key
+   *   with headers as values.
    *
    * @param \Drupal\file\Entity\File $file
    *
@@ -1163,6 +1298,18 @@ class AmiUtilityService {
     }
 
     $url = $wrapper->getUri();
+    $uri = $this->streamWrapperManager->normalizeUri($url);
+    if (!is_file($uri)) {
+      $message = $this->t(
+        'CSV File referenced in AMI set for processing at @uri is no longer present. Check your composting times. Skipping',
+        [
+          '@uri' => $uri,
+        ]
+      );
+      $this->loggerFactory->get('ami')->error($message);
+      return NULL;
+    }
+
     $spl = new \SplFileObject($url, 'r');
     if ($offset > 0) {
       // We only set this flags when an offset is present.
@@ -1284,7 +1431,7 @@ class AmiUtilityService {
     }
     $url = $wrapper->getUri();
     // New temp file for the output
-    $path = 'public://ami/csv';
+    $path = 'public://'.static::AMI_CSV_FOLDER;
     $filenametemp = $this->currentUser->id() . '-' . uniqid() . '_clean.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
@@ -1712,7 +1859,7 @@ class AmiUtilityService {
             /** @var \Drupal\file\FileRepositoryInterface $file_repository */
             $file_repository = \Drupal::service('file.repository');
             try {
-              $zipfile = $file_repository->move($zipfile, $target_directory, FileSystemInterface::EXISTS_RENAME);
+              $zipfile = $file_repository->move($zipfile, $target_directory, FileExists::Rename);
             }
             catch (InvalidStreamWrapperException $e) {
               $zipfail = TRUE;
@@ -1852,13 +1999,36 @@ class AmiUtilityService {
       $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
       if ($possibleUUID && isset($uuid_to_row_index_hash[$possibleUUID])) {
         $ado['uuid'] = $possibleUUID;
-        // Now be more strict for action = update/patch
-        if ($data->pluginconfig->op !== 'create') {
+        // Now be more strict for action = update/patch or sync
+        // With the introduction of sync this gets more complex
+        if ($data->pluginconfig->op === 'sync') {
+          $sync_op = $ado['data']['ami_sync_op'] ?? 'create';
+          // only valid sync_ops are these 3
+          if ($sync_op != 'create' && in_array($sync_op, ['create','delete','update'] )) {
+            $existing_objects = $this->entityTypeManager->getStorage('node')
+              ->loadByProperties(['uuid' => $ado['uuid']]);
+            // Do access control here, will be done again during the atomic operation
+            // In case access changes later of course
+            $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+            if (!$existing_object || !$existing_object->access($sync_op, $account)) {
+              unset($ado);
+              $invalid = $invalid + [$index => $index];
+            }
+          }
+          elseif (!in_array($sync_op, ['create','delete','update'])) {
+            // means invalid sync_op
+            unset($ado);
+            $invalid = $invalid + [$index => $index];
+          }
+          // Will have to read the actual OP from $ado['data']['ami_sync_op']
+          // if missing we assume ingest. Worst case it will fail bc it is already there.
+        }
+        elseif ($data->pluginconfig->op !== 'create') {
           $existing_objects = $this->entityTypeManager->getStorage('node')
             ->loadByProperties(['uuid' => $ado['uuid']]);
           // Do access control here, will be done again during the atomic operation
           // In case access changes later of course
-          // Processors do NOT delete. So we only check for Update.
+
           $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
           if (!$existing_object || !$existing_object->access('update', $account)) {
             unset($ado);
@@ -2094,7 +2264,7 @@ class AmiUtilityService {
     $valid = $valid && isset($data->pluginconfig->op) && is_string($data->pluginconfig->op);
     $valid = $valid && $file_data_all && count($file_data_all['headers']);
     $valid = $valid && (!$strict || (is_array($data->column_keys) && count($data->column_keys)));
-    $valid = $valid && in_array($data->pluginconfig->op, ['create', 'update', 'patch']);
+    $valid = $valid && in_array($data->pluginconfig->op, ['create', 'update', 'patch', 'sync']);
     if ($valid) {
       $required_headers = array_values((array)$data->adomapping->base);
       $required_headers = array_merge($required_headers, array_values((array)$data->adomapping->uuid));
@@ -2134,7 +2304,7 @@ class AmiUtilityService {
 
 
   /**
-   * Returns UUIDs for AMI data the user has permissions to operate on.
+   * Returns UUIDs for AMI data the user has permissions (if op passed) to operate on.
    *
    * @param \Drupal\file\Entity\File $file
    * @param \stdClass $data
@@ -2142,6 +2312,8 @@ class AmiUtilityService {
    * @param null|string $op
    *
    * @return mixed
+   *  UUIDs will be in the keys, possible child CSVs (array) in the values.
+   *
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
@@ -2151,16 +2323,46 @@ class AmiUtilityService {
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
 
     $file_data_all = $this->csv_read($file);
+    if (!$file_data_all) {
+      return [];
+    }
     // we may want to check if saved metadata headers == csv ones first.
     // $data->column_keys
     $config['data']['headers'] = $file_data_all['headers'];
     $uuids = [];
+    // We want to get the per ROW CSVs if any here too
+    $file_csv_columns = [];
+
+
     foreach ($file_data_all['data'] as $index => $keyedrow) {
       // This makes tracking of values more consistent and easier for the actual processing via
       // twig templates, webforms or direct
       $row = array_combine($config['data']['headers'], $keyedrow);
+
+      if ($data->mapping->globalmapping == "custom") {
+        if ($row['type'] ?? NULL ) {
+          $csv_file_object = $data->mapping->custommapping_settings->{$row['type']}->files_csv ?? NULL;
+        }
+        else {
+          $csv_file_object = NULL;
+        }
+      } else {
+        $csv_file_object = $data->mapping->globalmapping_settings->files_csv ?? NULL;
+      }
+      if ($csv_file_object && is_object($csv_file_object)) {
+        $file_csv_columns = array_values(get_object_vars($csv_file_object));
+      }
+
       $possibleUUID = $row[$data->adomapping->uuid->uuid] ?? NULL;
       $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
+      $possibleCSV = [];
+      // Check now for the CSV file column/file name
+      if (count($file_csv_columns)) {
+        foreach($file_csv_columns as $file_csv_column) {
+          $possibleCSV[] = $row[$file_csv_column] ?? NULL;
+        }
+      }
+      $possibleCSV = array_filter($possibleCSV);
       // Double check? User may be tricking us!
       if ($possibleUUID && Uuid::isValid($possibleUUID)) {
         if ($op !== 'create' && $op !== NULL) {
@@ -2170,13 +2372,25 @@ class AmiUtilityService {
           // In case access changes later of course
           // This does NOT delete. So we only check for Update.
           $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+
           if ($existing_object && $existing_object->access($op, $account)) {
-            $uuids[] = $possibleUUID;
+            $uuids[$possibleUUID] = $possibleCSV;
           }
         }
         else {
-          $uuids[] = $possibleUUID;
+          $uuids[$possibleUUID] = $possibleCSV;
         }
+      }
+      else {
+       $message = $this->t(
+          'Invalid UUID @uuid found. Skipping for AMI Set ID @setid, Row @row',
+          [
+            '@uuid' => $possibleUUID,
+            '@row' => $index,
+            '@setid' => 1,
+          ]
+        );
+        $this->loggerFactory->get('ami')->warning($message);
       }
     }
     return $uuids;

@@ -122,7 +122,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
 
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
-      $queue_name = 'ami_ingest_ado';
+      $queue_name = $queue_name_background = 'ami_ingest_ado';
       if (!$notprocessnow) {
         // These queues have no queue workers. That is intended since they
         // are always processed by the ami_ingest_ado one manually.
@@ -196,10 +196,16 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           $form_state->setRebuild();
           return;
         }
-
+        $uuids_sync_action = [];
+        // Similar to Class CsvADOQueueWorker logic, but simpler.
         foreach ($info as $item) {
           // We set current User here since we want to be sure the final owner of
           // the object is this and not the user that runs the queue
+          // Because of sync or EAD nested situation, after we process one
+          // we might generate a new one. Issue is the queue_name will be passed
+          // around and won't match anything anymore (background)
+          // So 'queue_name' here will have to be $queue_name_background
+          // Even if this item is being processed by the dynamic ajax $queue_name
           $data->info = [
             'zip_file' => $zip_file,
             'row' => $item,
@@ -211,7 +217,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'log_jsonpatch' => FALSE,
             'set_url' => $SetURL,
             'attempt' => 1,
-            'queue_name' => $queue_name,
+            'queue_name' => $queue_name_background,
             'force_file_queue' => (bool)$form_state->getValue('force_file_queue', FALSE),
             'force_file_process' => (bool)$form_state->getValue('force_file_process', FALSE),
             'manyfiles' => $manyfiles,
@@ -219,8 +225,65 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
             'time_submitted' => $run_timestamp
           ];
-          $added[] = \Drupal::queue($queue_name)
-            ->createItem($data);
+
+          $valid_ado_ingest_op = TRUE;
+          if ($data->pluginconfig->op == 'sync') {
+            // Important we will move the data driven (ami_sync_op) info the que info
+            // structure secondary.
+            // Fixed key:
+            $sync_op = $item['data']['ami_sync_op'] ?? 'create';
+            if ($sync_op === 'create') {
+              $data->info['op_secondary'] = 'create';
+            }
+            elseif ($sync_op === 'update') {
+              $data->info['op_secondary'] = 'update';
+            }
+            elseif ($sync_op === 'delete') {
+              $valid_ado_ingest_op = FALSE;
+              // We only need the UUIDs to delete.
+              // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
+              // If so we need to pass the CSV data also to this array.
+              // $uuids_sync_action should be formed the way $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL); would.
+              // For now safer to not. We are deleting direct references of deletion of a ROW.
+              $uuids_sync_action[$item['row']['uuid']]= [];
+            }
+            else {
+              $valid_ado_ingest_op = FALSE;
+              // Flag as false?
+            }
+          }
+
+          if ($data->pluginconfig->op !== 'action' && $valid_ado_ingest_op) {
+            $added[] = \Drupal::queue($queue_name)
+              ->createItem($data);
+          }
+        }
+        // Deal with Top level deletes if it was Sync.
+        // Note. the EAD_SYNC plugin NEVER deletes tops
+        // But Users could modify the CSV...
+        if (count($uuids_sync_action) && $data->pluginconfig->op === 'sync') {
+          // We pass NULL as op here since access control will be done at the queue action worker level
+          // based on what the actual action does. E.g if exporting to another format, there is no need to check
+          // for delete/update/etc.
+          // Top level UUIDs.
+          $data->info['action'] = 'delete';
+          foreach (array_chunk($uuids_sync_action, $data->info['batch_size'] ?? 10) as $batch_data_uuid) {
+            $data->info = [
+              'uuids' => $batch_data_uuid,
+              'set_id' => $data->info['set_id'],
+              'uid' => $data->info['uid'],
+              'action' => $data->info['action'] ?? NULL,
+              'action_config' => $data->info['action_config'] ?? [],
+              'set_url' => $data->info['set_url'],
+              'attempt' => 1,
+              'queue_name' => "ami_action_ado",
+              'time_submitted' => $data->info['time_submitted'],
+              'batch_size' => $data->info['batch_size'] ?? 10,
+            ];
+            // Sent to background anyways.
+            $added[] = \Drupal::queue("ami_action_ado")
+              ->createItem($data);
+          }
         }
         $count = count(array_filter($added));
       }
@@ -245,11 +308,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $form_state->setRedirectUrl($this->getCancelUrl());
       }
       elseif ($count) {
-          $processed_set_status['processed'] =  0;
-          $processed_set_status['errored'] =  0;
-          $processed_set_status['total'] = $count;
-          $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
-          $this->submitBatch($form_state, $queue_name, $count);
+        $processed_set_status['processed'] =  0;
+        $processed_set_status['errored'] =  0;
+        $processed_set_status['total'] = $count;
+        $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
+        $this->submitBatch($form_state, $queue_name, $count);
       }
       else {
         $this->messenger()->addError(
@@ -306,11 +369,15 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         'create',
         'update',
         'patch',
+        'sync',
       ];
       $ops_update = [
         'replace' =>  $this->t("Replace Update. Will replace JSON keys found in an ADO's configured target field(s) with new JSON values. Not provided JSON keys will be kept."),
         'update' =>  $this->t("Complete (All JSON keys) Update. Will update a complete existing ADO's JSON data with all new JSON data."),
         'append' =>  $this->t("Append Update. Will append values to existing JSON key(s) in an ADO's configured target field(s). New JSON keys will be added too."),
+      ];
+      $ops_update_sync = [
+        'update' =>  $this->t("Complete Update. Sync operations perform a complete (All JSON keys) Update. A complete existing ADO's JSON data with be replaced with new JSON data."),
       ];
 
       if (!in_array($op, $ops)) {
@@ -321,7 +388,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
+            'Sorry. This AMI set has no right Operation (Create, Update, Patch, Sync) set. Please fix this or contact your System Admin to fix it.'
           ),
         ];
         return $form;
@@ -334,22 +401,49 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           '#title' => $this->t('Desired type of <em><b>@op</b></em> operation.',
             ['@op' => $op]),
           'ops_safefiles' => [
-             '#type' => 'checkbox',
-             '#title' => $this->t("Do not touch existing files"),
-             '#description' => $this->t("If enabled, update operations will not be able to remove/change/destroy any files already present in an ADO. Enabled by default for your own safety."),
-             '#default_value' => TRUE,
+            '#type' => 'checkbox',
+            '#title' => $this->t("Do not touch existing files"),
+            '#description' => $this->t("If enabled, update operations will not be able to remove/change/destroy any files already present in an ADO. Enabled by default for your own safety."),
+            '#default_value' => TRUE,
           ],
           'ops_secondary_update' => [
             '#type' => 'select',
             '#title' => $this->t('Update Operation'),
             '#description' => $this->t(
-            'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update,
             '#default_value' => 'replace',
             '#wrapper_attributes' => [
               'class' => ['container-inline'],
             ],
           ],
+        ];
+      }
+      if ($op == 'sync') {
+        $form['ops_secondary'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' => $this->t('Desired type of <em><b>@op</b></em> operation.',
+            ['@op' => $op]),
+          'ops_safefiles' => [
+            '#type' => 'checkbox',
+            '#title' => $this->t("Do not touch existing files"),
+            '#description' => $this->t("Sync Operations are not file save, and any existing ADO to be updated will get their files replaced."),
+            '#default_value' => FALSE,
+            '#disabled' => TRUE,
+          ],
+          'ops_secondary_update' => [
+            '#type' => 'select',
+            '#disabled' => TRUE,
+            '#title' => $this->t('Update Operation'),
+            '#description' => $this->t(
+              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+            '#options' => $ops_update_sync,
+            '#default_value' => 'update',
+            '#wrapper_attributes' => [
+              'class' => ['container-inline'],
+            ],
+          ]
         ];
       }
 
@@ -371,7 +465,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           '#type'          => 'checkbox',
           '#title'         => $this->t("Let Archipelago organize my files"),
           '#description'   => $this->t(
-            "Enabled by default. All files referenced in this AMI set will be copied into an Archipelago managed location and sanitized.<br> Danger: If disabled files that share source location with this repositories configured <em>Storage Scheme for Persisting Files</em> will maintain its original location and it will be up to the manager to ensure they are not removed from there."
+            "Enabled by default. All files referenced in this AMI set will be copied into an Archipelago managed location and sanitized.<br> Danger: If disabled files that share source location with configured <em>Storage Scheme for Persisting Files</em> for this repository will maintain its original location, and it will be up to the manager to ensure they are not removed from there."
           ),
           '#default_value' => TRUE,
           '#access'        => $this->currentUser()->hasPermission(
@@ -388,10 +482,14 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ['@op' => $op]
         ),
         '#description' => $this->t('You have @free remaining free space on your Drupal temporary filesystem. Please be aware of that before running a batch with large files', [
-          '@free' => sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class],
+            '@free' => sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class],
           ]
         ),
       ];
+      if ($op == 'sync') {
+        $form['status']['#title'] = $this->t('Desired statuses for newly created ADOs, after this <em><b>@op</b></em> operation process. Existing ones that are to be updated will keep their status.',
+          ['@op' => $op]);
+      }
       $access = TRUE;
       foreach($bundles as $propertypath) {
         // First Check which SBF bearing bundles the user has access to.
@@ -492,7 +590,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     $entity = $this->entityTypeManager->getStorage('node')->create(array(
       'type'  => $bundle,
     ));
-    $bundle_label = $entity->type->entity->label() ?? $bundle;
+    // previously we were accessing a protected method ->type and then ->label(), that would explode in PHP 8.4. So we do this now.
+    $bundle_label = $this->entityTypeManager->getStorage('node_type')->load($bundle)->label() ?? $bundle;
 
     if (\Drupal::moduleHandler()->moduleExists('content_moderation')) {
       /** @var \Drupal\content_moderation\ModerationInformation $moderationInformation */

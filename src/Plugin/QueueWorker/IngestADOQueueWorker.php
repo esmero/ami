@@ -111,6 +111,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'create' => 'created',
     'update' => 'updated',
     'patch' => 'patched',
+    'sync' => 'synced',
   ];
 
   /**
@@ -212,6 +213,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // it simple for now.
     $this->loggerFactory->get('ami_file')->setLoggers([[$log]]);
 
+    /* $data will  contain a pluginconfig Object with at least
+        $data->pluginconfig->op;
+    */
     /* Data info for an ADO has this structure
       $data->info = [
         'row' => The actual data
@@ -677,9 +681,22 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'update' => 'Update existing ADOs',
     'patch' => 'Patch existing ADOs',
     'delete' => 'Delete existing ADOs',
+    'sync' => 'Sync' -> which will have op_secondary as the actual OP.
     */
-    $op = $data->pluginconfig->op;
+    $op = $op_original = $data->pluginconfig->op;
     $op_secondary =  $data->info['op_secondary'] ?? NULL;
+    $was_op_sync = FALSE;
+    if ($op === 'sync') {
+      if ($op_secondary == "create") {
+        $op = "create";
+        $op_secondary = NULL;
+      }
+      if ($op_secondary == "update") {
+        $op = "update";
+        // $op_secondary stays untouched.
+      }
+    }
+
 
     if ($data->mapping->globalmapping == "custom") {
       $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
@@ -753,7 +770,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
-        if ($op ==='create') {
+        if ($op === 'create') {
           if ($status && is_string($status)) {
             // String here means we got moderation_status;
             $nodeValues['moderation_state'] = $status;
@@ -771,6 +788,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
             ['uuid' => $data->info['row']['uuid']]
           );
+          // Ups ... should never happen but what if just after checking race/condition it is gone?
           $existing_object = reset($existing);
 
           $vid = $this->entityTypeManager
@@ -778,11 +796,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             ->getLatestRevisionId($existing_object->id());
 
           $node = $vid ? $this->entityTypeManager->getStorage('node')
-            ->loadRevision($vid) : $existing[0];
+            ->loadRevision($vid) : $existing_object;
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
           $field = $node->get($field_name);
-          if ($status && is_string($status)) {
+          // Ignore status for updates derived from sync ops.
+          if ($status && is_string($status) && $op_original !== 'sync') {
             $node->set('moderation_state', $status);
             $status = 0;
           }
@@ -804,7 +823,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     $processed_metadata['ap:entitymapping']['entity:file'][] = $filekey;
                   }
                   else {
-                    // Means new processing is adding these and they are already in the mapping. Is safe Files enabled?
+                    // Means new processing is adding these, and they are already in the mapping. Is safe Files enabled?
                     if ($data->info['ops_safefiles']) {
                       // We take the old file ids and merge the new ones. Nothing gets lost ever.
                       // If there were no new ones, or new ones were URLs and failed processing
@@ -962,11 +981,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
         // In case $status was not moderated.
         if ($status) {
-          $node->setPublished();
+          // We won't change status for sync op that generate an update
+          if (!($op_original == 'sync' && $op == 'update')) {
+            $node->setPublished();
+          }
         }
         elseif (!isset($nodeValues['moderation_state'])) {
-          // Only unpublish if not moderated.
-          $node->setUnpublished();
+          // Only unpublish if not moderated and not a sync -> update chain.
+          if (!($op_original == 'sync' && $op == 'update')) {
+            $node->setUnpublished();
+          }
         }
         $node->save();
 
@@ -976,7 +1000,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@setid' => $data->info['set_id'],
           ':link' => $link,
           '%title' => $label ?? 'UNAMED ADO',
-          '@ophuman' => static::OP_HUMAN[$op]
+          '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
         $this->loggerFactory->get('ami_file')->info($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -989,7 +1013,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => static::OP_HUMAN[$op],
+          '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
         $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -1003,7 +1027,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $message = $this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => static::OP_HUMAN[$op],
+        '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
       ]);
       $this->loggerFactory->get('ami_file')->info($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
@@ -1136,8 +1160,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @param mixed $data
    */
-  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null
-  {
+  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null {
     if (!($data->info['csv_filename'] ?? NULL)) {
       return NULL;
     }
@@ -1189,14 +1212,24 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'update' => 'Update existing ADOs',
     'patch' => 'Patch existing ADOs',
     'delete' => 'Delete existing ADOs',
+    'sync' => 'Sync' with either create/update/delete as sub operation.
     */
+
+    $op = $data->pluginconfig->op;
+    if ($data->pluginconfig->op == 'sync') {
+      // We relay on the CSV expander to set this correctly
+      // We always default to create. Worst case scenario it will
+      // fail bc we can't if already there
+      $op = $data->info['op_secondary'] ?? 'create';
+      $op = in_array($op, ['create','update','delete']) ? $op : NULL;
+    }
 
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
     );
 
-    if (count($existing) && $data->pluginconfig->op == 'create') {
+    if (count($existing) && $op === 'create') {
       $message = $this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
@@ -1209,11 +1242,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
       return NULL;
     }
-    elseif (!count($existing) && $data->pluginconfig->op !== 'create') {
+    elseif (!count($existing) && $op !== 'create') {
       $message = $this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+        '@ophuman' => static::OP_HUMAN[$op],
       ]);
       $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
@@ -1224,13 +1257,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
 
-    if ($data->pluginconfig->op !== 'create' && $account && $existing && count($existing) == 1) {
+    if ($op !== 'create' && $account && $existing && count($existing) == 1) {
       $existing_object = reset($existing);
       if (!$existing_object->access('update', $account)) {
         $message = $this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+          '@ophuman' => static::OP_HUMAN[$op],
         ]);
         $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,

@@ -26,6 +26,7 @@ use Symfony\Component\HttpFoundation\RedirectResponse;
  * @Action(
  *   id = "entity:ami_jsonwebform_action",
  *   action_label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
+ *   label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
  *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
@@ -63,7 +64,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
     $form_state->setAlwaysProcess(TRUE);
     $webform = $this->AmiUtilityService->getWebforms();
     $form['#tree'] = TRUE;
-    $form['webform'] =[
+    $form['webform'] = [
       '#type' => 'select',
       '#title' => $this->t('Select which Webform you want to use'),
       '#options' => $webform,
@@ -95,10 +96,10 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       $form_state->set($prop, $value);
     }
     $webform_id = $form_state->getValue('webform');
-       if (!$webform_id) {
-         $input = $form_state->getUserInput();
-         $webform_id = $input['webform'] ?? NULL;
-       }
+    if (!$webform_id) {
+      $input = $form_state->getUserInput();
+      $webform_id = $input['webform'] ?? NULL;
+    }
 
     if ($webform_id) {
       /* @var \Drupal\webform\Entity\Webform $webform_entity */
@@ -199,6 +200,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
 
     /** @var \Drupal\Core\Entity\EntityInterface $entity */
     $patched = FALSE;
+    $result = NULL;
     if ($entity) {
       if ($sbf_fields = $this->strawberryfieldUtility->bearsStrawberryfield(
         $entity
@@ -318,14 +320,16 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                   ]
                 ));
               $this->messenger()->addError($output);
-              return $patched;
+              $result = $output;
+              return $result;
             }
             try {
               if ($this->configuration['simulate']) {
+
                 $this->messenger()->addMessage('In simulation Mode');
                 if ($fullvaluesoriginal_string == $fullvaluesmodified_string) {
                   $patched = FALSE;
-                  $this->messenger()->addStatus($this->t(
+                  $message = $this->t(
                     'No Match for search:@jsonsearch and replace:@jsonreplace on @entity, so skipping',
                     [
                       '@entity' => $entity->label(),
@@ -333,8 +337,9 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                       '@jsonreplace' => '<pre><code>'.$this->configuration['jsonreplace'].'</code></pre>',
 
                     ]
-                  ));
-                  return $patched;
+                  );
+                  $this->messenger()->addStatus($message);
+                  return $message;
                 }
                 $r = new JsonDiff(
                   $fullvaluesoriginal,
@@ -355,29 +360,32 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
                   $this->messenger()->addMessage($modifiedPathDiff->original);
                   $this->messenger()->addMessage($modifiedPathDiff->new);
                 }
+                $result = $message;
               }
               else {
                 if ($fullvaluesoriginal_string == $fullvaluesmodified_string) {
                   $patched = FALSE;
-                  $this->messenger()->addStatus($this->t(
+                  $message = $this->t(
                     'No change for @entity, skipping.',
                     [
                       '@entity' => $entity->label()
                     ]
-                  ));
-                  return $patched;
+                  );
+                  $this->messenger()->addStatus($message);
+
+                  $result = $message;
                 }
 
                 if ($patched) {
                   if (!$itemfield->setMainValueFromArray((array) $fullvaluesmodified)) {
-                    $this->messenger()->addError(
-                      $this->t(
-                        'We could not persist the metadata for @entity. Your result after the replacement may not be a valid JSON. Please contact your Site Admin.',
-                        [
-                          '@entity' => $entity->label()
-                        ]
-                      )
+                    $message = $this->t(
+                      'We could not persist the metadata for @entity. Your result after the replacement may not be a valid JSON. Please contact your Site Admin.',
+                      [
+                        '@entity' => $entity->label()
+                      ]
                     );
+                    $this->messenger()->addError($message);
+                    $result = $message;
                     $patched = FALSE;
                   };
                 }
@@ -385,15 +393,15 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
             }
             catch (JsonDiffException $exception) {
               $patched = FALSE;
-              $this->messenger()->addWarning(
+              $message =
                 $this->t(
-                  'Patch could not be applied for @entity',
+                  'Patch could not be applied for @entity with error @error',
                   [
-                    '@entity' => $entity->label()
-                  ]
-                )
-              );
-            return $patched;
+                    '@entity' => $entity->label(),
+                    '@error' => $exception->getMessage(),
+                  ]);
+              $this->messenger()->addWarning($message);
+              return $message;
             }
           }
         }
@@ -402,11 +410,13 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
             // In case after saving the Label changes we keep the original one here
             // For reporting/messaging
             $label = $entity->label();
-            $this->logger->notice('%label had the following find: @jsonsearch and replace:@jsonreplace applied', [
+            $message = $this->t('%label had the following find: @jsonsearch and replace:@jsonreplace applied', [
               '%label' => $label,
               '@jsonsearch' => '<pre><code>'.$this->configuration['jsonfind'].'</code></pre>',
               '@jsonreplace' => '<pre><code>'.$this->configuration['jsonreplace'].'</code></pre>',
             ]);
+            $this->logger->notice($message);
+            $result = $message;
             if ($entity->getEntityType()->isRevisionable()) {
               // Forces a New Revision for Not-create Operations.
               $entity->setNewRevision(TRUE);
@@ -425,7 +435,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
         }
       }
     }
-    return $patched;
+    return $result;
   }
 
 

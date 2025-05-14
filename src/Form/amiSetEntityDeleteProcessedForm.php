@@ -78,15 +78,70 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
     if (isset($csv_file_reference[0]['target_id'])) {
       $file = $this->entityTypeManager->getStorage('file')->load($csv_file_reference[0]['target_id']);
     }
+
+    // Fetch Zip file if any
+    $zip_file = NULL;
+    $zip_file_reference = $this->entity->get('zip_file')->getValue();
+    if (isset($zip_file_reference[0]['target_id'])) {
+      /** @var \Drupal\file\Entity\File $zip_file */
+      $zip_file = $this->entityTypeManager->getStorage('file')->load(
+        $zip_file_reference[0]['target_id']
+      );
+    }
     $data = new \stdClass();
     foreach($this->entity->get('set') as $item) {
       /* @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
       $data = $item->provideDecoded(FALSE);
     }
     if ($file && $data!== new \stdClass()) {
+
+      if (TRUE) {
+        $data_csv = clone $data;
+/*
+        $data->info = [
+          'csv_file' => The CSV File that will (or we hope so if well formed) generate multiple ADO Queue items
+       'csv_file_name' => Only present if this is called not from the root
+       'set_id' => The Set id
+       'uid' => The User ID that processed the Set
+       'set_url' => A direct URL to the set.
+        'action' => The action to run
+       'action_config' => An array of additional configs/settings the particular action takes.
+        'attempt' => The number of attempts to process. We always start with a 1
+       'zip_file' => Zip File/File Entity
+       'queue_name' => because well ... we use Hydroponics too
+       'time_submitted' => Timestamp on when the queue was send. All Entries will share the same
+       'batch_size' =>  the number of ADOs to process via a batch action. Some actions like delete can/should handle multiple UUIDs at the same time in a single Queue item
+     ];
+*/
+        // Overrides the original OP
+        $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
+          ->toString();
+
+        $run_timestamp = $this->time->getCurrentTime();
+        $data_csv->pluginconfig->op = "action";
+        $data_csv->info = [
+          'zip_file' => $zip_file,
+          'csv_file' => $file,
+          'set_id' => $this->entity->id(),
+          'uid' => $this->currentUser()->id(),
+          'action' => 'delete',
+          'action_config' => [],
+          'set_url' => $SetURL,
+          'attempt' => 1,
+          'queue_name' => 'ami_action_ado',
+          'time_submitted' => $run_timestamp,
+          'batch_size' => 25
+        ];
+        \Drupal::queue('ami_csv_ado')
+          ->createItem($data_csv);
+        $form_state->setRedirectUrl($this->getCancelUrl());
+      }
+      else {
       // Only UUIDs you can delete will be added.
+      // 0.9.0 Change: This method now returns UUIDs in the keys. The values are/if any/children CSVs.
       $data->info['uid'] = $this->currentUser()->id();
-      $uuids = $this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data, 'delete');
+      $uuids = array_keys($this->AmiUtilityService->getProcessedAmiSetNodeUUids($file, $data, 'delete'));
+      $uuids = array_unique($uuids);
       if (empty($uuids)) {
         $form_state->setRebuild();
         $this->messenger()->addWarning(
@@ -99,7 +154,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         $operations[] = ['\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchDelete'
           , [$batch_data_uuid]];
       }
-      // Setup and define batch informations.
+      // Setup and define batch information.
       $batch = array(
         'title' => t('Deleting ADOs in batch...'),
         'operations' => $operations,
@@ -109,6 +164,8 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
       $this->entity->save();
       $form_state->setRedirectUrl($this->getCancelUrl());
       batch_set($batch);
+    }
+
     } else {
       $this->messenger()->addError(
         $this->t('So Sorry. Ami Set @label has incorrect Metadata and/or has its CSV file missing. We need it to know which ADOs where generated via this Set. Please correct or manually delete your ADOs.',
@@ -145,8 +202,6 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         );
         return $form;
       }
-
-
       $form['delete_enqueued'] = [
         '#type' => 'fieldset',
         '#title' => $this->t('Delete Ingested ADOs via this Set'),

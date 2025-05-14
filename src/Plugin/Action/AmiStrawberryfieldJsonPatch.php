@@ -17,6 +17,7 @@ use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInter
  * @Action(
  *   id = "entity:ami_jsonpatch_action",
  *   action_label = @Translation("JSON Patch Metadata for Archipelago Digital Objects"),
+ *   label = @Translation("JSON Patch Metadata for Archipelago Digital Objects"),
  *   category = @Translation("AMI Metadata"),
  *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
  *   type = "node",
