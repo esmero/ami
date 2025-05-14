@@ -204,7 +204,6 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
           ['@label' => $entity->label()]);
       }
       $results[] = $result;
-      //$this->context['sandbox']['processed']++;
     }
     $this->saveRows($results);
     $response[] =  $this->t("@total successfully processed items in batch @batch",
@@ -215,7 +214,10 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
     // Generate the output file if the last row has been processed.
     if (!isset($this->context['sandbox']['total']) || ($this->context['sandbox']['processed'] + $this->context['sandbox']['batch_size']) >= $this->context['sandbox']['total']) {
       $output = $this->generateOutput();
-      $this->sendToFile($output);
+      $message = $this->sendToFile($output);
+      if ($message) {
+        $response[] = $message;
+      }
       $response[] =  $this->t("CSV export done: @total items processed.",
         ['@total' => $this->context['sandbox']['total']]);
     }
@@ -362,10 +364,16 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
    *   The string that will be saved to a file.
    */
   protected function sendToFile($output) {
+    $message = NULL;
     if (!empty($output)) {
+      $ami_set = FALSE;
       $data['data'] = $output;
       $data['headers'] = $this->context['sandbox']['headers'];
-      $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid');
+      if ($this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
+        $ami_set = TRUE;
+      }
+      $logger_channel = (string) $this->context['sandbox']['logger_channel'] ?? 'ami';
+      $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid', TRUE, $ami_set, $logger_channel);
       if ($file_id && $this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $amisetdata = new \stdClass();
         $amisetdata->plugin = 'spreadsheet';
@@ -400,16 +408,21 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
         if ($amiset_id) {
           $url = Url::fromRoute('entity.ami_set_entity.canonical',
             ['ami_set_entity' => $amiset_id]);
+          $message = $this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
+            ['@url' => $url->toString()]);
           $this->messenger()
-            ->addStatus($this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
-              ['@url' => $url->toString()]));
+            ->addStatus($message);
         }
+        return $message;
       }
       else if ($this->configuration['create_ami_set'] && !$this->context['sandbox']['ado_type_exists']) {
+        $message = $this->t('AMI Set could not be created because object(s) are missing the type key.');
         $this->messenger()
-             ->addStatus($this->t('AMI Set could not be created because object(s) are missing the type key.'));
+             ->addStatus($message);
+        return $message;
       }
     }
+    return $message;
   }
 
 
