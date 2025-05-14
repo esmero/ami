@@ -47,6 +47,8 @@ class AmiUtilityService {
   use MessengerTrait;
   use StringTranslationTrait;
 
+  public const AMI_CSV_FOLDER = 'ami/csv';
+
   /**
    * @var array
    */
@@ -1015,10 +1017,10 @@ class AmiUtilityService {
     }
 
     if (!$subpath) {
-      $path = $wrapper.'ami/csv';
+      $path = $wrapper.static::AMI_CSV_FOLDER;
     }
     else {
-      $path = $wrapper.'ami/csv/'.$subpath;
+      $path = $wrapper.static::AMI_CSV_FOLDER.'/'.$subpath;
     }
     // Check if dealing with an existing file first
     if ($filename && is_file($filename) && $this->streamWrapperManager->isValidUri($filename)) {
@@ -1076,7 +1078,7 @@ class AmiUtilityService {
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE) {
+  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE, $permanent = TRUE, $logger_channel = 'ami') {
 
     //$temporary_directory = $this->fileSystem->getTempDirectory();
     // We should be allowing downloads for this from temp
@@ -1086,7 +1088,7 @@ class AmiUtilityService {
     // We just get a lot of access denied in temporary:// and in private://
     // Solution either attach to an entity SOFORT so permissions can be
     // inherited or create a custom endpoint like '\Drupal\format_strawberryfield\Controller\IiifBinaryController::servetempfile'
-    $path = 'public://ami/csv';
+    $path = 'private://'.static::AMI_CSV_FOLDER;
     $filename = $this->currentUser->id() . '-' . uniqid() . '.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
@@ -1165,14 +1167,16 @@ class AmiUtilityService {
     $fh = NULL;
     // Notify the filesystem of the size change
     $file->setSize($size);
-    $file->setPermanent();
+    if ($permanent) {
+      $file->setPermanent();
+    }
     $file->save();
 
     // Tell the user where we have it.
     $message = $this->t(
       'Your source data was saved by AMI and is available as CSV at. <a href="@url">@filename</a>.',
       [
-        '@url' => \Drupal::service('file_url_generator')->generateAbsoluteString($file->getFileUri()),
+        '@url' => \Drupal::service('file_url_generator')->generateString($file->getFileUri()),
         '@filename' => $file->getFilename(),
       ]
     );
@@ -1427,7 +1431,7 @@ class AmiUtilityService {
     }
     $url = $wrapper->getUri();
     // New temp file for the output
-    $path = 'public://ami/csv';
+    $path = 'public://'.static::AMI_CSV_FOLDER;
     $filenametemp = $this->currentUser->id() . '-' . uniqid() . '_clean.csv';
     // Ensure the directory
     if (!$this->fileSystem->prepareDirectory(
