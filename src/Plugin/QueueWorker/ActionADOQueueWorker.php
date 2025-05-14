@@ -14,6 +14,7 @@ use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\Session\AccountSwitcherInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionManager;
@@ -395,12 +396,14 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         if ($action && \method_exists($action, 'setContext')) {
           $context_keystore_id = 'ami_action_' . $data->info['set_id'] . '_' . $data->info['time_submitted'];
           // We set current_batch 0 so we can increment upfront?
+          // We also add a custom logger_channel wich
           $context = [
             'sandbox' => [
               'processed' => 0,
               'total' => 0,
               'page' => 0,
               'current_batch' => 1,
+              'logger_channel' => 'ami_file'
             ],
             'results' => [
               'operations' => [],
@@ -459,10 +462,15 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // by the original size. If not the Batch will basically never be assumed as DONE
           $results = array_filter($results);
           foreach ($results as $result) {
-            $this->loggerFactory->get('ami_file')->info($result, [
-              'setid' => $data->info['set_id'] ?? NULL,
-              'time_submitted' => $data->info['time_submitted'] ?? '',
-            ]);
+            // No idea why some results have the translation/others not
+            // So .. we will cast to string
+            if (is_object($result) && $result instanceof TranslatableMarkup) {
+              $result = (string) $result;
+              $this->loggerFactory->get('ami_file')->info($result, [
+                'setid' => $data->info['set_id'] ?? NULL,
+                'time_submitted' => $data->info['time_submitted'] ?? '',
+              ]);
+            }
           }
           $success = TRUE;
         }
