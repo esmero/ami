@@ -197,7 +197,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       $form['process_enqueued'] = [
         '#type' => 'fieldset',
         '#title' => $this->t('Execute Action on Referenced ADOs via this Set'),
-        '#description' => $this->t('Confirming will trigger a Batch Action processing for already ingested ADOs referenced by this AMI set you have permission to act on.'),
+        '#description' => $this->t('Confirming will trigger background enqueued action processing for already ingested ADOs referenced by this AMI set you have permission to act on. The background Queue will automatically be triggered via Hydroponics if configured so. If not you can use the system Queue UI to trigger them.'),
       ];
       foreach ($this->actionManager->getDefinitions() as $id => $definition) {
         if (empty($definition['type']) || \in_array($definition['type'], ['node'], TRUE)) {
@@ -215,7 +215,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       $form['ami_select_action'] = [
         '#type' => 'select',
         '#title' => $this->t('Execute Action on Ingested ADOs via this Set'),
-        '#description' => $this->t('Confirming will trigger a Batch Action processing for already ingested ADOs you have permission to act on.'),
+        '#description' => $this->t('Actions will be enqueued. Each queue Item will hold maximum 25 ADOs.'),
         "#empty_option" =>t('- Select One -'),
         '#options' => $action_options,
         '#ajax' => $ajax ,
@@ -228,10 +228,6 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       if (!empty($pluginid))  {
         $action = $this->actionManager->createInstance($pluginid, []);
 
-       /* if (\method_exists($action, 'setContext')) {
-          $action->setContext($form_data);
-        }
-       */
         if (\method_exists($action, 'buildConfigurationForm')) {
           $elements = $action->buildConfigurationForm([], $form_state);
           $form = $form + $elements;
