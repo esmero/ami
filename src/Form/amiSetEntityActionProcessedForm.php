@@ -215,7 +215,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       $form['ami_select_action'] = [
         '#type' => 'select',
         '#title' => $this->t('Execute Action on Ingested ADOs via this Set'),
-        '#description' => $this->t(''#description' => $this->t('Actions will be enqueued. The Actions queue will be parsed in batches of 25 ADOs/CSV Rows at a time, noted as a single queue entry.'),
+        '#description' => $this->t('Actions will be enqueued. The Actions queue will be parsed in batches of 25 ADOs/CSV Rows at a time, noted as a single queue entry.'),
         "#empty_option" =>t('- Select One -'),
         '#options' => $action_options,
         '#ajax' => $ajax ,
