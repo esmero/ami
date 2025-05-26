@@ -218,8 +218,10 @@ class GoogleSheetImporter extends SpreadsheetImporter {
         return $array_item;
       };
 
-      $rowHeaders_utf8 = array_map($cleanStrings, $rowHeaders);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map($cleanStrings, $rowHeaders ?? []);
+      foreach($rowHeaders_utf8 as &$header) {
+        $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : utf8_encode($header);
+      }
       $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
       $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
 
