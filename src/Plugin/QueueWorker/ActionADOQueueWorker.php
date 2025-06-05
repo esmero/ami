@@ -358,8 +358,8 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         try {
           if (count($existing)) {
             $this->entityTypeManager->getStorage('node')->delete($existing);
-            $message = $this->t('Deleting UUIDs @uuid via Set @setid.', [
-              '@uuid' => array_keys($existing),
+            $message = $this->t('Deleting Node IDs @node via Set @setid.', [
+              '@node' => implode(",", array_keys($existing)),
               '@setid' => $data->info['set_id'],
               '@action' => $data->info['action'],
             ]);
@@ -370,7 +370,7 @@ class ActionADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             $success = TRUE;
           }
         }
-        catch (EntityStorageException $e) {
+        catch (\Exception $e) {
           $message = $this->t('Error executing @action on ADOs via Set @setid.', [
             '@setid' => $data->info['set_id'],
             '@action' => $data->info['action'],
