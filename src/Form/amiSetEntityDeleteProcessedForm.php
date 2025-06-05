@@ -116,7 +116,9 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         // Overrides the original OP
         $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
           ->toString();
-
+        // Actions are now processed in the same Ingest queue to ensure order
+        // of appearance/operation order.
+        $queue_name = 'ami_ingest_ado';
         $run_timestamp = $this->time->getCurrentTime();
         $data_csv->pluginconfig->op = "action";
         $data_csv->info = [
@@ -128,7 +130,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
           'action_config' => [],
           'set_url' => $SetURL,
           'attempt' => 1,
-          'queue_name' => 'ami_action_ado',
+          'queue_name' => $queue_name,
           'time_submitted' => $run_timestamp,
           'batch_size' => 25
         ];

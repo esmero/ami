@@ -146,7 +146,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
         // Overrides the original OP
         $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
           ->toString();
-
+        $queue_name = 'ami_ingest_ado';
         $run_timestamp = $this->time->getCurrentTime();
         $data_csv->pluginconfig->op = "action";
         $data_csv->info = [
@@ -158,7 +158,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
           'action_config' => $action_config ?? [],
           'set_url' => $SetURL,
           'attempt' => 1,
-          'queue_name' => 'ami_action_ado',
+          'queue_name' => $queue_name,
           'time_submitted' => $run_timestamp,
           'batch_size' => 25
         ];
