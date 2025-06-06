@@ -218,12 +218,12 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
               'action_config' => $data->info['action_config'] ?? [],
               'set_url' => $data->info['set_url'],
               'attempt' => 1,
-              'queue_name' => "ami_action_ado",
+              'queue_name' => "ami_ingest_ado",
               'time_submitted' => $data->info['time_submitted'],
               'batch_size' => $data->info['batch_size'] ?? 10,
               'batch_total' => count($uuids),
             ];
-            $added[] = \Drupal::queue("ami_action_ado")
+            $added[] = \Drupal::queue("ami_ingest_ado")
               ->createItem($adodata);
           }
           foreach ($uuids_and_csvs as $uuid => $children_csvs) {
