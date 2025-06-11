@@ -1622,11 +1622,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         // no entities were found or are accesible, or any logic that depends on
         // data actually existing will fail.
         if (count($existing) || ($context && $context_keystore_id) ) {
-          $results = $action->executeMultiple($existing);
+          $results = $action->executeMultiple($existing) ?? [];
           // Increment the current batch
           // Even if nothing was processed, or we did not have permissions we will increment the processed
           // by the original size. If not the Batch will basically never be assumed as DONE
-          $results = array_filter($results);
+          $results = array_filter($results ?? []);
           foreach ($results as $result) {
             // No idea why some results have the translation/others not
             // So .. we will cast to string

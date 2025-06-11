@@ -102,7 +102,9 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       if (\method_exists($action, 'buildConfigurationForm')) {
         $action->submitConfigurationForm($form, $form_state);
       }
-      $action_config = $action->getConfiguration();
+      if (\method_exists($action, 'getConfiguration')) {
+        $action_config = $action->getConfiguration();
+      }
     }
     else {
       $form_state->setErrorByName('ami_select_action', $this->t('You need to select an Action'));
