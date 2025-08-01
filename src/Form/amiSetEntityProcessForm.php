@@ -92,6 +92,16 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
     $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
 
+    // Normalize Un Moderadet Statuses if 0 and 1
+    foreach ($statuses as $bundle => &$value) {
+      if ($value == "1") {
+        $value = 1;
+      }
+      elseif ($value == "0") {
+        $value = 0;
+      }
+    }
+
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
@@ -439,7 +449,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             '#disabled' => TRUE,
             '#title' => $this->t('Update Operation'),
             '#description' => $this->t(
-              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+              'Please review the <a href="https://docs.archipelago.nyc/1.5.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update_sync,
             '#default_value' => 'update',
             '#wrapper_attributes' => [
@@ -494,11 +504,11 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           '#tree' => TRUE,
           '#type' => 'checkbox',
           '#title' => $this->t(
-            'Do not modify ADOs Status at all.'
+            'Do not modify ADOs Status.'
           ),
           '#weigth' => 100,
           '#description' => $this->t(
-            'If checked, "Desired ADOs Statuses will have no effect on existing ADOs.". Use this if you have manually unpublished/published ADOs that are part of this AMI set before and you want to presenve those decisions.'
+            'If checked, "Desired ADOs statuses" will be ignored, effectively preserving the already ingested ADOs status.'
           ),
           '#parents' => ['status_keep'],
           '#required' => FALSE,
@@ -507,7 +517,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       }
       if ($op == 'sync') {
         $form['status']['status_keep']['#title'] = $this->t(
-          'Do not modify ADOs Status of already existing ADOs, but Newly created ones via this AMI set will get your chosen status.'
+          'Do not modify the Status of already existing ADOs.'
+        );
+        $form['status']['status_keep']['#description'] = $this->t(
+          'If checked, Only newly created ADOs will have the chosen status applied.'
         );
       }
 
@@ -646,7 +659,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     if (empty($element)) {
       $element =  [
         '#type' => 'container',
-        'state' => [
+        $bundle  => [
           '#type' => 'select',
           '#title' => $this->t('Status for @bundle', ['@bundle' => $bundle_label]),
           '#options' => [
