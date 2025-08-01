@@ -818,6 +818,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
+    // This is tricky. String 1 v/s integer one
+    if ($status == "1") {
+      $status = 1;
+    }
+    if ($status == "0") {
+      $status = 0;
+    }
     $status_keep = $data->info['status_keep'] ?? FALSE;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
