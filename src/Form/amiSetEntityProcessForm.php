@@ -92,6 +92,16 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
     $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
 
+    // Normalize Un Moderadet Statuses if 0 and 1
+    foreach ($statuses as $bundle => &$value) {
+      if ($value == "1") {
+        $value = 1;
+      }
+      elseif ($value == "0") {
+        $value = 0;
+      }
+    }
+
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */

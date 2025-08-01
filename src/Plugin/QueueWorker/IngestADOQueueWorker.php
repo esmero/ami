@@ -818,6 +818,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
+    // This is tricky. String 1 v/s integer one
+    if ($status == "1") {
+      $status = 1;
+    }
+    if ($status == "0") {
+      $status = 0;
+    }
     $status_keep = $data->info['status_keep'] ?? FALSE;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
@@ -881,6 +888,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           if ($status && is_string($status) && $status_keep == FALSE) {
             $node->set('moderation_state', $status);
             $status = 0;
+            error_log('moderated');
           }
           /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
           if (!$field->isEmpty()) {
@@ -1061,12 +1069,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // Publish status keep is FALSE
           if ($op == 'update' && $status_keep == FALSE) {
             $node->setPublished();
+            error_log('publishing');
           }
         }
         elseif (!isset($nodeValues['moderation_state'])) {
           // Only unpublish if not moderated and status keep is FALSE.
           if ($op == 'update' && $status_keep == FALSE) {
             $node->setUnpublished();
+            error_log('unpublishing');
           }
         }
         $node->save();
