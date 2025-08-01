@@ -88,6 +88,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
+    $status_keep = $form_state->getValue('status_keep', FALSE) ? TRUE : FALSE;
     $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
     $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
 
@@ -119,7 +120,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         ->toString();
 
       $run_timestamp = $this->time->getCurrentTime();
-
 
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = $queue_name_background = 'ami_ingest_ado';
@@ -153,6 +153,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'set_id' => $this->entity->id(),
           'uid' => $this->currentUser()->id(),
           'status' => $statuses,
+          'status_keep' => $status_keep ? TRUE: FALSE,
           'op_secondary' => $op_secondary,
           'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
           'log_jsonpatch' => FALSE,
@@ -212,6 +213,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'set_id' => $this->entity->id(),
             'uid' => $this->currentUser()->id(),
             'status' => $statuses,
+            'status_keep' => $status_keep ? TRUE : FALSE,
             'op_secondary' => $op_secondary,
             'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
             'log_jsonpatch' => FALSE,
@@ -428,7 +430,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'ops_safefiles' => [
             '#type' => 'checkbox',
             '#title' => $this->t("Do not touch existing files"),
-            '#description' => $this->t("Sync Operations are not file save, and any existing ADO to be updated will get their files replaced."),
+            '#description' => $this->t("Sync Operations are not file safe, and any existing ADO to be updated will get their files replaced."),
             '#default_value' => FALSE,
             '#disabled' => TRUE,
           ],
@@ -486,10 +488,29 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ]
         ),
       ];
-      if ($op == 'sync') {
-        $form['status']['#title'] = $this->t('Desired statuses for newly created ADOs, after this <em><b>@op</b></em> operation process. Existing ones that are to be updated will keep their status.',
-          ['@op' => $op]);
+
+      if ($op == 'sync' || $op == 'update') {
+        $form['status']['status_keep'] = [
+          '#tree' => TRUE,
+          '#type' => 'checkbox',
+          '#title' => $this->t(
+            'Do not modify ADOs Status at all.'
+          ),
+          '#weigth' => 100,
+          '#description' => $this->t(
+            'If checked, "Desired ADOs Statuses will have no effect on existing ADOs.". Use this if you have manually unpublished/published ADOs that are part of this AMI set before and you want to presenve those decisions.'
+          ),
+          '#parents' => ['status_keep'],
+          '#required' => FALSE,
+          '#default_value' => FALSE,
+        ];
       }
+      if ($op == 'sync') {
+        $form['status']['status_keep']['#title'] = $this->t(
+          'Do not modify ADOs Status of already existing ADOs, but Newly created ones via this AMI set will get your chosen status.'
+        );
+      }
+
       $access = TRUE;
       foreach($bundles as $propertypath) {
         // First Check which SBF bearing bundles the user has access to.
@@ -510,9 +531,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.'
+            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are not existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.'
           ),
         ];
+        unset($form['status_keep']);
         return $form;
       }
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
