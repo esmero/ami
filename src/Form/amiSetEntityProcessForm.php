@@ -646,7 +646,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     if (empty($element)) {
       $element =  [
         '#type' => 'container',
-        'state' => [
+        $bundle  => [
           '#type' => 'select',
           '#title' => $this->t('Status for @bundle', ['@bundle' => $bundle_label]),
           '#options' => [
