@@ -95,7 +95,11 @@ class EADSyncImporter extends SpreadsheetImporter {
       '#default_value' => $form_state->getValue(array_merge($parents, ['op'])),
       '#empty_option' => $this->t('- Please select an Operation -'),
     ];
-
+    $uuid_seed = $form_state->getValue(array_merge($parents,
+      ['eadsync_config', 'uuidV5seed'])) ?? '';
+    if (is_scalar($uuid_seed)) {
+      $uuid_seed = trim($uuid_seed);
+    }
     $form['eadsync_config'] = [
       '#prefix' => '<div id="ami-eadsync">',
       '#suffix' => '</div>',
@@ -104,16 +108,23 @@ class EADSyncImporter extends SpreadsheetImporter {
       '#title' => 'EAD Sync Configuration',
       'uuidV5seed' => [
         '#type' => 'textfield',
+        '#maxlength' => 36,
         '#required' => TRUE,
         '#title' => $this->t('A UUIDv4 to be used as Seed to generate consistent UUIDv5 for Each ADO, Components (top) and Containers (Children), across multiple Ingest/Update operations.'),
         '#description' => $this->t('This value needs to be the same everytime a sync Operation runs to ensure EAD XML processed and their containers preserve their UUIDs and can be identified and marked for Update or deletion'),
-        '#default_value' => $form_state->getValue(array_merge($parents,
-          ['eadsync_config', 'uuidV5seed'])),
+        '#default_value' => $uuid_seed,
+        '#element_validate' => [[static::class,'EADSyncUuidValidation']]
       ],
     ];
     return $form;
   }
 
+  public static function EADSyncUuidValidation(&$element, FormStateInterface $form_state, $complete_form) {
+    $uuid = $element['#value'];
+   if (!Uuid::isValid($uuid)) {
+      $form_state->setError($element, t('UUIDv4 is invalid'));
+    }
+  }
 
   /**
    * {@inheritdoc}
