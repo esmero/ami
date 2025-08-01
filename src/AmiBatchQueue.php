@@ -6,6 +6,7 @@ namespace Drupal\ami;
 use Drupal\Core\Queue\RequeueException;
 use Drupal\Core\Queue\SuspendQueueException;
 use Drupal\Core\Render\Markup;
+use Drupal\Core\Utility\Error;
 
 /**
  * Batch Class to process a AMI Sets
@@ -48,9 +49,10 @@ class AmiBatchQueue {
     $context['results']['queue_name']  = $queue_name;
     $context['results']['queue_label'] = 'AMI Set '. ($set_id ?? '');
 
-
+    $logger = \Drupal::logger('ami');
 
     try {
+
       // Only process Items of this Set if $context['set_id'] is set.
       if ($item = $queue->claimItem()) {
         // Let's figure out the type of queue running here, ADO or Attached file
@@ -92,8 +94,8 @@ class AmiBatchQueue {
       if (isset($item)) {
         $queue->releaseItem($item);
       }
+      Error::logException($logger, $e);
 
-      watchdog_exception('ami', $e);
       $context['results']['errors'][] = $e->getMessage();
 
       // Marking the batch job as finished will stop further processing.
@@ -101,7 +103,7 @@ class AmiBatchQueue {
     } catch (\Exception $e) {
       // In case of any other kind of exception, log it and leave the item
       // in the queue to be processed again later.
-      watchdog_exception('ami', $e);
+      Error::logException($logger, $e);
       $context['results']['errors'][] = $e->getMessage();
     }
   }
