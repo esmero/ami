@@ -207,7 +207,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
       $form['delete_enqueued'] = [
         '#type' => 'fieldset',
         '#title' => $this->t('Delete Ingested ADOs via this Set'),
-        '#description' => $this->t('Confirming will trigger a Batch Delete for already ingested ADOs you have permission to delete.'),
+        '#description' => $this->t('Confirming will trigger an Enqueued Batch Delete (not real time) for already ingested ADOs you have permission to delete.'),
       ];
     }
     return $form + parent::buildForm($form, $form_state);
