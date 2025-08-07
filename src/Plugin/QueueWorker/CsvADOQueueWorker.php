@@ -142,11 +142,11 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           ];
           // Overrides in case we are in a sync operation.
           $valid_op = TRUE;
+          $skip = FALSE;
           if ($data->pluginconfig->op == 'sync') {
             // Important we will move the data driven (ami_sync_op) info the que info
             // structure secondary.
             // Fixed key:
-            $skip = FALSE;
             $sync_op = $item['data']['ami_sync_op'] ?? 'create';
               if ($sync_op === 'create') {
                 $adodata->info['op_secondary'] = 'create';
