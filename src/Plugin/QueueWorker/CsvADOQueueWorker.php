@@ -41,6 +41,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.
         'status' => Either a string (moderation state) or a 1/0 for published/unpublished if not moderated
+        'status_keep' => If the current status should be kept or not. Only applies to existing ADOs via either Update or Sync Ops.
         'op_secondary' => applies only to Update/Patch operations. Can be one of 'update','replace','append'
         'ops_safefiles' => Boolean, True if we will not allow files/mappings to be removed/we will keep them warm and safe
         'log_jsonpatch' => If for Update operations we will generate a single PER ADO Log with a full JSON Patch,
@@ -124,6 +125,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
             'row' => $item,
             'set_id' => $data->info['set_id'],
             'uid' => $data->info['uid'],
+            'status_keep' => $data->info['status_keep'] ?? FALSE,
             'status' => $data->info['status'],
             'op_secondary' => $data->info['op_secondary'] ?? NULL,
             'ops_safefiles' => $data->info['ops_safefiles'] ? TRUE : FALSE,
@@ -140,11 +142,11 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           ];
           // Overrides in case we are in a sync operation.
           $valid_op = TRUE;
+          $skip = FALSE;
           if ($data->pluginconfig->op == 'sync') {
             // Important we will move the data driven (ami_sync_op) info the que info
             // structure secondary.
             // Fixed key:
-            $skip = FALSE;
             $sync_op = $item['data']['ami_sync_op'] ?? 'create';
               if ($sync_op === 'create') {
                 $adodata->info['op_secondary'] = 'create';

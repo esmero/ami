@@ -88,8 +88,19 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function submitForm(array &$form, FormStateInterface $form_state) {
     $manyfiles = $this->configFactory()->get('strawberryfield.filepersister_service_settings')->get('manyfiles') ?? 0;
     $statuses = $form_state->getValue('status', []);
+    $status_keep = $form_state->getValue('status_keep', FALSE) ? TRUE : FALSE;
     $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
     $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
+
+    // Normalize Un Moderadet Statuses if 0 and 1
+    foreach ($statuses as $bundle => &$value) {
+      if ($value == "1") {
+        $value = 1;
+      }
+      elseif ($value == "0") {
+        $value = 0;
+      }
+    }
 
     $csv_file_reference = $this->entity->get('source_data')->getValue();
     if (isset($csv_file_reference[0]['target_id'])) {
@@ -119,7 +130,6 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         ->toString();
 
       $run_timestamp = $this->time->getCurrentTime();
-
 
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
       $queue_name = $queue_name_background = 'ami_ingest_ado';
@@ -153,6 +163,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'set_id' => $this->entity->id(),
           'uid' => $this->currentUser()->id(),
           'status' => $statuses,
+          'status_keep' => $status_keep ? TRUE: FALSE,
           'op_secondary' => $op_secondary,
           'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
           'log_jsonpatch' => FALSE,
@@ -212,6 +223,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'set_id' => $this->entity->id(),
             'uid' => $this->currentUser()->id(),
             'status' => $statuses,
+            'status_keep' => $status_keep ? TRUE : FALSE,
             'op_secondary' => $op_secondary,
             'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
             'log_jsonpatch' => FALSE,
@@ -428,7 +440,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           'ops_safefiles' => [
             '#type' => 'checkbox',
             '#title' => $this->t("Do not touch existing files"),
-            '#description' => $this->t("Sync Operations are not file save, and any existing ADO to be updated will get their files replaced."),
+            '#description' => $this->t("Sync Operations are not file safe, and any existing ADO to be updated will get their files replaced."),
             '#default_value' => FALSE,
             '#disabled' => TRUE,
           ],
@@ -437,7 +449,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             '#disabled' => TRUE,
             '#title' => $this->t('Update Operation'),
             '#description' => $this->t(
-              'Please review the <a href="https://docs.archipelago.nyc/1.4.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
+              'Please review the <a href="https://docs.archipelago.nyc/1.5.0/ami_update/">AMI Update Sets Documentation</a> before proceeding, and consider first testing your planned updates against a single row/object CSV before executing updates across a larger batch of objects. There is no "undo" operation for AMI Update Sets.'),
             '#options' => $ops_update_sync,
             '#default_value' => 'update',
             '#wrapper_attributes' => [
@@ -486,10 +498,32 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ]
         ),
       ];
-      if ($op == 'sync') {
-        $form['status']['#title'] = $this->t('Desired statuses for newly created ADOs, after this <em><b>@op</b></em> operation process. Existing ones that are to be updated will keep their status.',
-          ['@op' => $op]);
+
+      if ($op == 'sync' || $op == 'update') {
+        $form['status']['status_keep'] = [
+          '#tree' => TRUE,
+          '#type' => 'checkbox',
+          '#title' => $this->t(
+            'Do not modify ADOs Status.'
+          ),
+          '#weigth' => 100,
+          '#description' => $this->t(
+            'If checked, "Desired ADOs statuses" will be ignored, effectively preserving the already ingested ADOs status.'
+          ),
+          '#parents' => ['status_keep'],
+          '#required' => FALSE,
+          '#default_value' => FALSE,
+        ];
       }
+      if ($op == 'sync') {
+        $form['status']['status_keep']['#title'] = $this->t(
+          'Do not modify the Status of already existing ADOs.'
+        );
+        $form['status']['status_keep']['#description'] = $this->t(
+          'If checked, Only newly created ADOs will have the chosen status applied.'
+        );
+      }
+
       $access = TRUE;
       foreach($bundles as $propertypath) {
         // First Check which SBF bearing bundles the user has access to.
@@ -510,9 +544,10 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are non existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.'
+            'Sorry. You have either no permissions to create ADOs of some configured <em>bundles</em> (Content Types) or the <em>bundles</em> are not existent in this system. Correct your CSV data or ask for access. You can also ask an administrator to process the set for you.'
           ),
         ];
+        unset($form['status_keep']);
         return $form;
       }
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
@@ -624,7 +659,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     if (empty($element)) {
       $element =  [
         '#type' => 'container',
-        'state' => [
+        $bundle  => [
           '#type' => 'select',
           '#title' => $this->t('Status for @bundle', ['@bundle' => $bundle_label]),
           '#options' => [

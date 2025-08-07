@@ -269,6 +269,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.
         'status' => Either a string (moderation state) or a 1/0 for published/unpublished if not moderated
+        'status_keep' => If the current status should be kept or not. Only applies to existing ADOs via either Update or Sync Ops.
         'op_secondary' => applies only to Update/Patch operations. Can be one of 'update','replace','append'
         'ops_safefiles' => Boolean, True if we will not allow files/mappings to be removed/we will keep them warm and safe
         'log_jsonpatch' => If for Update operations we will generate a single PER ADO Log with a full JSON Patch,
@@ -817,6 +818,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
+    // This is tricky. String 1 v/s integer one
+    if ($status == "1") {
+      $status = 1;
+    }
+    if ($status == "0") {
+      $status = 0;
+    }
+    $status_keep = $data->info['status_keep'] ?? FALSE;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
     // We can't blindly override ap:tasks if we are dealing with an update operation. So make an exception here for only create
@@ -875,8 +884,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
           $field = $node->get($field_name);
-          // Ignore status for updates derived from sync ops.
-          if ($status && is_string($status) && $op_original !== 'sync') {
+          // Ignore status for updates if status_keep == TRUE.
+          if ($status && is_string($status) && $status_keep == FALSE) {
             $node->set('moderation_state', $status);
             $status = 0;
           }
@@ -1056,14 +1065,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
         // In case $status was not moderated.
         if ($status) {
-          // We won't change status for sync op that generate an update
-          if (!($op_original == 'sync' && $op == 'update')) {
+          // Publish status keep is FALSE
+          if ($op == 'update' && $status_keep == FALSE) {
             $node->setPublished();
           }
         }
         elseif (!isset($nodeValues['moderation_state'])) {
-          // Only unpublish if not moderated and not a sync -> update chain.
-          if (!($op_original == 'sync' && $op == 'update')) {
+          // Only unpublish if not moderated and status keep is FALSE.
+          if ($op == 'update' && $status_keep == FALSE) {
             $node->setUnpublished();
           }
         }

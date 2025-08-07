@@ -1915,6 +1915,9 @@ class AmiUtilityService {
     $account = $uid == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($uid);
 
     $file_data_all = $this->csv_read($file);
+    if (!$file_data_all) {
+      return [];
+    }
     // We want to validate here if the found Headers match at least the
     // Mapped ones during AMI setup. If not we will return an empty array
     // And send a Message to the user.
