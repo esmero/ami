@@ -992,21 +992,6 @@ class AmiUtilityService {
   }
 
   /**
-   * Returns the filename from a Content-Disposition header string.
-   *
-   * @param string $value
-   *
-   * @return string|null
-   *    Returns NULL if could not be parsed/empty
-   */
-  protected function getFilenameFromDisposition(string $value) {
-    $value = trim($value);
-
-    if (strpos($value, ';') === false) {
-      return NULL;
-    }
-
-  /**
    * Creates an empty CSV and returns a file.
    *
    * @param string|null $filename
