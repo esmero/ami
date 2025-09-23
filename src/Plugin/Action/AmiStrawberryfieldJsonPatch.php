@@ -10,6 +10,7 @@ use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
 use Drupal\Core\Plugin\PluginFormInterface;
 use Drupal\strawberryfield\Plugin\Action\StrawberryfieldJsonPatch;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInterface;
+use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Provides an action that can Modify Entity attached SBFs via JSON Patch.
