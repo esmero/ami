@@ -26,7 +26,8 @@
         "ramsey/uuid": "^4",
         "monolog/monolog": "^2.9",
         "ext-simplexml": "*",
-        "ext-libxml": "*"
+        "ext-libxml": "*",
+        "ext-intl" : "*"
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
