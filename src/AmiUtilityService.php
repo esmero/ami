@@ -40,6 +40,7 @@ use Drupal\Core\File\Exception\FileException;
 use SplFileObject;
 use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 use Drupal\Core\File\FileExists;
+use Normalizer;
 
 class AmiUtilityService {
 
@@ -701,8 +702,30 @@ class AmiUtilityService {
       }
       $z = new \ZipArchive();
       $contents = NULL;
+      // UTF-8 Normalization here
+      // See https://unicode.org/reports/tr15/#Introduction
+      $uri_form_c = Normalizer::normalize($uri, Normalizer::FORM_C);
+      $uri_form_d = Normalizer::normalize($uri, Normalizer::FORM_D);
+      $normalized = false;
+      if ($uri == $uri_form_c && $uri == $uri_form_d) {
+        $normalized = true;
+      }
+
       if ($z->open($zip_realpath)) {
         $fp = $z->getStream($uri);
+        if (!$fp && $normalized) {
+          return FALSE;
+        }
+        else {
+          if (!$fp) {
+            // try form c
+            $fp = $z->getStream($uri_form_c);
+            if (!$fp) {
+              // try form D (really edge case)
+              $fp = $z->getStream($uri_form_d);
+            }
+          }
+        }
         if (!$fp) {
           return FALSE;
         }
@@ -716,6 +739,7 @@ class AmiUtilityService {
       }
       else {
         // Opening the ZIP file failed.
+        // This might be OK if we also tried other options. Should we log it?
         return FALSE;
       }
     }
