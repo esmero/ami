@@ -28,6 +28,9 @@
         "ext-simplexml": "*",
         "ext-libxml": "*"
     },
+    "conflict": {
+        "drupal/views_bulk_operations":">4.3.4"
+    },
     "minimum-stability": "dev",
     "prefer-stable": true,
     "extra": {
