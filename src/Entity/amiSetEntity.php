@@ -84,6 +84,7 @@ use Drupal\user\Entity\User;
  *       "delete" = "Drupal\ami\Form\amiSetEntityDeleteForm",
  *       "process" = "Drupal\ami\Form\amiSetEntityProcessForm",
  *       "deleteprocessed" = "Drupal\ami\Form\amiSetEntityDeleteProcessedForm",
+ *       "actionprocessed" = "Drupal\ami\Form\amiSetEntityActionProcessedForm",
  *       "reconcile" = "Drupal\ami\Form\amiSetEntityReconcileForm",
  *       "editreconcile" = "Drupal\ami\Form\amiSetEntityReconcileCleanUpForm",
  *       "report" = "Drupal\ami\Form\amiSetEntityReportForm"
@@ -104,6 +105,7 @@ use Drupal\user\Entity\User;
  *     "edit-form" = "/amiset/{ami_set_entity}/edit",
  *     "process-form" = "/amiset/{ami_set_entity}/process",
  *     "delete-process-form" = "/amiset/{ami_set_entity}/deleteprocessed",
+ *     "action-form" = "/amiset/{ami_set_entity}/actionprocessed",
  *     "reconcile-form" = "/amiset/{ami_set_entity}/reconcile",
  *     "edit-reconcile-form" = "/amiset/{ami_set_entity}/editreconcile",
  *     "delete-form" = "/amiset/{ami_set_entity}/delete",

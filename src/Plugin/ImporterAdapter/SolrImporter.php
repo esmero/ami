@@ -9,6 +9,7 @@ use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\Utility\Error;
 use GuzzleHttp\ClientInterface;
 use Solarium\Core\Query\AbstractQuery as SolariumAbstractQuery;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -19,7 +20,7 @@ use Symfony\Component\EventDispatcher\EventDispatcher;
 use Drupal\file\Entity\File;
 
 /**
- * ADO importer from a remote Google Spreadsheet.
+ * ADO importer from a remote Solr (fedora) instance.
  *
  * @ImporterAdapter(
  *   id = "solr",
@@ -536,7 +537,7 @@ class SolrImporter extends SpreadsheetImporter {
       $result = $client->ping($ping);
       $ping_sucessful = $result->getData();
     } catch (\Exception $e) {
-      $form_state->setError($element,
+      $form_state->setErrorByName('solarium_config',
         $this->t('Ups. We could not contact your server. Check if your settings,ports,core,etc are correct and/or firewalls are open for this IP address. The error thrown is: @e',
         [
           '@e' => $e->getMessage()
@@ -1460,7 +1461,8 @@ class SolrImporter extends SpreadsheetImporter {
     } catch (\Exception $e) {
       // In case of any other kind of exception, log it and leave the item
       // in the queue to be processed again later.
-      watchdog_exception('ami', $e);
+      $logger = \Drupal::logger('ami');
+      Error::logException($logger, $e);
       $context['results']['errors'][] = $e->getMessage();
       $context['finished'] = 1;
     }

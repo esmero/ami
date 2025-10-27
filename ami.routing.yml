@@ -87,6 +87,15 @@ entity.ami_set_entity.delete_process_form:
   requirements:
     _entity_access: 'ami_set_entity.deleteados'
 
+entity.ami_set_entity.action_process_form:
+  path: '/amiset/{ami_set_entity}/actionprocessed'
+  defaults:
+    _entity_form: ami_set_entity.actionprocessed
+    _title: 'Run Action on Ami Set'
+  requirements:
+    _entity_access: 'ami_set_entity.actionados'
+
+
 entity.ami_set_entity.reconcile_form:
   path: '/amiset/{ami_set_entity}/reconcile'
   defaults:
@@ -121,5 +130,30 @@ ami.rowsbylabel.autocomplete:
     _format: json
   requirements:
     _entity_access: 'ami_set_entity.view'
+    _permission: 'access content'
+    _csrf_token: 'TRUE'
+ami.download_log:
+  path: '/amiset/{ami_set_entity}/report/download'
+  options:
+    parameters:
+      ami_set_entity:
+        type: 'entity:ami_set_entity'
+  defaults:
+    _controller: '\Drupal\ami\Entity\Controller\amiSetLogDownloadController::download'
+  requirements:
+    _entity_access: 'ami_set_entity.process'
+    _permission: 'access content'
+    _csrf_token: 'TRUE'
+
+ami.delete_log:
+  path: '/amiset/{ami_set_entity}/report/delete'
+  options:
+    parameters:
+      ami_set_entity:
+        type: 'entity:ami_set_entity'
+  defaults:
+    _controller: '\Drupal\ami\Entity\Controller\amiSetLogDeleteController::delete'
+  requirements:
+    _entity_access: 'ami_set_entity.process'
     _permission: 'access content'
     _csrf_token: 'TRUE'

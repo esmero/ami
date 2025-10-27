@@ -13,6 +13,7 @@ use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strawberryfield\Event\StrawberryfieldFileEvent;
 use Drupal\strawberryfield\StrawberryfieldEventType;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
@@ -25,13 +26,19 @@ use Swaggest\JsonDiff\JsonDiff;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use \Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Symfony\Component\EventDispatcher\EventDispatcherInterface;
+use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionManager;
+use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionProcessorInterface;
+use Drupal\Core\Session\AccountSwitcherInterface;
+use Drupal\Core\Access\AccessResultReasonInterface;
+use Drupal\Core\Action\ActionInterface;
+use Drupal\Core\Entity\EntityStorageException;
 
 /**
- * Processes and Ingests each AMI Set CSV row.
+ * Processes, Ingests and Run Actions on each AMI Set CSV row.
  *
  * @QueueWorker(
  *   id = "ami_ingest_ado",
- *   title = @Translation("AMI Digital Object Ingester Queue Worker")
+ *   title = @Translation("AMI Digital Object Ingester & Action Queue Worker")
  * )
  */
 class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginInterface {
@@ -95,6 +102,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    */
   protected $statusStore;
 
+
+  /**
+   * Private Store used to keep the Set Processing Status/count
+   *
+   * @var \Drupal\Core\TempStore\PrivateTempStore
+   */
+  protected $contextStore;
+
   /**
    * The AMI specific logger
    *
@@ -111,6 +126,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'create' => 'created',
     'update' => 'updated',
     'patch' => 'patched',
+    'sync' => 'synced',
   ];
 
   /**
@@ -119,6 +135,28 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @var EventDispatcherInterface
    */
   protected EventDispatcherInterface $eventDispatcher;
+
+  /**
+   * @var ViewsBulkOperationsActionManager
+   */
+  protected ViewsBulkOperationsActionManager $actionManager;
+
+  /**
+   * @var ViewsBulkOperationsActionProcessorInterface
+   */
+  protected ViewsBulkOperationsActionProcessorInterface $actionProcessor;
+
+  /**
+   * @var \Drupal\Core\TempStore\PrivateTempStoreFactory
+   */
+  protected PrivateTempStoreFactory $privateStoreFactory;
+
+  /**
+   * The current_user service used by this plugin.
+   *
+   * @var \Drupal\Core\Session\AccountSwitcherInterface|null
+   */
+  protected $accountSwitcher;
 
   /**
    * Constructor.
@@ -135,6 +173,9 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    * @param StrawberryfieldFilePersisterService $strawberry_filepersister
    * @param PrivateTempStoreFactory $temp_store_factory
    * @param EventDispatcherInterface $event_dispatcher
+   * @param \Drupal\ami\Plugin\QueueWorker\ViewsBulkOperationsActionManager $actionManager
+   * @param \Drupal\ami\Plugin\QueueWorker\ViewsBulkOperationsActionProcessorInterface $actionProcessor
+   * @param \Drupal\ami\Plugin\QueueWorker\AccountSwitcherInterface $accountSwitcher
    */
   public function __construct(
     array $configuration,
@@ -148,7 +189,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     MessengerInterface $messenger,
     StrawberryfieldFilePersisterService $strawberry_filepersister,
     PrivateTempStoreFactory $temp_store_factory,
-    EventDispatcherInterface $event_dispatcher
+    EventDispatcherInterface $event_dispatcher,
+    ViewsBulkOperationsActionManager $actionManager,
+    ViewsBulkOperationsActionProcessorInterface $actionProcessor,
+    AccountSwitcherInterface $accountSwitcher,
   ) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
@@ -160,7 +204,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $this->strawberryfilepersister = $strawberry_filepersister;
     $this->store = $temp_store_factory->get('ami_queue_worker_file');
     $this->statusStore = $temp_store_factory->get('ami_queue_status');
+    $this->contextStore = $temp_store_factory->get('ami_action_context');
     $this->eventDispatcher = $event_dispatcher;
+    $this->actionManager = $actionManager;
+    $this->actionProcessor = $actionProcessor;
+    $this->accountSwitcher = $accountSwitcher;
   }
 
   /**
@@ -173,12 +221,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @return static
    */
-  public static function create(
-    ContainerInterface $container,
-    array $configuration,
-                       $plugin_id,
-                       $plugin_definition
-  ) {
+  public static function create(ContainerInterface $container, array $configuration, $plugin_id, $plugin_definition) {
     return new static(
       empty($configuration) ? [] : $configuration,
       $plugin_id,
@@ -191,17 +234,21 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $container->get('messenger'),
       $container->get('strawberryfield.file_persister'),
       $container->get('tempstore.private'),
-      $container->get('event_dispatcher')
+      $container->get('event_dispatcher'),
+      $container->get('plugin.manager.views_bulk_operations_action'),
+      $container->get('views_bulk_operations.processor'),
+      $container->get('account_switcher')
     );
   }
 
   /**
    * {@inheritdoc}
    */
-  public function processItem($data) {
+  public function processItem($data)
+  {
     $log = new Logger('ami_file');
     $private_path = \Drupal::service('stream_wrapper_manager')->getViaUri('private://')->getDirectoryPath();
-    $handler = new StreamHandler($private_path.'/ami/logs/set'.$data->info['set_id'].'.log', Logger::DEBUG);
+    $handler = new StreamHandler($private_path . '/ami/logs/set' . $data->info['set_id'] . '.log', Logger::DEBUG);
     $handler->setFormatter(new JsonFormatter());
     $log->pushHandler($handler);
     // This will add the File logger not replace the DB
@@ -211,6 +258,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // it simple for now.
     $this->loggerFactory->get('ami_file')->setLoggers([[$log]]);
 
+    /* $data will  contain a pluginconfig Object with at least
+        $data->pluginconfig->op;
+        // op --> action is handled differently
+    */
     /* Data info for an ADO has this structure
       $data->info = [
         'row' => The actual data
@@ -218,6 +269,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'uid' => The User ID that processed the Set
         'set_url' => A direct URL to the set.
         'status' => Either a string (moderation state) or a 1/0 for published/unpublished if not moderated
+        'status_keep' => If the current status should be kept or not. Only applies to existing ADOs via either Update or Sync Ops.
         'op_secondary' => applies only to Update/Patch operations. Can be one of 'update','replace','append'
         'ops_safefiles' => Boolean, True if we will not allow files/mappings to be removed/we will keep them warm and safe
         'log_jsonpatch' => If for Update operations we will generate a single PER ADO Log with a full JSON Patch,
@@ -251,34 +303,86 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       ];
     */
 
+    // Actions will go their own way into the processAction() method.
+    if ($data->pluginconfig->op === "action") {
+      $message = $this->t('Attempting to process SET @setid with action @action for ADO UUIDs @uuids.',
+        [
+          '@setid' => $data->info['set_id'],
+          '@action' => $data->info['action'],
+          '@uuids' => implode(",", $data->info['uuids'] ?? []),
+        ]);
+      $this->loggerFactory->get('ami_file')->info($message, [
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+
+      if ($this->processAction($data) === FALSE) {
+        $message = $this->t('Action Processing SET @setid with action @action for ADO UUIDs @uuids failed',
+          [
+            '@setid' => $data->info['set_id'],
+            '@action' => $data->info['action'],
+            '@uuids' => implode(",", $data->info['uuids'] ?? []),
+          ]);
+        $this->loggerFactory->get('ami_file')->warning($message, [
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
+      }
+      return;
+    }
+
+
     // This will simply go to an alternate processing on this same Queue Worker
     // Just for files.
     if (!empty($data->info['filename']) && !empty($data->info['file_column']) && !empty($data->info['processed_row'])) {
       $this->processFile($data);
       return;
     }
+    // CSV (nested ones) can not be processed as "pre-files", but still need to be processed as files.
+    // There might be an edge case where the user decides that the CSV that generated the children
+    // Should also be attached to the parent ADO.Still, we need to be sure the ADO itself was persisted
+    // (either here or already existed!) before treating the CSV as a source for children objects.
 
-    if (!$this->canProcess($data)) {
-      return;
+    $file_csv_columns = [];
+    if ($data->mapping->globalmapping == "custom") {
+      $csv_file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files_csv ?? NULL;
+    } else {
+      $csv_file_object = $data->mapping->globalmapping_settings->files_csv ?? NULL;
     }
 
+    if ($csv_file_object && is_object($csv_file_object)) {
+      $file_csv_columns = array_values(get_object_vars($csv_file_object));
+    }
+
+    $persisted = FALSE;
+    $should_process = TRUE;
+    if ($this->canProcess($data) === FALSE) {
+      return;
+    } elseif ($this->canProcess($data) === NULL) {
+      if (!empty($file_csv_columns)) {
+        $should_process = FALSE;
+      } else {
+        return;
+      }
+    }
+    if ($should_process) {
     // Before we do any processing. Check if Parent(s) exists?
     // If not, re-enqueue: we try twice only. Should we try more?
     $parent_nodes = [];
     if (isset($data->info['row']['parent']) && is_array($data->info['row']['parent'])) {
       $parents = $data->info['row']['parent'];
       $parents = array_filter($parents);
-      foreach($parents as $parent_property => $parent_uuid) {
-        $parent_uuids = (array) $parent_uuid;
+      foreach ($parents as $parent_property => $parent_uuid) {
+        $parent_uuids = (array)$parent_uuid;
         // We should validate each member to be an UUID here (again). Just in case.
         $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(['uuid' => $parent_uuids]);
         if (count($existing) != count($parent_uuids)) {
-          $message = $this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.',[
+          $message = $this->t('Sorry, we can not process ADO with @uuid from Set @setid yet, there are missing parents with UUID(s) @parent_uuids. We will retry.', [
             '@uuid' => $data->info['row']['uuid'],
             '@setid' => $data->info['set_id'],
             '@parent_uuids' => implode(',', $parent_uuids)
           ]);
-          $this->loggerFactory->get('ami_file')->warning($message ,[
+          $this->loggerFactory->get('ami_file')->warning($message, [
             'setid' => $data->info['set_id'] ?? NULL,
             'time_submitted' => $data->info['time_submitted'] ?? '',
           ]);
@@ -289,13 +393,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             \Drupal::queue($data->info['queue_name'])
               ->createItem($data);
             return;
-          }
-          else {
-            $message = $this->t('Sorry, We tried twice to process ADO with @uuid from Set @setid yet, but you have missing parents. Please check your CSV file and make sure parents with an UUID are in your REPO first and that no other parent generated by the set itself is failing',[
+          } else {
+            $message = $this->t('Sorry, We tried twice to process ADO with @uuid from Set @setid yet, but you have missing parents. Please check your CSV file and make sure parents with an UUID are in your REPO first and that no other parent generated by the set itself is failing', [
               '@uuid' => $data->info['row']['uuid'],
               '@setid' => $data->info['set_id']
             ]);
-            $this->loggerFactory->get('ami_file')->error($message ,[
+            $this->loggerFactory->get('ami_file')->error($message, [
               'setid' => $data->info['set_id'] ?? NULL,
               'time_submitted' => $data->info['time_submitted'] ?? '',
             ]);
@@ -310,11 +413,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             // Ingest without the relations both. Then update both once the
             // Ingest is ready IF both have IDs.
           }
-        }
-        else {
+        } else {
           // Get the IDs!
-          foreach($existing as $node) {
-            $parent_nodes[$parent_property][] = (int) $node->id();
+          foreach ($existing as $node) {
+            $parent_nodes[$parent_property][] = (int)$node->id();
           }
         }
       }
@@ -329,11 +431,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     if ($method == 'template') {
       $processed_metadata = $this->AmiUtilityService->processMetadataDisplay($data);
       if (!$processed_metadata) {
-        $message = $this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.',[
+        $message = $this->t('Sorry, we can not cast ADO with @uuid into proper Metadata. Check the Metadata Display Template used, your permissions and/or your data ROW in your CSV for set @setid.', [
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id']
         ]);
-        $this->loggerFactory->get('ami_file')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message, [
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -343,24 +445,23 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     if ($method == "direct") {
       if (isset($data->info['row']['data']) && !is_array($data->info['row']['data'])) {
-        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',[
+        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.', [
           '@uuid' => $data->info['row']['uuid'] ?? "MISSING UUID",
           '@setid' => $data->info['set_id']
         ]);
 
-        $this->loggerFactory->get('ami_file')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message, [
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
         $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
         return;
-      }
-      elseif (!isset($data->info['row']['data'])) {
+      } elseif (!isset($data->info['row']['data'])) {
         $message = $this->t('Sorry, we can not cast an ADO directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid data.',
           [
             '@setid' => $data->info['set_id'],
           ]);
-        $this->loggerFactory->get('ami_file')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message, [
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -372,11 +473,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $processed_metadata = !empty($processed_metadata) ? json_encode($processed_metadata) : NULL;
       $json_error = json_last_error();
       if ($json_error !== JSON_ERROR_NONE || !$processed_metadata) {
-        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.',[
+        $message = $this->t('Sorry, we can not cast ADO with @uuid directly into proper Metadata. Check your data ROW in your CSV for set @setid for invalid JSON data.', [
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id']
         ]);
-        $this->loggerFactory->get('ami_file')->error($message ,[
+        $this->loggerFactory->get('ami_file')->error($message, [
           'setid' => $data->info['set_id'] ?? NULL,
           'time_submitted' => $data->info['time_submitted'] ?? '',
         ]);
@@ -389,14 +490,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // Manual added wrong mapping or any other User input induced error
     // We do not process further
     // Maybe someone wants to ingest FILES only without any Metadata?
-    // Not a good use case so let's stop that non sense here.
+    // Not a good use case so let's stop that nonsense here.
 
     if (empty($processed_metadata)) {
-      $message = $this->t('Sorry, ADO with @uuid is empty or has wrong data/metadata. Check your data ROW in your CSV for set @setid or your Set Configuration for manually entered JSON that may break your setup.',[
+      $message = $this->t('Sorry, ADO with @uuid is empty or has wrong data/metadata. Check your data ROW in your CSV for set @setid or your Set Configuration for manually entered JSON that may break your setup.', [
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
       ]);
-      $this->loggerFactory->get('ami_file')->error($message ,[
+      $this->loggerFactory->get('ami_file')->error($message, [
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -410,28 +511,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     if ($data->mapping->globalmapping == "custom") {
       $file_object = $data->mapping->custommapping_settings->{$data->info['row']['type']}->files ?? NULL;
-      $csv_file_object =  $data->mapping->custommapping_settings->{$data->info['row']['type']}->files_csv ?? NULL;
-    }
-    else {
+    } else {
       $file_object = $data->mapping->globalmapping_settings->files ?? NULL;
-      $csv_file_object = $data->mapping->globalmapping_settings->files_csv ?? NULL;
     }
 
     $file_columns = [];
-    $file_csv_columns = [];
 
 
     $ado_columns = [];
     if ($file_object && is_object($file_object)) {
       $file_columns = array_values(get_object_vars($file_object));
-    }
-    // CSV (nested ones) can not be processed as "pre-files", but still need to be processed as files.
-    // There might be an edge case where the user decides that the CSV that generated the children
-    // Should also be attached to the parent ADO.Still, we need to be sure the ADO itself was ingesed
-    // before treating the CSV as a source for children objects.
-
-    if ($csv_file_object && is_object($csv_file_object)) {
-      $file_csv_columns = array_values(get_object_vars($csv_file_object));
     }
 
     if ($ado_object && is_object($ado_object)) {
@@ -447,12 +536,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $custom_node_mapping = isset($processed_metadata['ap:entitymapping']['entity:node']) && is_array($processed_metadata['ap:entitymapping']['entity:node']) ? $processed_metadata['ap:entitymapping']['entity:node'] : [];
 
     $entity_mapping_structure['entity:file'] = array_unique(array_merge($custom_file_mapping, $file_columns));
-    $entity_mapping_structure['entity:node'] =  array_unique(array_merge($custom_node_mapping, $ado_columns));
+    $entity_mapping_structure['entity:node'] = array_unique(array_merge($custom_node_mapping, $ado_columns));
     // Unset so we do not lose our merge after '+' both arrays
     unset($processed_metadata['ap:entitymapping']);
 
     $cleanvalues['ap:entitymapping'] = $entity_mapping_structure;
-    $processed_metadata  = $processed_metadata + $cleanvalues;
+    $processed_metadata = $processed_metadata + $cleanvalues;
     // Assign parents as NODE Ids.
     foreach ($parent_nodes as $parent_property => $node_ids) {
       $processed_metadata[$parent_property] = $node_ids;
@@ -462,11 +551,11 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     // Now do heavy file lifting
     $allfiles = TRUE;
-    foreach($file_columns as $file_column) {
+    foreach ($file_columns as $file_column) {
       // Why 5? one character + one dot + 3 for the extension
       if (isset($data->info['row']['data'][$file_column]) && strlen(trim($data->info['row']['data'][$file_column])) >= 5) {
         $filenames = trim($data->info['row']['data'][$file_column]);
-        $filenames = array_map(function($value) {
+        $filenames = array_map(function ($value) {
           $value = $value ?? '';
           return trim($value);
         }, explode(';', $filenames));
@@ -510,14 +599,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               'force_file_process' => $data->info['force_file_process'],
               'reduced' => $reduced,
               'ops_forcemanaged_destination_file' => isset($data->info['ops_forcemanaged_destination_file']) ? $data->info['ops_forcemanaged_destination_file'] : TRUE,
-              'time_submitted' =>  $data->info['time_submitted'],
+              'time_submitted' => $data->info['time_submitted'],
             ];
             if ($process_files_via_queue) {
               // Enqueue file separately
               \Drupal::queue($data->info['queue_name'])
                 ->createItem($data_file);
-            }
-            else {
+            } else {
               // Do the file processing syncroneusly
               $this->processFile($data_file);
             }
@@ -525,7 +613,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           // If we were waiting for files OR never asked to process via queue do the same
 
           if (!empty($data->info['waiting_for_files']) || !$process_files_via_queue) {
-            $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
+            $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string)$data->info['zip_file']->id() : '0';
             // Matches same logic as in \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processFile
             $private_temp_key = md5($file_column . '-' . $filename . '-' . $zip_file_id);
 
@@ -539,11 +627,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
               if ($file) {
                 $file->setTemporary();
                 $file->save();
-                $processed_metadata[$file_column][] = (int) $processed_file_data['file_id'];
+                $processed_metadata[$file_column][] = (int)$processed_file_data['file_id'];
                 $processed_metadata = array_merge_recursive($processed_metadata,
-                  (array) $processed_file_data['as_data']);
-              }
-              else {
+                  (array)$processed_file_data['as_data']);
+              } else {
                 $allfiles = FALSE;
                 $message = $this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn could not be processed. Skipping. Please check your CSV for set @setid.',
                   [
@@ -552,15 +639,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     '@filename' => $filename,
                     '@filecolumn' => $file_column,
                   ]);
-                $this->loggerFactory->get('ami_file')->warning($message ,[
+                $this->loggerFactory->get('ami_file')->warning($message, [
                   'setid' => $data->info['set_id'] ?? NULL,
                   'time_submitted' => $data->info['time_submitted'] ?? '',
                 ]);
               }
-            }
-            else {
+            } else {
               $allfiles = FALSE;
-              // Delete Cache if this if processed_file_data['as_data'] and file_id are empty.
+              // Delete Cache if this is processed_file_data['as_data'] and file_id are empty.
               // Means something failed at \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker::processFile
               // NO need to report again since that was already reported.
               $this->store->delete('set_' . $data->info['set_id'] . '-' . $private_temp_key);
@@ -579,13 +665,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         ->createItem($data);
       return;
     }
-    if (!empty($data->info['ops_skip_onmissing_file'] && $data->info['ops_skip_onmissing_file'] == TRUE  && !$allfiles)) {
+    if (!empty($data->info['ops_skip_onmissing_file'] && $data->info['ops_skip_onmissing_file'] == TRUE && !$allfiles)) {
       $message = $this->t('Skipping ADO with UUID:@uuid because one or more files could not be processed and <em>Skip ADO processing on missing File</em> is enabled',
         [
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
         ]);
-      $this->loggerFactory->get('ami_file')->warning($message ,[
+      $this->loggerFactory->get('ami_file')->warning($message, [
         'setid' => $data->info['set_id'] ?? NULL,
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
@@ -595,8 +681,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // Only persist if we passed this.
     // True if all ok, to the best of our knowledge of course
     $persisted = $this->persistEntity($data, $processed_metadata);
-    // We only process a CSV column IF and only if the row that contains it generated an ADO.
-    if ($persisted && !empty($file_csv_columns)) {
+  }
+    // We only process a CSV column IF and only if the row that contains it generated an ADO
+    // or the ADO was already there.
+    if (($persisted || !$should_process ) && !empty($file_csv_columns)) {
       $current_uuid = $data->info['row']['uuid'] ?? NULL;
       $current_row_id = $data->info['row']['row_id'] ?? NULL;
       $data_csv = clone $data;
@@ -669,9 +757,22 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'update' => 'Update existing ADOs',
     'patch' => 'Patch existing ADOs',
     'delete' => 'Delete existing ADOs',
+    'sync' => 'Sync' -> which will have op_secondary as the actual OP.
     */
-    $op = $data->pluginconfig->op;
+    $op = $op_original = $data->pluginconfig->op;
     $op_secondary =  $data->info['op_secondary'] ?? NULL;
+    $was_op_sync = FALSE;
+    if ($op === 'sync') {
+      if ($op_secondary == "create") {
+        $op = "create";
+        $op_secondary = NULL;
+      }
+      if ($op_secondary == "update") {
+        $op = "update";
+        // $op_secondary stays untouched.
+      }
+    }
+
 
     if ($data->mapping->globalmapping == "custom") {
       $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
@@ -683,6 +784,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $label_column = $data->adomapping->base->label ?? 'label';
     // Always (because of processed metadata via template) try to fetch again the mapped version
     $label = $processed_metadata[$label_column] ?? ($processed_metadata['label'] ?? NULL);
+    // SOME PEOPLE USING LABEL AS AN ARRAY? GOSH.
+    if (is_array($label)) {
+      $label = reset($label);
+      $label = is_string($label) ?  $label : NULL;
+    }
+    elseif (is_object($label)) {
+      // No guessing. People get your data right. We NULL-i-fy
+      $label = NULL;
+    }
+
     $property_path_split = explode(':', $property_path);
 
     if (!$property_path_split || count($property_path_split) < 2 ) {
@@ -707,6 +818,14 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $field_name_offset = $property_path_split[2] ?? 0;
     // Fall back to not published in case no status was passed.
     $status = $data->info['status'][$bundle] ?? 0;
+    // This is tricky. String 1 v/s integer one
+    if ($status == "1") {
+      $status = 1;
+    }
+    if ($status == "0") {
+      $status = 0;
+    }
+    $status_keep = $data->info['status_keep'] ?? FALSE;
     // default Sortfile which will respect the ingest order. If there was already one set, preserve.
     $sort_files = isset($processed_metadata['ap:tasks']) && isset($processed_metadata['ap:tasks']['ap:sortfiles']) ?  $processed_metadata['ap:tasks']['ap:sortfiles'] : 'index';
     // We can't blindly override ap:tasks if we are dealing with an update operation. So make an exception here for only create
@@ -724,6 +843,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     $jsonstring = json_encode($processed_metadata, JSON_PRETTY_PRINT, 50);
 
     if ($jsonstring) {
+      // Correct to send Label as NULL here if the user messed up..
       $nodeValues = [
         'uuid' =>  $data->info['row']['uuid'],
         'type' => $bundle,
@@ -734,7 +854,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
       /** @var \Drupal\Core\Entity\EntityPublishedInterface $node */
       try {
-        if ($op ==='create') {
+        if ($op === 'create') {
           if ($status && is_string($status)) {
             // String here means we got moderation_status;
             $nodeValues['moderation_state'] = $status;
@@ -752,6 +872,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
             ['uuid' => $data->info['row']['uuid']]
           );
+          // Ups ... should never happen but what if just after checking race/condition it is gone?
           $existing_object = reset($existing);
 
           $vid = $this->entityTypeManager
@@ -759,11 +880,12 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
             ->getLatestRevisionId($existing_object->id());
 
           $node = $vid ? $this->entityTypeManager->getStorage('node')
-            ->loadRevision($vid) : $existing[0];
+            ->loadRevision($vid) : $existing_object;
 
           /** @var \Drupal\Core\Field\FieldItemInterface $field*/
           $field = $node->get($field_name);
-          if ($status && is_string($status)) {
+          // Ignore status for updates if status_keep == TRUE.
+          if ($status && is_string($status) && $status_keep == FALSE) {
             $node->set('moderation_state', $status);
             $status = 0;
           }
@@ -785,7 +907,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                     $processed_metadata['ap:entitymapping']['entity:file'][] = $filekey;
                   }
                   else {
-                    // Means new processing is adding these and they are already in the mapping. Is safe Files enabled?
+                    // Means new processing is adding these, and they are already in the mapping. Is safe Files enabled?
                     if ($data->info['ops_safefiles']) {
                       // We take the old file ids and merge the new ones. Nothing gets lost ever.
                       // If there were no new ones, or new ones were URLs and failed processing
@@ -847,39 +969,55 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
                       return (string)$needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
                     }
                   }
+                  // New in 0.9.0. Also protect "label" and "type" those are always strings.
+                  // We should never add to them.
                   $contract_keys = array_filter($processed_metadata_keys, function ($value) {
-                    return (str_starts_with($value, "as:") || str_starts_with($value, "ap:"));
+                    return (
+                      str_starts_with($value, "as:") ||
+                      str_starts_with($value, "ap:") ||
+                      $value == "label" ||
+                      $value == "type"
+                    );
                   }
                   );
                   $processed_metadata_keys = array_diff($processed_metadata_keys, $contract_keys);
+                  function _update_append_array_unique_multidimensional($input) {
+                    $serialized = array_map('serialize', $input);
+                    $unique = array_unique($serialized);
+                    return array_intersect_key($input, $unique);
+                  }
+
                   foreach ($processed_metadata_keys as $processed_metadata_key) {
                     if (isset($original_value[$processed_metadata_key])) {
-                      // Initialize this as if we were dealing with string/numbers and not arrays
-                      // We check later if any/old/new are indeed arrays or not
-                      $new = [$processed_metadata[$processed_metadata_key]];
-                      $old = [$original_value[$processed_metadata_key]];
-                      if (is_array($original_value[$processed_metadata_key])) {
-                        // If we are dealing with an associative array we treat is an an object that might be
-                        // 1 of many
-                        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($original_value[$processed_metadata_key])) {
-                          $old[] = $original_value[$processed_metadata_key];
-                        }
-                        else {
-                          $old = $original_value[$processed_metadata_key];
-                        }
+                      // Only make array out of non arrays.
+                      if (!is_array($processed_metadata[$processed_metadata_key])) {
+                        $new = [$processed_metadata[$processed_metadata_key]];
                       }
-                      if (is_array($processed_metadata[$processed_metadata_key])) {
-                        // If we are dealing with an associative array we treat is an an object that might be
-                        // 1 of many
-                        if (StrawberryfieldJsonHelper::arrayIsMultiSimple($processed_metadata[$processed_metadata_key])) {
-                          $new[] = $processed_metadata[$processed_metadata_key];
-                        }
-                        else {
-                          $new = $processed_metadata[$processed_metadata_key];
-                        }
+                      else {
+                        $new = $processed_metadata[$processed_metadata_key];
                       }
-                      // This should help avoiding duplicates.
-                      $original_value[$processed_metadata_key] = $old + $new;
+                      if (!is_array($original_value[$processed_metadata_key])) {
+                        $old = [$original_value[$processed_metadata_key]];
+                      }
+                      else {
+                        $old = $original_value[$processed_metadata_key];
+                      }
+                      if (!StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && !StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        // Both are numeric indexed arrays.
+                        $original_value[$processed_metadata_key] = [...$old,...$new];
+                        $original_value[$processed_metadata_key] = _update_append_array_unique_multidimensional($original_value[$processed_metadata_key]);
+                      }
+                      else if(StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        $original_value[$processed_metadata_key] = $old + $new;
+                      }
+                      else if(StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && !StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        $original_value[$processed_metadata_key] = [...[$old],...$new];
+                        $original_value[$processed_metadata_key] = _update_append_array_unique_multidimensional($original_value[$processed_metadata_key]);
+                      }
+                      else if(!StrawberryfieldJsonHelper::arrayIsMultiSimple($old) && StrawberryfieldJsonHelper::arrayIsMultiSimple($new)) {
+                        $original_value[$processed_metadata_key] = [...$old,...[$new]];
+                        $original_value[$processed_metadata_key] = _update_append_array_unique_multidimensional($original_value[$processed_metadata_key]);
+                      }
                     }
                     else {
                       $original_value[$processed_metadata_key] = $processed_metadata[$processed_metadata_key];
@@ -927,11 +1065,16 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         }
         // In case $status was not moderated.
         if ($status) {
-          $node->setPublished();
+          // Publish status keep is FALSE
+          if ($op == 'update' && $status_keep == FALSE) {
+            $node->setPublished();
+          }
         }
         elseif (!isset($nodeValues['moderation_state'])) {
-          // Only unpublish if not moderated.
-          $node->setUnpublished();
+          // Only unpublish if not moderated and status keep is FALSE.
+          if ($op == 'update' && $status_keep == FALSE) {
+            $node->setUnpublished();
+          }
         }
         $node->save();
 
@@ -940,8 +1083,8 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
           ':link' => $link,
-          '%title' => $label,
-          '@ophuman' => static::OP_HUMAN[$op]
+          '%title' => $label ?? 'UNAMED ADO',
+          '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
         $this->loggerFactory->get('ami_file')->info($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -954,7 +1097,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         $message = $this->t('Sorry we did all right but failed @ophuman the ADO with UUID @uuid on Set @setid. Something went wrong. Please check your Drupal Logs and notify your admin.',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => static::OP_HUMAN[$op],
+          '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
         $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -968,7 +1111,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
       $message = $this->t('Sorry we did all right but JSON resulting at the end is flawed and we could not @ophuman the ADO with UUID @uuid on Set @setid. This is quite strange. Please check your Drupal Logs and notify your admin.',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => static::OP_HUMAN[$op],
+        '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
       ]);
       $this->loggerFactory->get('ami_file')->info($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
@@ -1101,8 +1244,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @param mixed $data
    */
-  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null
-  {
+  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null {
     if (!($data->info['csv_filename'] ?? NULL)) {
       return NULL;
     }
@@ -1136,15 +1278,17 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
 
   /**
-   * Checks if processing can be done so we can bail out sooner.
+   * Checks if processing can be done, so we can bail out sooner.
    *
    * @param $data
    *
-   * @return bool
+   * @return bool|null
+   *    FALSE if can not, TRUE if it can, NULL if it is "create" but already there allowing further processing if needed.
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
    * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
    */
-  private function canProcess($data): bool {
+  private function canProcess($data): bool|null
+  {
 
     //OP can be one of
     /*
@@ -1152,14 +1296,24 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'update' => 'Update existing ADOs',
     'patch' => 'Patch existing ADOs',
     'delete' => 'Delete existing ADOs',
+    'sync' => 'Sync' with either create/update/delete as sub operation.
     */
+
+    $op = $data->pluginconfig->op;
+    if ($data->pluginconfig->op == 'sync') {
+      // We relay on the CSV expander to set this correctly
+      // We always default to create. Worst case scenario it will
+      // fail bc we can't if already there
+      $op = $data->info['op_secondary'] ?? 'create';
+      $op = in_array($op, ['create','update','delete']) ? $op : NULL;
+    }
 
     /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
     $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
       ['uuid' => $data->info['row']['uuid']]
     );
 
-    if (count($existing) && $data->pluginconfig->op == 'create') {
+    if (count($existing) && $op === 'create') {
       $message = $this->t('Sorry, you requested an ADO with UUID @uuid to be created via Set @setid. But there is already one in your repo with that UUID. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id']
@@ -1170,13 +1324,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
       $this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
-      return FALSE;
+      return NULL;
     }
-    elseif (!count($existing) && $data->pluginconfig->op !== 'create') {
+    elseif (!count($existing) && $op !== 'create') {
       $message = $this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',[
         '@uuid' => $data->info['row']['uuid'],
         '@setid' => $data->info['set_id'],
-        '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+        '@ophuman' => static::OP_HUMAN[$op],
       ]);
       $this->loggerFactory->get('ami_file')->warning($message ,[
         'setid' => $data->info['set_id'] ?? NULL,
@@ -1187,13 +1341,13 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     }
     $account =  $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
 
-    if ($data->pluginconfig->op !== 'create' && $account && $existing && count($existing) == 1) {
+    if ($op !== 'create' && $account && $existing && count($existing) == 1) {
       $existing_object = reset($existing);
       if (!$existing_object->access('update', $account)) {
         $message = $this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',[
           '@uuid' => $data->info['row']['uuid'],
           '@setid' => $data->info['set_id'],
-          '@ophuman' => static::OP_HUMAN[$data->pluginconfig->op],
+          '@ophuman' => static::OP_HUMAN[$op],
         ]);
         $this->loggerFactory->get('ami_file')->error($message ,[
           'setid' => $data->info['set_id'] ?? NULL,
@@ -1290,5 +1444,236 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'time_submitted' => $data->info['time_submitted'] ?? '',
       ]);
     }
+  }
+  
+  /**
+   *
+   * Process Action Entries
+   *
+   * @param $data
+   *
+   * @return bool|null
+   */
+  private function processAction($data): bool|null {
+    $success = FALSE;
+    $existing = [];
+
+    $account = $data->info['uid'] == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($data->info['uid']);
+    if ($account && !$account->isAnonymous()) {
+      $this->accountSwitcher->switchTo($account);
+    }
+    else {
+      $message = $this->t('Not so great. @action via Set @setid can not run as anonymous user. Bailing out.', [
+        '@setid' => $data->info['set_id'],
+        '@action' => $data->info['action'],
+      ]);
+      $this->loggerFactory->get('ami_file')->error($message, [
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+      return FALSE;
+    }
+
+    /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
+    try {
+      $existing = $this->entityTypeManager->getStorage('node')->loadByProperties(
+        ['uuid' => $data->info['uuids']]
+      );
+    }
+    catch (\Exception $e) {
+      $message = $this->t('Error loading ADOs for @action via Set @setid. All ADOs in this queue item will be skipped ', [
+        '@setid' => $data->info['set_id'],
+        '@action' => $data->info['action'],
+        '@error' => $e->getMessage(),
+      ]);
+      $this->loggerFactory->get('ami_file')->warning($message, [
+        'setid' => $data->info['set_id'] ?? NULL,
+        'time_submitted' => $data->info['time_submitted'] ?? '',
+      ]);
+    }
+
+    // We need to log if number of requested to be deleted != number the user can delete.
+    // Not a blocker to abort all actions but the user needs to know not all what was requested
+    // Could be processed.
+    // What if no a whole chunk is missing?
+    // We still need to keep adding context to the action/storing it, etc. In
+    // the hope other batches have enough data.
+
+    // Each Action might have its own check/permission. But we know for sure delete requires `delete`
+    if (($data->info['action'] ?? NULL) == 'delete') {
+      if (count($existing)) {
+        $access_type = "delete";
+        foreach ($existing as $key => $existing_object) {
+          if (!$existing_object->access($access_type, $account)) {
+            $message = $this->t('Sorry you have no system permission to execute action @action on ADOs with UUID @uuid via Set @setid. Skipping', [
+              '@uuid' => $existing_object->uuid(),
+              '@setid' => $data->info['set_id'],
+              '@action' => $data->info['action'],
+            ]);
+            $this->loggerFactory->get('ami_file')->error($message, [
+              'setid' => $data->info['set_id'] ?? NULL,
+              'time_submitted' => $data->info['time_submitted'] ?? '',
+            ]);
+            unset($existing[$key]);
+            //$this->setStatus(amiSetEntity::STATUS_PROCESSING_WITH_ERRORS, $data);
+          }
+          else {
+            $message = $this->t('You have permission to execute action @action on ADOs with UUID @uuid via Set @setid. Executed', [
+              '@uuid' => $existing_object->uuid(),
+              '@setid' => $data->info['set_id'],
+              '@action' => $data->info['action'],
+            ]);
+            $this->loggerFactory->get('ami_file')->info($message, [
+              'setid' => $data->info['set_id'] ?? NULL,
+              'time_submitted' => $data->info['time_submitted'] ?? '',
+            ]);
+          }
+        }
+        $existing = array_filter($existing);
+        try {
+          if (count($existing)) {
+            $this->entityTypeManager->getStorage('node')->delete($existing);
+            $message = $this->t('Deleting Node IDs @node via Set @setid.', [
+              '@node' => implode(",", array_keys($existing)),
+              '@setid' => $data->info['set_id'],
+              '@action' => $data->info['action'],
+            ]);
+            $this->loggerFactory->get('ami_file')->info($message, [
+              'setid' => $data->info['set_id'] ?? NULL,
+              'time_submitted' => $data->info['time_submitted'] ?? '',
+            ]);
+            $success = TRUE;
+          }
+        }
+        catch (\Exception $e) {
+          $message = $this->t('Error executing @action on ADOs via Set @setid.', [
+            '@setid' => $data->info['set_id'],
+            '@action' => $data->info['action'],
+            '@error' => $e->getMessage(),
+          ]);
+          $this->loggerFactory->get('ami_file')->error($message, [
+            'setid' => $data->info['set_id'] ?? NULL,
+            'time_submitted' => $data->info['time_submitted'] ?? '',
+          ]);
+        }
+      }
+    }
+    elseif (!empty($data->info['action'])) {
+      try {
+        // To make $context work we need to run this even if $existing is empty.
+        $action_config = $data->info['action_config'] ?? [];
+        /* @var $action ActionInterface */
+        $action = $this->actionManager->createInstance($data->info['action'], $action_config);
+        // Not all actions use context.
+        $context = NULL;
+        $context_keystore_id = NULL;
+        $batch_size = count($data->info['uuids'] ?? []) ?? ($data->info['batch_size'] ?? 10);
+        if ($action && \method_exists($action, 'setContext')) {
+          $context_keystore_id = 'ami_action_' . $data->info['set_id'] . '_' . $data->info['time_submitted'];
+          // We set current_batch 0 so we can increment upfront?
+          // We also add a custom logger_channel wich
+          $context = [
+            'sandbox' => [
+              'processed' => 0,
+              'total' => 0,
+              'page' => 0,
+              'current_batch' => 1,
+              'logger_channel' => 'ami_file'
+            ],
+            'results' => [
+              'operations' => [],
+            ],
+          ];
+
+          // Simulate a Batch Context on a Queue.
+          $context = $this->contextStore
+            ->get($context_keystore_id) ?? $context;
+          if (empty($context['sandbox']['total'])) {
+            $context['sandbox']['total'] = $data->info['batch_total'] ?? $batch_size;
+            $context['sandbox']['batch_size'] = $batch_size;
+            // Fake data. VBO is meant for Views!
+            $context['view_id'] = 'ami_set';
+            $context['display_id'] = $data->info['set_id'];
+            $context['action_id'] = $data->info['action'];
+            $context['action_config'] = $action_config;
+            // Also Fake. used to fill with some-how useful data for actions that
+            // Normally would run on a Batch/Interactive queue
+            // Should we increment this on every batch? How large will be the key store?
+            $context['list'] = array_combine($data->info['uuids'], $data->info['uuids']);
+          }
+          $action->setContext($context);
+        }
+        foreach ($existing as $key => $existing_object) {
+          if (\method_exists($action, 'access')) {
+            $accessResult = $action->access($existing_object, $account, TRUE);
+            if ($accessResult->isAllowed() === FALSE) {
+              $reason = '';
+              if ($accessResult instanceof AccessResultReasonInterface) {
+                $reason = $accessResult->getReason();
+              }
+              $message = $this->t('Sorry you have no system permission to execute action @action on ADOs with UUID @uuid via Set @setid. Skipping', [
+                '@uuid' => $existing_object->uuid(),
+                '@setid' => $data->info['set_id'],
+                '@action' => $data->info['action'],
+                '@reason' => $reason,
+              ]);
+              $this->loggerFactory->get('ami_file')->error($message, [
+                'setid' => $data->info['set_id'] ?? NULL,
+                'time_submitted' => $data->info['time_submitted'] ?? '',
+              ]);
+              unset($existing[$key]);
+            }
+          }
+        }
+        $existing = array_filter($existing);
+        // Process Action on loaded entities.
+        // If the action uses $context we need to run it anyways, even if
+        // no entities were found or are accesible, or any logic that depends on
+        // data actually existing will fail.
+        if (count($existing) || ($context && $context_keystore_id) ) {
+          $results = $action->executeMultiple($existing) ?? [];
+          // Increment the current batch
+          // Even if nothing was processed, or we did not have permissions we will increment the processed
+          // by the original size. If not the Batch will basically never be assumed as DONE
+          $results = array_filter($results ?? []);
+          foreach ($results as $result) {
+            // No idea why some results have the translation/others not
+            // So .. we will cast to string
+            if (is_object($result) && $result instanceof TranslatableMarkup) {
+              $result = (string) $result;
+              $this->loggerFactory->get('ami_file')->info($result, [
+                'setid' => $data->info['set_id'] ?? NULL,
+                'time_submitted' => $data->info['time_submitted'] ?? '',
+              ]);
+            }
+          }
+          $success = TRUE;
+        }
+        if ($context && $context_keystore_id) {
+          $context['sandbox']['current_batch'] = ($context['sandbox']['current_batch'] ?? 1) + 1;
+          $context['sandbox']['processed'] = $context['sandbox']['processed'] + $batch_size;
+          $this->contextStore
+            ->set($context_keystore_id, $context);
+        }
+      }
+      catch (\Exception $e) {
+        $message = $this->t('Sorry, the action @action configured to run on Set @setid does not exist. Skipping, with error @e', [
+          '@setid' => $data->info['set_id'],
+          '@action' => $data->info['action'],
+          '@e' => $e->getMessage(),
+        ]);
+        $this->loggerFactory->get('ami_file')->error($message, [
+          'setid' => $data->info['set_id'] ?? NULL,
+          'time_submitted' => $data->info['time_submitted'] ?? '',
+        ]);
+        $success = FALSE;
+      }
+    }
+    else {
+      // Incomplete Queue worker entry.
+      $success = FALSE;
+    }
+    $this->accountSwitcher->switchBack();
+    return $success;
   }
 }

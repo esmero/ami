@@ -175,8 +175,18 @@ class SpreadsheetImporter extends ImporterAdapterBase {
         TRUE,
         FALSE
       );
-      $rowHeaders_utf8 = array_map('stripslashes', $rowHeaders[0]);
-      $rowHeaders_utf8 = array_map('utf8_encode', $rowHeaders_utf8);
+      // Well, if someone passed a null into the rowHeaders we are doomed in PHP 8.1+
+      // So do we make nulls empty strings?
+      $cleanStrings = function ($array_item) {
+        $array_item = is_string($array_item) ? stripslashes($array_item) : $array_item;
+        $array_item = empty($array_item) ? '' : $array_item;
+        return $array_item;
+      };
+
+      $rowHeaders_utf8 = array_map($cleanStrings, $rowHeaders[0] ?? []);
+      foreach($rowHeaders_utf8 as &$header) {
+        $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : utf8_encode($header);
+      }
       $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
       $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
       $rowHeaders_utf8 = array_filter($rowHeaders_utf8);
