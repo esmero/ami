@@ -607,7 +607,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       '\Drupal\ami\AmiBatchQueue::takeOne',
       [$queue_name, $this->entity->id()],
     ];
-    $this->entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_PROCESSING);
+    $this->entity->setStatus(amiSetEntity::STATUS_PROCESSING);
     $this->entity->save();
     batch_set($batch);
   }

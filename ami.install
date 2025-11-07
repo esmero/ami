@@ -3,7 +3,7 @@
  * @file
  * Contains install and update functions for AMI.
  */
-
+use Drupal\ami\Entity\amiSetEntity;
 use Drupal\Core\Language\LanguageInterface;
 use Drupal\taxonomy\Entity\Vocabulary;
 use Drupal\taxonomy\Entity\Term;
@@ -141,7 +141,7 @@ function ami_update_8905() {
   \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('report_file', 'ami_set_entity', 'ami', $storage_definition);
   $field_storage_definition_status = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('status', 'ami_set_entity');
   $field_storage_definition_status->setLabel(t("This Set's last known status"));
-  $field_storage_definition_status->setSetting('allowed_values', \Drupal\ami\Entity\amiSetEntity::STATUS);
+  $field_storage_definition_status->setSetting('allowed_values', amiSetEntity::STATUS);
   $field_storage_definition_status->setSetting('default_value', 'READY');
   \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_status);
 
@@ -154,7 +154,7 @@ function ami_update_8905() {
   // Load all the articles.
   $entities = \Drupal::entityTypeManager()->getStorage('ami_set_entity')->loadMultiple($entities_nids);
   foreach ($entities as $entity) {
-    $entity->setStatus(\Drupal\ami\Entity\amiSetEntity::STATUS_READY);
+    $entity->setStatus(amiSetEntity::STATUS_READY);
     $entity->save();
   }
 

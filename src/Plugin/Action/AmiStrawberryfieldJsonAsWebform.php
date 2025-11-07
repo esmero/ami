@@ -10,7 +10,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
 use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Drupal\views\ViewExecutable;
-use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionCompletedTrait;
+use Drupal\views_bulk_operations\Traits\ViewsBulkOperationsActionCompletedTrait;
 use Drupal\webform\Plugin\WebformElement\WebformManagedFileBase;
 use Drupal\webform\Plugin\WebformElementEntityReferenceInterface;
 use Swaggest\JsonDiff\Exception as JsonDiffException;
@@ -493,8 +493,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
   /**
    * {@inheritdoc}
    */
-  public function __sleep() {
-    $obj_vars = get_object_vars($this);
+  public function __sleep(): array {
     $vars = parent::__sleep();
     // Well why? Because of loggers include Request Stack and this fails
     // @see https://www.drupal.org/project/drupal/issues/3055287

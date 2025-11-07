@@ -3,6 +3,8 @@
 
 namespace Drupal\ami;
 
+use Drupal\Component\Utility\DeprecationHelper;
+use Drupal\Core\Utility\Error;
 use Drupal\Core\Queue\RequeueException;
 use Drupal\Core\Queue\SuspendQueueException;
 use Drupal\Core\Render\Markup;
@@ -82,7 +84,7 @@ class AmiLoDBatchQueue {
         $queue->releaseItem($item);
       }
 
-      watchdog_exception('ami', $e);
+      DeprecationHelper::backwardsCompatibleCall(\Drupal::VERSION, '10.1.0', fn() => Error::logException(\Drupal::logger('ami'), $e), fn() => watchdog_exception('ami', $e));
       $context['results']['errors'][] = $e->getMessage();
 
       // Marking the batch job as finished will stop further processing.
@@ -90,7 +92,7 @@ class AmiLoDBatchQueue {
     } catch (\Exception $e) {
       // In case of any other kind of exception, log it and leave the item
       // in the queue to be processed again later.
-      watchdog_exception('ami', $e);
+      DeprecationHelper::backwardsCompatibleCall(\Drupal::VERSION, '10.1.0', fn() => Error::logException(\Drupal::logger('ami'), $e), fn() => watchdog_exception('ami', $e));
       $context['results']['errors'][] = $e->getMessage();
     }
   }

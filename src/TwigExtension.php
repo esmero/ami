@@ -21,7 +21,7 @@ class TwigExtension extends AbstractExtension {
   public function getFunctions() {
     return [
       new TwigFunction('ami_lod_reconcile',
-        [$this, 'amiLodReconcile']),
+        $this->amiLodReconcile(...)),
     ];
   }
 

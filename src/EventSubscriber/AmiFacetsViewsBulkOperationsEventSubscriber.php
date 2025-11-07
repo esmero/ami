@@ -59,7 +59,7 @@ class AmiFacetsViewsBulkOperationsEventSubscriber implements EventSubscriberInte
   /**
    * {@inheritdoc}
    */
-  public static function getSubscribedEvents() {
+  public static function getSubscribedEvents(): array {
     $events[ViewsBulkOperationsEvent::NAME][] = [
       'updateFacetCache',
       self::PRIORITY,

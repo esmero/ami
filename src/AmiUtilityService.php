@@ -9,6 +9,7 @@
 
 namespace Drupal\ami;
 
+use Drupal\strawberryfield\Field\StrawberryFieldItemList;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
@@ -2912,7 +2913,7 @@ class AmiUtilityService {
       }
       else {
         $set_field = $entity->get('set');
-        if ($set_field instanceof \Drupal\strawberryfield\Field\StrawberryFieldItemList) {
+        if ($set_field instanceof StrawberryFieldItemList) {
           $set = json_decode($entity->get('set')->getString(), TRUE);
           if (json_last_error() == JSON_ERROR_NONE) {
             $deleteados_access = (empty($set['pluginconfig']['op']) || !in_array($set['pluginconfig']['op'], ['update', 'patch']));

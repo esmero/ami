@@ -2,6 +2,7 @@
 
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
+use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
 use Drupal\Core\Form\FormStateInterface;
@@ -659,7 +660,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       // If a Key is an URL chances are we are dealing with many different ones
       // Also we want to build JSON Paths here, so replace with *
       // But PHP does not know anything about URIs... like URN...
-      if(filter_var($key, FILTER_VALIDATE_URL) || \Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper::validateURN($key)) {
+      if(filter_var($key, FILTER_VALIDATE_URL) || StrawberryfieldJsonHelper::validateURN($key)) {
         $pastpost_next = $pastpost;
         $path_key = "*";
       }

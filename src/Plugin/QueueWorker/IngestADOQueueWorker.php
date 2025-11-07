@@ -2,6 +2,8 @@
 
 namespace Drupal\ami\Plugin\QueueWorker;
 
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\file\Entity\File;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Entity\amiSetEntity;
@@ -1244,7 +1246,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
    *
    * @param mixed $data
    */
-  protected function processCSvFile($data): \Drupal\Core\Entity\EntityInterface|\Drupal\file\Entity\File|null {
+  protected function processCSvFile($data): EntityInterface|File|null {
     if (!($data->info['csv_filename'] ?? NULL)) {
       return NULL;
     }
