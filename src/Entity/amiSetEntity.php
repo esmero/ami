@@ -92,6 +92,7 @@ use Drupal\user\Entity\User;
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
  *   base_table = "ami_setentity",
+ *   list_cache_contexts = {"user", "url"},
  *   admin_permission = "administer amiset entity",
  *   fieldable = TRUE,
  *   entity_keys = {
