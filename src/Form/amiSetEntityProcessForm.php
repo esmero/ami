@@ -185,7 +185,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         // Subset of the $data_csv->info[] structure sent
         $last_processed_config = [
           'operation' => $data->pluginconfig->op ?? NULL,
-          'process_now' => $notprocessnow,
+          'process_now' => !$notprocessnow,
           'zip_file_id' => $zip_file ? $zip_file->id() : NULL,
           'csv_file_id' =>  $file ?  $file->id(): NULL,
           'uid' => $data_csv->info['uid'],
@@ -235,7 +235,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
         $last_processed_config = [
           'operation' => $data->pluginconfig->op ?? NULL,
-          'process_now' => $notprocessnow,
+          'process_now' => !$notprocessnow,
           'zip_file_id' => $zip_file ? $zip_file->id() : NULL,
           'csv_file_id' =>  $file ?  $file->id(): NULL,
           'uid' => $this->currentUser()->id(),
