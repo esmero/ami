@@ -149,6 +149,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       // Only applies to Update/Patch operations but for contract reasons
       // we generate all $data->info the same.
       $ops_safefiles = TRUE;
+      $last_processed_config = [];
 
       if (isset($data->pluginconfig->op) && $data->pluginconfig->op != 'create') {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
@@ -179,6 +180,27 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         ];
         \Drupal::queue('ami_csv_ado')
           ->createItem($data_csv);
+
+        $last_processed_config = [];
+        // Subset of the $data_csv->info[] structure sent
+        $last_processed_config = [
+          'operation' => $data->pluginconfig->op ?? NULL,
+          'process_now' => $notprocessnow,
+          'zip_file_id' => $zip_file ? $zip_file->id() : NULL,
+          'csv_file_id' =>  $file ?  $file->id(): NULL,
+          'uid' => $data_csv->info['uid'],
+          'status' => $data_csv->info['status'],
+          'status_keep' => $data_csv->info['status_keep'],
+          'op_secondary' => $data_csv->info['op_secondary'],
+          'ops_safefiles' => $data_csv->info['ops_safefiles'],
+          'queue_name' =>  $data_csv->info['queue_name'],
+          'force_file_queue' => $data_csv->info['force_file_queue'],
+          'force_file_process' => $data_csv->info['force_file_process'],
+          'manyfiles' => $data_csv->info['manyfiles'],
+          'ops_skip_onmissing_file' => $data_csv->info['ops_skip_onmissing_file'],
+          'ops_forcemanaged_destination_file' => $data_csv->info['ops_forcemanaged_destination_file'],
+          'time_submitted' => $data_csv->info['time_submitted'],
+        ];
       }
       else {
         // Add 'uid' to $data->info to unify with new account loader at \Drupal\ami\AmiUtilityService::preprocessAmiSet
@@ -208,6 +230,27 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           return;
         }
         $uuids_sync_action = [];
+
+        // Here we need to setup last processed config before iterating over the items
+
+        $last_processed_config = [
+          'operation' => $data->pluginconfig->op ?? NULL,
+          'process_now' => $notprocessnow,
+          'zip_file_id' => $zip_file ? $zip_file->id() : NULL,
+          'csv_file_id' =>  $file ?  $file->id(): NULL,
+          'uid' => $this->currentUser()->id(),
+          'status_keep' => $status_keep ? TRUE : FALSE,
+          'op_secondary' => $op_secondary,
+          'ops_safefiles' => $ops_safefiles ? TRUE : FALSE,
+          'queue_name' => $queue_name_background,
+          'force_file_queue' => (bool)$form_state->getValue('force_file_queue', FALSE),
+          'force_file_process' => (bool)$form_state->getValue('force_file_process', FALSE),
+          'manyfiles' => $manyfiles,
+          'ops_skip_onmissing_file' => $ops_skip_onmissing_file,
+          'ops_forcemanaged_destination_file' => $ops_forcemanaged_destination_file,
+          'time_submitted' => $run_timestamp
+        ];
+
         // Similar to Class CsvADOQueueWorker logic, but simpler.
         foreach ($info as $item) {
           // We set current User here since we want to be sure the final owner of
@@ -316,6 +359,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         // So far here, with the new CSV enqueue plugin we have no idea how many. But the CSV queue entry will fill up the gap
         $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
         $this->entity->setStatus(amiSetEntity::STATUS_ENQUEUED);
+        $this->entity->setLastProcessedConfig($last_processed_config);
         $this->entity->save();
         $form_state->setRedirectUrl($this->getCancelUrl());
       }
@@ -324,6 +368,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $processed_set_status['errored'] =  0;
         $processed_set_status['total'] = $count;
         $this->statusStore->set('set_' . $this->entity->id(), $processed_set_status);
+        $this->entity->setLastProcessedConfig($last_processed_config);
+        // We don't save here, the submitBatch does that.
         $this->submitBatch($form_state, $queue_name, $count);
       }
       else {
