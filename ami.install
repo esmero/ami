@@ -160,4 +160,79 @@ function ami_update_8905() {
 
 }
 
+/**
+ * Update ami_update_10161 - Updates Deprecated File Validators,
+ * adds new AMI Field for last sent config and removes unused report_file.
+ */
+function ami_update_10161() {
+  // Holds the last sent-to-Processing config
+  $storage_definition = BaseFieldDefinition::create('strawberryfield_field')
+    ->setLabel(t('Last Config used to send to processing'))
+    ->setTranslatable(FALSE)
+    ->setDisplayOptions('view', [
+      'label' => 'hidden',
+      'type' => 'strawberry_default_formatter',
+      'weight' => 1,
+    ])
+    ->setDisplayConfigurable('form', FALSE)
+    ->setDisplayConfigurable('view', TRUE)
+    ->setRequired(FALSE)
+    ->addConstraint('valid_strawberry_json');
 
+  \Drupal::entityDefinitionUpdateManager()->installFieldStorageDefinition('last_processed_config', 'ami_set_entity', 'ami', $storage_definition);
+  // Remove Report File. We are using monolog, not attaching to the entity.
+  $report_file_definition = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('report_file', 'ami_set_entity');
+  \Drupal::entityDefinitionUpdateManager()->uninstallFieldStorageDefinition($report_file_definition);
+
+  // Update File validators for Drupal >= 10.2 and required in >= 11.3
+  // @see https://www.drupal.org/node/3363700
+  $validatorszip = [
+    'FileExtension' => [
+      'extensions' => 'zip'
+    ],
+    'FileSizeLimit' => [
+      'fileLimit' => Environment::getUploadMaxSize()
+    ]
+  ];
+  $validatorscsv = [
+    'FileExtension' => [
+      'extensions' => 'csv'
+    ]
+  ];
+
+  $field_storage_definition_source_data = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('source_data', 'ami_set_entity');
+  $field_storage_definition_source_data->setSetting('upload_validators', $validatorscsv);
+  $field_storage_definition_source_data->setDisplayOptions('form', [
+    'type' => 'file',
+    'description' => [
+      'theme' => 'file_upload_help',
+      'description' => t('Your Source Data for this Set')
+    ]	,
+    'settings' => [
+      'upload_validators' => $validatorscsv,
+    ],
+    'weight' => -3,
+  ]);
+  \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_source_data);
+
+  $field_storage_definition_processed_data = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('processed_data', 'ami_set_entity');
+  $field_storage_definition_processed_data->setSetting('upload_validators', $validatorscsv);
+  \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_processed_data);
+
+
+  $field_storage_definition_zip_file = \Drupal::entityDefinitionUpdateManager()->getFieldStorageDefinition('zip_file', 'ami_set_entity');
+  $field_storage_definition_zip_file->setSetting('upload_validators', $validatorszip);
+
+  $field_storage_definition_zip_file->setDisplayOptions('form', [
+    'type' => 'file',
+    'description' => [
+      'theme' => 'file_upload_help',
+      'description' => t('Zipped Source Files for this Set')
+    ],
+    'settings' => [
+      'upload_validators' => $validatorszip,
+    ],
+    'weight' => -3,
+  ]);
+  \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_zip_file);
+}

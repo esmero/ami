@@ -27,4 +27,12 @@ interface amiSetEntityInterface extends ContentEntityInterface, EntityOwnerInter
   public function setStatus(string $status);
 
 
+  /**
+   * @param array $config
+   *
+   * @return \Drupal\ami\amiSetEntityInterface
+   */
+  public function setLastProcessedConfig(array $config);
+
+
 }
