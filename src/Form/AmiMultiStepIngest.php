@@ -415,6 +415,11 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
           'file_validate_extensions' => ['zip'],
         ],
       ];
+      if (version_compare(\Drupal::VERSION, '10.2', '>=')) {
+        $form['zip']['#upload_validators']['FileExtension']['extensions'] = 'zip';
+        unset($form['zip']['#upload_validators']['file_validate_extensions']);
+      }
+
 
       $form['ami_set_label'] = [
         '#type' => 'textfield',
