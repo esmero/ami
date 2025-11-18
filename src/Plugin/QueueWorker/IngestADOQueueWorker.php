@@ -260,9 +260,10 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     // it simple for now.
     $this->loggerFactory->get('ami_file')->setLoggers([[$log]]);
 
-    /* $data will  contain a pluginconfig Object with at least
+    /* $data will contain a pluginconfig Object with at least
         $data->pluginconfig->op;
         // op --> action is handled differently
+    EXCEPT for Files that are being processed as queue items.
     */
     /* Data info for an ADO has this structure
       $data->info = [
@@ -306,7 +307,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     */
 
     // Actions will go their own way into the processAction() method.
-    if ($data->pluginconfig->op === "action") {
+    if (isset($data->pluginconfig) && ($data->pluginconfig->op ?? NULL) === "action") {
       $message = $this->t('Attempting to process SET @setid with action @action for ADO UUIDs @uuids.',
         [
           '@setid' => $data->info['set_id'],
@@ -1301,7 +1302,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
     'sync' => 'Sync' with either create/update/delete as sub operation.
     */
 
-    $op = $data->pluginconfig->op;
+    $op = $data->pluginconfig->op ?? NULL;
     if ($data->pluginconfig->op == 'sync') {
       // We relay on the CSV expander to set this correctly
       // We always default to create. Worst case scenario it will
