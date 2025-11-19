@@ -155,8 +155,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             $lod_file_url = NULL;
           }
           if ($lod_file_url) {
-            $form['status']['download'] = Url::fromUri($lod_file_url)
-              ->toRenderArray();
+            $form['status']['download']['#url'] = Url::fromUri($lod_file_url);
             $form['status']['download']['#type'] = 'link';
             $form['status']['download']['#title'] = $this->t(
               'Download LoD CSV'
