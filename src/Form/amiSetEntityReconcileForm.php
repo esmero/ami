@@ -98,7 +98,9 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
    * {@inheritdoc}
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
-
+    $form['#cache'] = [
+      'max-age' => 0
+    ];
     $data = new \stdClass();
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
@@ -113,6 +115,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
         'create',
         'update',
         'patch',
+        'sync',
       ];
       if (!in_array($op, $ops)) {
         $form['status'] = [
@@ -122,7 +125,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             'Error'
           ),
           '#markup' => $this->t(
-            'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
+            'Sorry. This AMI set has no right Operation (Create, Update, Patch, Sync) set. Please fix this or contact your System Admin to fix it.'
           ),
         ];
         return $form;
@@ -204,11 +207,28 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             '#prefix' => '<div id="lod-options-wrapper">',
             '#suffix' => '</div>',
           ];
+          $saved_reconcile_mapping_settings = [];
+          if ($data->reconcileconfig->mappings ?? NULL) {
+            foreach ($data->reconcileconfig->mappings as $column => $mapping) {
+              $saved_reconcile_mapping_settings[md5($column)] = $mapping;
+            }
+          }
 
-          $reconcile_mapping_settings = $form_state->getValue(['lod_options', 'mappings'], NULL) ?? ($data->reconcileconfig->mappings ?? NULL);
+          $reconcile_mapping_settings = $form_state->getValue(['lod_options', 'mappings'], NULL) ?? ($saved_reconcile_mapping_settings ?? NULL);
           $reconcile_mapping_settings = (array) $reconcile_mapping_settings;
+
           if ($reconcile_column_settings) {
             $source_options = $reconcile_column_settings;
+            // We convert the values into its md5 representation, then flip
+            // This is because the webform_mapping element uses a value callback
+            // that converts form state values from Drupal Nested Arrays, which
+            // Parses ][  anything that looks like that, breaking e.g XML to CSV
+            // column headers with Xpaths.
+
+            foreach ($source_options as $key => &$value) {
+              $value = md5($value);
+            }
+            $source_options = array_flip($source_options);
             $column_options = $this->AmiLoDService::AMI_FORM_EXPOSED_LOD_SOURCES;
             $form['lod_options']['#type'] = 'fieldset';
             $form['lod_options']['#tree'] = TRUE;
@@ -235,18 +255,16 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
               '#type' => 'select',
               '#title' => $this->t('Choose a Column to Preview'),
               '#options' => array_combine($source_options, $source_options),
-              '#default_value' => $form_state->getValue(['lod_options','select_preview'])
+              '#default_value' => $form_state->getValue(['lod_options','select_preview']),
+              '#description' => $this->t('We will attempt to fetch first cells holding a string of delimited values (by "|@|" or ";"). If no results, and the cell holds a valid JSON, any simple lists of values (e.g ["pup","dog","canine"], and/or any property where the JSON key name contains one of the following strings: "label, value, name"'),
             ];
             $form['lod_options']['preview'] = [
               '#type' => 'button',
               '#op' => 'preview',
-              '#value' => $this->t('Inspect cleaned/split up column values'),
+              '#value' => $this->t('Inspect cleaned/split up/or JSON decoded column values'),
               '#ajax' => [
                 'callback' => [$this, 'ajaxColumPreview'],
               ],
-              /* '#states' => [
-                'visible' => ['input[name="ado_context_preview"' => ['filled' => true]],
-              ],*/
             ];
           }
         }
@@ -340,41 +358,57 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       // Set also the new config back
       $new_lod_columns = [];
       $new_lod_mappings = [];
+      $md5_column_hash = [];
       // Deal with merging existing config with new config. This won't
       // remove old configs yet
       if ($update_existing) {
-        $new_lod_columns = $form_state->getValue(
+        $new_lod_columns = (array) $form_state->getValue(
           ['mapping', 'lod_columns'], []
         );
-        $new_lod_mappings = $form_state->getValue(
+        $new_lod_mappings = (array) $form_state->getValue(
           ['lod_options', 'mappings'], []
         );
 
         foreach ($new_lod_columns as $lod_columns) {
           $data->reconcileconfig->columns->{$lod_columns} = $lod_columns;
+          $md5_column_hash[md5($lod_columns)] = $lod_columns;
+          // Also store an md5 hash here since mapping was sent using MD5 encoded
+          // Column neaders
         }
-        foreach ($new_lod_mappings as $lod_columns => $lod_mappings) {
+        foreach ($new_lod_mappings as $md5_lod_columns => $lod_mappings) {
+          $lod_columns = $md5_column_hash[$md5_lod_columns] ?? NULL;
           // We use array_values to avoid an Object casting of reordered Arrays
-          $data->reconcileconfig->mappings->{$lod_columns}
-            = isset($data->reconcileconfig->mappings->{$lod_columns}) && is_array($data->reconcileconfig->mappings->{$lod_columns})
-            ? array_values(array_merge(
-              $data->reconcileconfig->mappings->{$lod_columns}, $lod_mappings
-            )) : array_values($lod_mappings);
-          $data->reconcileconfig->mappings->{$lod_columns} = array_values(array_unique(
-            $data->reconcileconfig->mappings->{$lod_columns})
-          );
+          if ($lod_columns) {
+            $data->reconcileconfig->mappings->{$lod_columns}
+              = isset($data->reconcileconfig->mappings->{$lod_columns}) && is_array($data->reconcileconfig->mappings->{$lod_columns})
+              ? array_values(array_merge(
+                $data->reconcileconfig->mappings->{$lod_columns}, $lod_mappings
+              )) : array_values($lod_mappings);
+            $data->reconcileconfig->mappings->{$lod_columns} = array_values(array_unique(
+                $data->reconcileconfig->mappings->{$lod_columns})
+            );
+          }
         }
         $mappings = (array) $data->reconcileconfig->mappings ?? [];
       }
       else {
         //Non update operation
         $data->reconcileconfig = new \stdClass();
-        $data->reconcileconfig->columns = $form_state->getValue(
+        $data->reconcileconfig->columns = (array) $form_state->getValue(
           ['mapping', 'lod_columns'], NULL
         );
-        $data->reconcileconfig->mappings = $form_state->getValue(
+        foreach ($data->reconcileconfig->columns as $lod_columns) {
+          $md5_column_hash[md5($lod_columns)] = $lod_columns;
+        }
+        $data->reconcileconfig->mappings = (array) $form_state->getValue(
           ['lod_options', 'mappings'], NULL
         );
+        foreach ($data->reconcileconfig->mappings as $lod_column => $mapping) {
+          if (isset($md5_column_hash[$lod_column])) {
+            $data->reconcileconfig->mappings[$md5_column_hash[$lod_column]] = $mapping;
+            unset($data->reconcileconfig->mappings[$lod_column]);
+          }
+        }
         $mappings = (array) $data->reconcileconfig->mappings ?? [];
       }
 
@@ -416,8 +450,14 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       }
       $normalized_mapping = [];
       foreach($mappings as $source_column => $approaches) {
-        foreach($approaches as $approach) {
-          $exploded =  explode(';', $approach);
+        if (is_array($approaches)) {
+          foreach ($approaches as $approach) {
+            $exploded = explode(';', $approach);
+            $normalized_mapping[$source_column][] = strtolower(implode('_', $exploded));
+          }
+        }
+        elseif (is_string($approaches) && !empty($approaches)) {
+          $exploded = explode(';', $approaches);
           $normalized_mapping[$source_column][] = strtolower(implode('_', $exploded));
         }
       }
@@ -523,6 +563,8 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       );
       $form_state->setRebuild();
     }
+    // To ensure the updated time changes?
+    parent::submitForm($form, $form_state);
   }
 
   /*

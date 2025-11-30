@@ -213,7 +213,10 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                 $labels = \Drupal::service('ami.utility')
                   ->getDifferentValuesfromColumnSplit($data_to_clean,
                     0);
-
+                if (empty($labels)) {
+                  $labels =  \Drupal::service('ami.utility')->getDifferentValuesfromColumnJSON($data_to_clean,
+                    0);
+                }
                 foreach ($labels as $label) {
                   $lod_for_label = \Drupal::service('ami.lod')
                     ->getKeyValuePerAmiSet($label, $id);

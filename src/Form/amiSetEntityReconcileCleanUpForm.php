@@ -125,6 +125,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           'create',
           'update',
           'patch',
+          'sync',
         ];
         if (!in_array($op, $ops)) {
           $form['status'] = [
@@ -134,7 +135,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
               'Error'
             ),
             '#markup' => $this->t(
-              'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
+              'Sorry. This AMI set has no right Operation (Create, Update, Patch, Sync) set. Please fix this or contact your System Admin to fix it.'
             ),
           ];
           return $form;

@@ -570,7 +570,7 @@ class AmiUtilityService {
         // joined by a; like text/vtt;charset=UTF-8
         $mimetype_array = explode(";", $mimetype[0]);
         if ($mimetype_array) {
-         //Exceptions for "some" remote sources that might provide/non canonical mimetypes
+          //Exceptions for "some" remote sources that might provide/non canonical mimetypes
           if ($mimetype_array[0] == 'image/jpg') {
             $mimetype_array[0] = 'image/jpeg';
           }
@@ -782,16 +782,16 @@ class AmiUtilityService {
         for ($i = 0; $i < $z->numFiles; $i++) {
           $file_name = $z->getNameIndex($i);
           if ($extension) {
-						$basename = basename($file_name);
-						$info = pathinfo($basename);
+            $basename = basename($file_name);
+            $info = pathinfo($basename);
             if ((strtoupper($info['extension'] ?? '') == strtoupper($extension)) && !str_starts_with($basename,'.')) {
               $files[] = $file_name;
             }
           }
-					else {
-						// NO extension.
-						$files[] = $file_name;
-					}
+          else {
+            // NO extension.
+            $files[] = $file_name;
+          }
         }
         $z->close();
       }
@@ -1316,7 +1316,7 @@ class AmiUtilityService {
     // 1.6.0: wrapper around this function now that we moved it to strawberryfield so webform module does not depend on AMI for CSV reading
     // This was needed bc if not we would have an undeclared circular dependency/or would have to change all the code (many parts)
     // there this service was used to call csv_read(). Only thing new is that the logging/caller_module is used for logging now.
-   return $this->strawberryfieldUtility->csv_read($file, $offset, $count, $always_include_header, $escape_characters, 'ami');
+    return $this->strawberryfieldUtility->csv_read($file, $offset, $count, $always_include_header, $escape_characters, 'ami');
   }
 
 
@@ -1535,6 +1535,10 @@ class AmiUtilityService {
       if ($column_index !== FALSE) {
         $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
           $column_index);
+        if (empty($alldifferent[$column])) {
+          $alldifferent[$column] = $this->getDifferentValuesfromColumnJSON($data,
+            $column_index);
+        }
       }
     }
     return $alldifferent;
@@ -2078,8 +2082,8 @@ class AmiUtilityService {
           foreach ($uuids as $parent_uuid) {
             // Means the UUID is pointing to the same CSV but we have not seen the parent yet
             if ((string)$parent_uuid !='' && isset($uuid_to_row_index_hash[$parent_uuid]) && !isset($seen[$parent_uuid])) {
-                $needs_sorting = TRUE;
-                break 3;
+              $needs_sorting = TRUE;
+              break 3;
             }
           }
         }
@@ -2290,7 +2294,7 @@ class AmiUtilityService {
         }
       }
       else {
-       $message = $this->t(
+        $message = $this->t(
           'Invalid UUID @uuid found. Skipping for AMI Set ID @setid, Row @row',
           [
             '@uuid' => $possibleUUID,
@@ -2579,6 +2583,10 @@ class AmiUtilityService {
             $data_to_clean['data'][0] = [$context['data'][$source_column]];
             $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
               0);
+            if (empty($labels)) {
+              $labels = $this->getDifferentValuesfromColumnJSON($data_to_clean,
+               0);
+            }
             foreach($labels as $label) {
               $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
               if (is_array($lod_for_label) && count($lod_for_label) > 0) {
@@ -2626,18 +2634,18 @@ class AmiUtilityService {
         );
       }
       catch (\Exception $error) {
-          $message = $this->t(
-            'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
-            [
-              '@metadatadisplayid' => $metadatadisplay_id,
-              '@uuid' => $data->info['row']['uuid'],
-              '@row' => $row_id,
-              '@setid' => $set_id,
-              '%output' => $error->getMessage(),
-            ]
-          );
-          $this->loggerFactory->get('ami')->error($message);
-          return NULL;
+        $message = $this->t(
+          'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
+          [
+            '@metadatadisplayid' => $metadatadisplay_id,
+            '@uuid' => $data->info['row']['uuid'],
+            '@row' => $row_id,
+            '@setid' => $set_id,
+            '%output' => $error->getMessage(),
+          ]
+        );
+        $this->loggerFactory->get('ami')->error($message);
+        return NULL;
       }
       if (count($cacheabledata)) {
         $jsonstring = $cacheabledata->__toString();
@@ -2718,9 +2726,90 @@ class AmiUtilityService {
       return trim($value);
     }, $all_entries);
 
+    $unique = array_filter($unique);
     $unique = array_unique(array_values($unique), SORT_STRING);
     return $unique;
   }
+
+
+  /**
+   * For a given Numeric Column index, get different/json values
+   *
+   * @param array $data
+   * @param int $key
+   *
+   * @param array $valid_sub_keys
+   *    Subkeys to check for values, in case the decoded json is an array of objects.
+   * @return array
+   */
+  public function getDifferentValuesfromColumnJSON(array $data, int $key, array $valid_sub_keys = ['label', 'value', 'type', 'name'] ): array {
+    $unique = [];
+    $all = array_column($data['data'], $key);
+    $all_jsondecoded = array_map(function($value) {
+     if (is_string($value)) {
+       if ($this->isJson($value)) {
+         return json_decode($value, TRUE);
+       }
+     }
+     elseif (is_array($value)) {
+       return $value;
+     }
+    return NULL;
+    }, $all);
+    $all_jsondecoded = array_filter($all_jsondecoded);
+    $all_entries = [];
+    foreach ($all_jsondecoded as $entries_decoded) {
+      if (is_scalar($entries_decoded)) {
+        $all_entries[] = $entries_decoded;
+      }
+      elseif (is_array($entries_decoded)) {
+        foreach ($entries_decoded as $main_key => $entry) {
+          if (is_scalar($entry)) {
+            if (!array_is_list($entries_decoded)) {
+              foreach ($valid_sub_keys as $pattern) {
+                if (stripos($pattern, $main_key) !== FALSE) {
+                  $all_entries[] = $entry;
+                }
+              }
+            }
+            else {
+              $all_entries[] = $entry;
+            }
+          }
+          elseif (is_array($entry)) {
+            if (array_is_list($entry)) {
+              $posible_entry = array_map(function($value) {
+                return is_scalar($value);
+              }, $entry);
+              $all_entries = array_merge($all_entries, $posible_entry);
+            }
+            else {
+              foreach ($entry as $subkey => $subentry) {
+                if (is_scalar($subentry)) {
+                  foreach ($valid_sub_keys as $pattern) {
+                    if (stripos($pattern, $subkey) !== FALSE) {
+                      $all_entries[] = $subentry;
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+
+      }
+    }
+
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all_entries);
+    $unique = array_filter($unique);
+    $unique = array_unique(array_values($unique), SORT_STRING);
+    return $unique;
+  }
+
+
   /**
    * Checks if a string is valid JSON
    *
