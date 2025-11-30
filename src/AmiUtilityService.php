@@ -16,7 +16,7 @@ use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use \Drupal\Core\Entity\EntityFieldManagerInterface;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\Exception\FileWriteException;
 use Drupal\Core\File\FileSystemInterface;
@@ -1798,6 +1798,9 @@ class AmiUtilityService {
     if ($result == SAVED_NEW) {
       return $entity->id();
     }
+    else {
+      return NULL;
+    }
   }
 
   /**
@@ -1811,7 +1814,7 @@ class AmiUtilityService {
    *    Keeps track of invalid rows.
    * @param bool $strict
    *    TRUE means Set Config and CSV will be strictly validated,
-   *    FALSE means it will just validated for the needed elements
+   *    FALSE means it will just validate for the needed elements
    *
    * @return array
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
@@ -2585,7 +2588,7 @@ class AmiUtilityService {
               0);
             if (empty($labels)) {
               $labels = $this->getDifferentValuesfromColumnJSON($data_to_clean,
-               0);
+                0);
             }
             foreach($labels as $label) {
               $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
@@ -2742,22 +2745,23 @@ class AmiUtilityService {
    *    Subkeys to check for values, in case the decoded json is an array of objects.
    * @return array
    */
-  public function getDifferentValuesfromColumnJSON(array $data, int $key, array $valid_sub_keys = ['label', 'value', 'type', 'name'] ): array {
+  public function getDifferentValuesfromColumnJSON(array $data, int $key, array $valid_sub_keys = ['label', 'value', 'type', 'name'], $exclude_urls = TRUE): array {
     $unique = [];
     $all = array_column($data['data'], $key);
     $all_jsondecoded = array_map(function($value) {
-     if (is_string($value)) {
-       if ($this->isJson($value)) {
-         return json_decode($value, TRUE);
-       }
-     }
-     elseif (is_array($value)) {
-       return $value;
-     }
-    return NULL;
+      if (is_string($value)) {
+        if ($this->isJson($value)) {
+          return json_decode($value, TRUE);
+        }
+      }
+      elseif (is_array($value)) {
+        return $value;
+      }
+      return NULL;
     }, $all);
     $all_jsondecoded = array_filter($all_jsondecoded);
     $all_entries = [];
+
     foreach ($all_jsondecoded as $entries_decoded) {
       if (is_scalar($entries_decoded)) {
         $all_entries[] = $entries_decoded;
@@ -2767,7 +2771,7 @@ class AmiUtilityService {
           if (is_scalar($entry)) {
             if (!array_is_list($entries_decoded)) {
               foreach ($valid_sub_keys as $pattern) {
-                if (stripos($pattern, $main_key) !== FALSE) {
+                if (stripos($main_key, $pattern) !== FALSE) {
                   $all_entries[] = $entry;
                 }
               }
@@ -2784,11 +2788,24 @@ class AmiUtilityService {
               $all_entries = array_merge($all_entries, $posible_entry);
             }
             else {
-              foreach ($entry as $subkey => $subentry) {
-                if (is_scalar($subentry)) {
-                  foreach ($valid_sub_keys as $pattern) {
-                    if (stripos($pattern, $subkey) !== FALSE) {
+              $flattened = [];
+              StrawberryfieldJsonHelper::arrayToFlatCommonkeys(
+                $entry,
+                $flattened,
+                FALSE
+              );
+              foreach ($flattened as $subkey => $subentry) {
+                foreach ($valid_sub_keys as $pattern) {
+                  if (stripos($subkey, $pattern) !== FALSE) {
+                    if (is_scalar($subentry)) {
                       $all_entries[] = $subentry;
+                    }
+                    elseif (array_is_list($subentry)){
+                      foreach ($subentry as $subsubentry) {
+                        if (is_scalar($subsubentry)) {
+                          $all_entries[] = $subsubentry;
+                        }
+                      }
                     }
                   }
                 }
@@ -2796,7 +2813,6 @@ class AmiUtilityService {
             }
           }
         }
-
       }
     }
 
@@ -2806,6 +2822,17 @@ class AmiUtilityService {
     }, $all_entries);
     $unique = array_filter($unique);
     $unique = array_unique(array_values($unique), SORT_STRING);
+    // If exclude URLS (default) we will remove any values that are URLs
+    if ($exclude_urls) {
+      $unique = array_filter($unique, function ($value) {
+        if (filter_var($value, FILTER_VALIDATE_URL) || StrawberryfieldJsonHelper::validateURN($value)) {
+          return FALSE;
+        }
+        else {
+          return TRUE;
+        }
+      });
+    }
     return $unique;
   }
 

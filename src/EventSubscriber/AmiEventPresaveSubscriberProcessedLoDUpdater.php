@@ -110,6 +110,7 @@ class AmiEventPresaveSubscriberProcessedLoDUpdater extends AmiEventPresaveSubscr
     $sbf_fields = $event->getFields();
     $originallabel = NULL;
     $forceupdate = TRUE;
+    $valid_lod = $this->AmiLoDService->getLoDColumnsToArguments();
     if (!$entity->isNew()) {
       $originalLodCSV = $entity->original->processed_data->getValue();
       $newLodCSV = $entity->processed_data->getValue();
@@ -118,7 +119,7 @@ class AmiEventPresaveSubscriberProcessedLoDUpdater extends AmiEventPresaveSubscr
       // Only act on changes on the processed CSV. We do not want to execute
       // this costly operation on every save.
       if (($originalLodCSV != $newLodCSV) && !empty($newLodCSV)) {
-        $lod_options = array_keys(AmiLoDService::LOD_COLUMN_TO_ARGUMENTS);
+        $lod_options = array_keys($valid_lod);
         $enforced_headers = ['original','csv_columns', 'checked'];
         $csv_file_reference = $entity->get('source_data')->getValue();
         /** @var \Drupal\file\Entity\File $file */
@@ -202,13 +203,14 @@ class AmiEventPresaveSubscriberProcessedLoDUpdater extends AmiEventPresaveSubscr
             $fullvalues["reconcileconfig"]["mappings"] = [];
             $fullvalues["reconcileconfig"]["columns"] = array_combine(array_keys($normalized_mapping), array_keys($normalized_mapping));
             foreach ($normalized_mapping as $source => $approaches) {
-              foreach ($approaches as $approach) {
-                $fullvalues["reconcileconfig"]["mappings"][$source][]
-                  = $this->AmiLoDService::LOD_COLUMN_TO_ARGUMENTS[$approach];
+                foreach ($approaches as $approach) {
+                  if ($valid_lod[$approach] ?? NULL) {
+                    $fullvalues["reconcileconfig"]["mappings"][$source][]
+                      = $valid_lod[$approach];
+                  }
                 }
-              $fullvalues["reconcileconfig"]["mappings"][$source] = array_unique($fullvalues["reconcileconfig"]["mappings"][$source]);
+                $fullvalues["reconcileconfig"]["mappings"][$source] = array_unique($fullvalues["reconcileconfig"]["mappings"][$source]);
             }
-
             if (!$itemfield->setMainValueFromArray((array) $fullvalues)) {
               $this->messenger->addError($this->t('We could not persist LoD Configuration inferred from the CSV. Please contact the site admin.'));
             }

@@ -10,7 +10,7 @@ services:
       - { name: backend_overridable }
   ami.lod:
     class: Drupal\ami\AmiLoDService
-    arguments: [ '@file_system', '@file.usage', '@entity_type.manager', '@stream_wrapper_manager', '@plugin.manager.archiver', '@config.factory', '@current_user', '@language_manager', '@transliteration', '@module_handler', '@logger.factory', '@strawberryfield.utility', '@http_client', '@keyvalue']
+    arguments: [ '@file_system', '@file.usage', '@entity_type.manager', '@stream_wrapper_manager', '@plugin.manager.archiver', '@config.factory', '@current_user', '@language_manager', '@transliteration', '@module_handler', '@logger.factory', '@strawberryfield.utility', '@http_client', '@keyvalue', '@webform_strawberryfield.custom_lod_endpoint_manager']
     tags:
       - { name: backend_overridable }
   ami.twig.TwigExtension:

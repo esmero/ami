@@ -230,6 +230,8 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
             }
             $source_options = array_flip($source_options);
             $column_options = $this->AmiLoDService::AMI_FORM_EXPOSED_LOD_SOURCES;
+            // Fetch also Custom ones. The format will be "custom;the_custom_lod_entity_id"
+            $column_options = $column_options + $this->AmiLoDService->getCustomLoDEndpoints();
             $form['lod_options']['#type'] = 'fieldset';
             $form['lod_options']['#tree'] = TRUE;
 
@@ -256,7 +258,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
               '#title' => $this->t('Choose a Column to Preview'),
               '#options' => array_combine($source_options, $source_options),
               '#default_value' => $form_state->getValue(['lod_options','select_preview']),
-              '#description' => $this->t('We will attempt to fetch first cells holding a string of delimited values (by "|@|" or ";"). If no results, and the cell holds a valid JSON, any simple lists of values (e.g ["pup","dog","canine"], and/or any property where the JSON key name contains one of the following strings: "label, value, name"'),
+              '#description' => $this->t('We will attempt to fetch first cells holding a string of delimited values (by "|@|" or ";"). If no luck, and the selected column cell\'s holds a valid JSON, any simple lists of values (e.g ["pup","dog","canine"], and/or any property where the JSON key name contains one of the following strings: "label, value, name". Any URL/URN or URI will be not taken in account'),
             ];
             $form['lod_options']['preview'] = [
               '#type' => 'button',

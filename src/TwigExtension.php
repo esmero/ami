@@ -73,9 +73,16 @@ class TwigExtension extends AbstractExtension {
     try {
       $domain = \Drupal::service('request_stack')->getCurrentRequest()->getSchemeAndHttpHost();
       $lod_route_argument_list = explode(";", $vocab);
-      $lod = \Drupal::service('ami.lod')->invokeLoDRoute($domain,
-        $label, $lod_route_argument_list[0],
-        $lod_route_argument_list[1], $lod_route_argument_list[2], $len ?? 'en', 1);
+      if ($lod_route_argument_list[0] == "custom") {
+        $lod = \Drupal::service('ami.lod')->invokeCustomLoD($label,  $lod_route_argument_list[1]);
+        // Because the number of results is a config setting of the actual Custom LoD, we slice it here to 1.
+        $lod = array_slice($lod,0, 1);
+      }
+      else {
+        $lod = \Drupal::service('ami.lod')->invokeLoDRoute($domain,
+          $label, $lod_route_argument_list[0],
+          $lod_route_argument_list[1], $lod_route_argument_list[2], $len ?? 'en', 1);
+      }
     }
     catch (\Exception $exception) {
       $message = t('@exception_type thrown in @file:@line while querying for @entity_type entity ids matching "@label". Message: @response',
