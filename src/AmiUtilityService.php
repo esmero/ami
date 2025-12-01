@@ -9,13 +9,14 @@
 
 namespace Drupal\ami;
 
+use Drupal\strawberryfield\Field\StrawberryFieldItemList;
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
-use \Drupal\Core\Entity\EntityFieldManagerInterface;
+use Drupal\Core\Entity\EntityFieldManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
 use Drupal\Core\File\Exception\FileWriteException;
 use Drupal\Core\File\FileSystemInterface;
@@ -569,7 +570,7 @@ class AmiUtilityService {
         // joined by a; like text/vtt;charset=UTF-8
         $mimetype_array = explode(";", $mimetype[0]);
         if ($mimetype_array) {
-         //Exceptions for "some" remote sources that might provide/non canonical mimetypes
+          //Exceptions for "some" remote sources that might provide/non canonical mimetypes
           if ($mimetype_array[0] == 'image/jpg') {
             $mimetype_array[0] = 'image/jpeg';
           }
@@ -781,16 +782,16 @@ class AmiUtilityService {
         for ($i = 0; $i < $z->numFiles; $i++) {
           $file_name = $z->getNameIndex($i);
           if ($extension) {
-						$basename = basename($file_name);
-						$info = pathinfo($basename);
+            $basename = basename($file_name);
+            $info = pathinfo($basename);
             if ((strtoupper($info['extension'] ?? '') == strtoupper($extension)) && !str_starts_with($basename,'.')) {
               $files[] = $file_name;
             }
           }
-					else {
-						// NO extension.
-						$files[] = $file_name;
-					}
+          else {
+            // NO extension.
+            $files[] = $file_name;
+          }
         }
         $z->close();
       }
@@ -1311,128 +1312,11 @@ class AmiUtilityService {
    *    'data' => $table,
    *    'totalrows' => $maxRow,
    */
-  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE, $escape_characters = TRUE) {
-
-    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
-    if (!$wrapper) {
-      return NULL;
-    }
-
-    $url = $wrapper->getUri();
-    $uri = $this->streamWrapperManager->normalizeUri($url);
-    if (!is_file($uri)) {
-      $message = $this->t(
-        'CSV File referenced in AMI set for processing at @uri is no longer present. Check your composting times. Skipping',
-        [
-          '@uri' => $uri,
-        ]
-      );
-      $this->loggerFactory->get('ami')->error($message);
-      return NULL;
-    }
-
-    $spl = new \SplFileObject($url, 'r');
-    if ($offset > 0) {
-      // We only set this flags when an offset is present.
-      // Because if not fgetcsv is already dealing with multi line CSV rows.
-      $spl->setFlags(
-        SplFileObject::READ_CSV |
-        SplFileObject::READ_AHEAD |
-        SplFileObject::SKIP_EMPTY |
-        SplFileObject::DROP_NEW_LINE
-      );
-      if (!$escape_characters) {
-        $spl->setCsvControl(',', '"', "");
-      }
-    }
-
-    if ($offset > 0 && !$always_include_header) {
-      // If header needs to be included then we offset later on
-      // PHP 8.0.16 IS STILL BUGGY with SEEK.
-      //$spl->seek($offset) does not work here.
-      for ($i = 0; $i < $offset; $i++) {
-        $spl->next();
-      }
-
-    }
-    $data = [];
-    $seek_to_offset = ($offset > 0 && $always_include_header);
-    while (!$spl->eof() && ($count == 0 || ($spl->key() < ($offset + $count)))) {
-      if (!$escape_characters) {
-        $data[] = $spl->fgetcsv( ',', '"', "");
-      }
-      else {
-        $data[] = $spl->fgetcsv();
-      }
-      if ($seek_to_offset) {
-        for ($i = 0; $i < $offset; $i++) {
-          $spl->next();
-        }
-        // PHP 8.0.16 IS STILL BUGGY with SEEK.
-        //$spl->seek($offset); doe snot work here
-        // So we do not process this again.
-        $seek_to_offset = FALSE;
-      }
-    }
-
-    $table = [];
-    $maxRow = 0;
-
-    $highestRow = count($data);
-    if ($always_include_header) {
-      $rowHeaders = $data[0] ?? [];
-      $rowHeaders_utf8 = array_map(function($value) {
-        $value = $value ?? '';
-        $value = stripslashes($value);
-        $value = function_exists('mb_convert_encoding') ? mb_convert_encoding($value, 'UTF-8', 'ISO-8859-1') : utf8_encode($value);
-        $value = strtolower($value);
-        $value = trim($value);
-        return $value;
-      }, $rowHeaders);
-      $headercount = count($rowHeaders);
-    }
-    else {
-      $rowHeaders = $rowHeaders_utf8 = [];
-      $not_a_header = $data[0] ?? [];
-      $headercount = count($not_a_header);
-    }
-
-    if (($highestRow) >= 1) {
-      // Returns Row Headers.
-
-      $maxRow = 1; // at least until here.
-      $rowindex = 0;
-      foreach ($data as $rowindex => $row) {
-        if ($rowindex == 0) {
-          // Skip header
-          continue;
-        }
-        // Ensure row is always an array.
-        $row = $row ?? [];
-        $flat = trim(implode('', $row));
-        //check for empty row...if found stop there.
-        $maxRow = $rowindex;
-        if (strlen($flat) == 0) {
-          break;
-        }
-        // This was done already by the Import Plugin but since users
-        // Could eventually re upload the spreadsheet better so
-        $row = $this->arrayEquallySeize(
-          $headercount,
-          $row
-        );
-        // Offsetting all rows by 1. That way we do not need to remap numeric parents
-        $table[$rowindex + 1] = $row;
-      }
-      $maxRow = $maxRow ?? $rowindex;
-    }
-
-    return  [
-      'headers' => $rowHeaders_utf8,
-      'data' => $table,
-      'totalrows' => $maxRow,
-    ];
-
+  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE, bool $escape_characters = TRUE) {
+    // 1.6.0: wrapper around this function now that we moved it to strawberryfield so webform module does not depend on AMI for CSV reading
+    // This was needed bc if not we would have an undeclared circular dependency/or would have to change all the code (many parts)
+    // there this service was used to call csv_read(). Only thing new is that the logging/caller_module is used for logging now.
+    return $this->strawberryfieldUtility->csv_read($file, $offset, $count, $always_include_header, $escape_characters, 'ami');
   }
 
 
@@ -1651,6 +1535,10 @@ class AmiUtilityService {
       if ($column_index !== FALSE) {
         $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
           $column_index);
+        if (empty($alldifferent[$column])) {
+          $alldifferent[$column] = $this->getDifferentValuesfromColumnJSON($data,
+            $column_index);
+        }
       }
     }
     return $alldifferent;
@@ -1910,6 +1798,9 @@ class AmiUtilityService {
     if ($result == SAVED_NEW) {
       return $entity->id();
     }
+    else {
+      return NULL;
+    }
   }
 
   /**
@@ -1923,7 +1814,7 @@ class AmiUtilityService {
    *    Keeps track of invalid rows.
    * @param bool $strict
    *    TRUE means Set Config and CSV will be strictly validated,
-   *    FALSE means it will just validated for the needed elements
+   *    FALSE means it will just validate for the needed elements
    *
    * @return array
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
@@ -2194,8 +2085,8 @@ class AmiUtilityService {
           foreach ($uuids as $parent_uuid) {
             // Means the UUID is pointing to the same CSV but we have not seen the parent yet
             if ((string)$parent_uuid !='' && isset($uuid_to_row_index_hash[$parent_uuid]) && !isset($seen[$parent_uuid])) {
-                $needs_sorting = TRUE;
-                break 3;
+              $needs_sorting = TRUE;
+              break 3;
             }
           }
         }
@@ -2406,7 +2297,7 @@ class AmiUtilityService {
         }
       }
       else {
-       $message = $this->t(
+        $message = $this->t(
           'Invalid UUID @uuid found. Skipping for AMI Set ID @setid, Row @row',
           [
             '@uuid' => $possibleUUID,
@@ -2695,6 +2586,10 @@ class AmiUtilityService {
             $data_to_clean['data'][0] = [$context['data'][$source_column]];
             $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
               0);
+            if (empty($labels)) {
+              $labels = $this->getDifferentValuesfromColumnJSON($data_to_clean,
+                0);
+            }
             foreach($labels as $label) {
               $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
               if (is_array($lod_for_label) && count($lod_for_label) > 0) {
@@ -2742,18 +2637,18 @@ class AmiUtilityService {
         );
       }
       catch (\Exception $error) {
-          $message = $this->t(
-            'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
-            [
-              '@metadatadisplayid' => $metadatadisplay_id,
-              '@uuid' => $data->info['row']['uuid'],
-              '@row' => $row_id,
-              '@setid' => $set_id,
-              '%output' => $error->getMessage(),
-            ]
-          );
-          $this->loggerFactory->get('ami')->error($message);
-          return NULL;
+        $message = $this->t(
+          'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
+          [
+            '@metadatadisplayid' => $metadatadisplay_id,
+            '@uuid' => $data->info['row']['uuid'],
+            '@row' => $row_id,
+            '@setid' => $set_id,
+            '%output' => $error->getMessage(),
+          ]
+        );
+        $this->loggerFactory->get('ami')->error($message);
+        return NULL;
       }
       if (count($cacheabledata)) {
         $jsonstring = $cacheabledata->__toString();
@@ -2834,9 +2729,114 @@ class AmiUtilityService {
       return trim($value);
     }, $all_entries);
 
+    $unique = array_filter($unique);
     $unique = array_unique(array_values($unique), SORT_STRING);
     return $unique;
   }
+
+
+  /**
+   * For a given Numeric Column index, get different/json values
+   *
+   * @param array $data
+   * @param int $key
+   *
+   * @param array $valid_sub_keys
+   *    Subkeys to check for values, in case the decoded json is an array of objects.
+   * @return array
+   */
+  public function getDifferentValuesfromColumnJSON(array $data, int $key, array $valid_sub_keys = ['label', 'value', 'type', 'name'], $exclude_urls = TRUE): array {
+    $unique = [];
+    $all = array_column($data['data'], $key);
+    $all_jsondecoded = array_map(function($value) {
+      if (is_string($value)) {
+        if ($this->isJson($value)) {
+          return json_decode($value, TRUE);
+        }
+      }
+      elseif (is_array($value)) {
+        return $value;
+      }
+      return NULL;
+    }, $all);
+    $all_jsondecoded = array_filter($all_jsondecoded);
+    $all_entries = [];
+
+    foreach ($all_jsondecoded as $entries_decoded) {
+      if (is_scalar($entries_decoded)) {
+        $all_entries[] = $entries_decoded;
+      }
+      elseif (is_array($entries_decoded)) {
+        foreach ($entries_decoded as $main_key => $entry) {
+          if (is_scalar($entry)) {
+            if (!array_is_list($entries_decoded)) {
+              foreach ($valid_sub_keys as $pattern) {
+                if (stripos($main_key, $pattern) !== FALSE) {
+                  $all_entries[] = $entry;
+                }
+              }
+            }
+            else {
+              $all_entries[] = $entry;
+            }
+          }
+          elseif (is_array($entry)) {
+            if (array_is_list($entry)) {
+              $posible_entry = array_map(function($value) {
+                return is_scalar($value);
+              }, $entry);
+              $all_entries = array_merge($all_entries, $posible_entry);
+            }
+            else {
+              $flattened = [];
+              StrawberryfieldJsonHelper::arrayToFlatCommonkeys(
+                $entry,
+                $flattened,
+                FALSE
+              );
+              foreach ($flattened as $subkey => $subentry) {
+                foreach ($valid_sub_keys as $pattern) {
+                  if (stripos($subkey, $pattern) !== FALSE) {
+                    if (is_scalar($subentry)) {
+                      $all_entries[] = $subentry;
+                    }
+                    elseif (array_is_list($subentry)){
+                      foreach ($subentry as $subsubentry) {
+                        if (is_scalar($subsubentry)) {
+                          $all_entries[] = $subsubentry;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    $unique = array_map(function($value) {
+      $value = $value ?? '';
+      return trim($value);
+    }, $all_entries);
+    $unique = array_filter($unique);
+    $unique = array_unique(array_values($unique), SORT_STRING);
+    // If exclude URLS (default) we will remove any values that are URLs
+    if ($exclude_urls) {
+      $unique = array_filter($unique, function ($value) {
+        if (filter_var($value, FILTER_VALIDATE_URL) || StrawberryfieldJsonHelper::validateURN($value)) {
+          return FALSE;
+        }
+        else {
+          return TRUE;
+        }
+      });
+    }
+    return $unique;
+  }
+
+
   /**
    * Checks if a string is valid JSON
    *
@@ -2912,7 +2912,7 @@ class AmiUtilityService {
       }
       else {
         $set_field = $entity->get('set');
-        if ($set_field instanceof \Drupal\strawberryfield\Field\StrawberryFieldItemList) {
+        if ($set_field instanceof StrawberryFieldItemList) {
           $set = json_decode($entity->get('set')->getString(), TRUE);
           if (json_last_error() == JSON_ERROR_NONE) {
             $deleteados_access = (empty($set['pluginconfig']['op']) || !in_array($set['pluginconfig']['op'], ['update', 'patch']));

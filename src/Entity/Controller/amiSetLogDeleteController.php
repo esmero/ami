@@ -79,6 +79,7 @@ class amiSetLogDeleteController extends ControllerBase {
         // Let other modules provide headers and controls access to the file.
         $response = new BinaryFileResponse($uri, 200, $headers, TRUE);
         $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT);
+        $response->setPrivate();
         $response->deleteFileAfterSend(TRUE);
         return $response;
       }

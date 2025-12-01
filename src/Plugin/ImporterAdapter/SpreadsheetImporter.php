@@ -92,6 +92,11 @@ class SpreadsheetImporter extends ImporterAdapterBase {
         'file_validate_extensions' => ['csv xls xlsx xlst tsv'],
       ],
     ];
+    if (version_compare(\Drupal::VERSION, '10.2', '>=')) {
+      $form['file']['#upload_validators']['FileExtension']['extensions'] = 'csv xls xlsx xlst tsv';
+      unset($form['file']['#upload_validators']['file_validate_extensions']);
+    }
+
 
     return $form;
   }

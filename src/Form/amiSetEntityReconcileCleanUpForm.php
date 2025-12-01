@@ -125,6 +125,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
           'create',
           'update',
           'patch',
+          'sync',
         ];
         if (!in_array($op, $ops)) {
           $form['status'] = [
@@ -134,7 +135,7 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
               'Error'
             ),
             '#markup' => $this->t(
-              'Sorry. This AMI set has no right Operation (Create, Update, Patch) set. Please fix this or contact your System Admin to fix it.'
+              'Sorry. This AMI set has no right Operation (Create, Update, Patch, Sync) set. Please fix this or contact your System Admin to fix it.'
             ),
           ];
           return $form;
@@ -188,24 +189,32 @@ class amiSetEntityReconcileCleanUpForm extends ContentEntityConfirmFormBase {
             '#type' => 'value',
             '#value' => $total_rows,
           ];
-
-
+          $valid_lod_endpoints = $this->AmiLoDService->getLoDColumnsToArguments();
           foreach ($column_keys as $column) {
             if ($column !== 'original' && $column != 'csv_columns' && $column !='checked') {
-              $argument_string = $this->AmiLoDService::LOD_COLUMN_TO_ARGUMENTS[$column] ?? NULL;
-              if ($argument_string) {
+              $argument_string = $valid_lod_endpoints[$column] ?? NULL;
+              if ($argument_string && is_string($argument_string)) {
                 $arguments = explode(';', $argument_string);
-                $elements[$column] = [
-                  '#type' => 'webform_metadata_' . $arguments[0],
-                  '#title' => implode(' ', $arguments),
-                ];
-
-                if ($arguments[1] == 'rdftype') {
-                  $elements[$column]['#rdftype'] = $arguments[2] ?? '';
-                  $elements[$column]['#vocab'] = 'rdftype';
+                if ($arguments[0] == "custom") {
+                  $elements[$column] = [
+                    '#type' => 'webform_metadata_customlod',
+                    '#title' => implode(' ', $arguments),
+                    '#custom_lod' => $arguments[1]
+                  ];
                 }
                 else {
-                  $elements[$column]['#vocab'] = $arguments[1] ?? '';
+                  $elements[$column] = [
+                    '#type' => 'webform_metadata_' . $arguments[0],
+                    '#title' => implode(' ', $arguments),
+                  ];
+
+                  if ($arguments[1] == 'rdftype') {
+                    $elements[$column]['#rdftype'] = $arguments[2] ?? '';
+                    $elements[$column]['#vocab'] = 'rdftype';
+                  }
+                  else {
+                    $elements[$column]['#vocab'] = $arguments[1] ?? '';
+                  }
                 }
 
               }

@@ -10,6 +10,7 @@
 namespace Drupal\ami;
 
 use Drupal\Component\Transliteration\TransliterationInterface;
+use Drupal\Component\Utility\Xss;
 use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
@@ -25,6 +26,7 @@ use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\Core\Url;
 use Drupal\file\FileUsage\FileUsageInterface;
 use Drupal\webform_strawberryfield\Controller\NominatimController;
+use Drupal\webform_strawberryfield\Plugin\CustomLoDendpointManager;
 use GuzzleHttp\ClientInterface;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use GuzzleHttp\Cookie\CookieJar;
@@ -199,6 +201,11 @@ class AmiLoDService {
   ];
 
   /**
+   * @var \Drupal\webform_strawberryfield\Plugin\CustomLoDendpointManager
+   */
+  protected CustomLoDendpointManager $customLoDendpointPluginManager;
+
+  /**
    * AmiLoDService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -215,6 +222,7 @@ class AmiLoDService {
    * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param \GuzzleHttp\ClientInterface $http_client
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
+   * @param \Drupal\webform_strawberryfield\Plugin\CustomLoDendpointManager $custom_lod_endpoint_manager
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -230,7 +238,8 @@ class AmiLoDService {
     LoggerChannelFactoryInterface $logger_factory,
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     ClientInterface $http_client,
-    KeyValueFactoryInterface $key_value
+    KeyValueFactoryInterface $key_value,
+    CustomLoDendpointManager $custom_lod_endpoint_manager
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -252,6 +261,7 @@ class AmiLoDService {
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
     $this->keyValue = $key_value;
+    $this->customLoDendpointPluginManager = $custom_lod_endpoint_manager;
   }
 
   /**
@@ -510,6 +520,56 @@ class AmiLoDService {
     return $response_cleaned;
   }
 
+  /**
+   * @param string $query
+   *      The Query
+   * @param string $lod_custom_lod_id
+   *      The Custom LoD Endpoint Entity ID
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function invokeCustomLoD(string $query, string $lod_custom_lod_id):array {
+    $results_processed = [];
+    $results = [];
+    $custom_lod_entity = $this->entityTypeManager->getStorage(
+      'webform_sbf_lod_endpoint'
+    )->load($lod_custom_lod_id);
+    if ($custom_lod_entity && $custom_lod_entity->isActive()) {
+      $loDendpointEntityPluginID = $custom_lod_entity->getPluginid();
+      $loDendpointEntityConfig = $custom_lod_entity->getPluginconfig();
+      $query = Xss::filter($query);
+      /* @var \Drupal\webform_strawberryfield\Plugin\CustomLoDendpointInterface $plugin_instance */
+      if (strlen($query) > 0) {
+        $plugin_instance = $this->customLoDendpointPluginManager->createInstance($loDendpointEntityPluginID, $loDendpointEntityConfig);
+        if ($plugin_instance) {
+          $results = $plugin_instance->handleQuery($query);
+        }
+      }
+    }
+    else {
+      if (!$custom_lod_entity) {
+        // Custom endpoint passed does not exist
+        $this->loggerFactory->get('ami')->error($this->t("We can't LoD reconcile using a non existing Custom LoD Endpoint with ID @id. Please correct your settings", [
+          '@id' => $lod_custom_lod_id
+        ]));
+      }
+      else {
+        // was inactive
+        $this->loggerFactory->get('ami')->error($this->t("We can't LoD reconcile using an inactive Custom LoD Endpoint with ID @id. Please correct your settings or make it active", [
+          '@id' => $lod_custom_lod_id
+        ]));
+      }
+    }
+
+    foreach ($results as $key => $entry) {
+      $results_processed[$key]['uri'] = $entry["value"] ?? '';
+      $results_processed[$key]['label'] = !empty($entry["desc"]) ? substr($entry["label"] ?? '', 0, -strlen($entry["desc"])) : $entry["label"]?? '';
+    }
+
+    return $results_processed;
+  }
 
 
   /**
@@ -533,6 +593,32 @@ class AmiLoDService {
   public function isNotJson($string) {
     return !$this->isJson($string);
   }
+
+  public function getCustomLoDEndpoints($as_arguments = FALSE) {
+    $active_plugins = [];
+    /* @var $plugin_config_entities \Drupal\webform_strawberryfield\Entity\LoDendpointEntity[] */
+    $plugin_config_entities = $this->entityTypeManager->getListBuilder(
+      'webform_sbf_lod_endpoint'
+    )->load();
+
+    foreach ($plugin_config_entities as $plugin_config_entity) {
+      // Only get first level (no Parents) and Active ones.
+      if ($plugin_config_entity->isActive()) {
+        if ($as_arguments) {
+          $active_plugins["custom_".$plugin_config_entity->id()] = "custom;" . $plugin_config_entity->id();
+        }
+        else {
+          $active_plugins["custom;" . $plugin_config_entity->id()] = $plugin_config_entity->label() . "(Custom)";
+        }
+      }
+    }
+    return $active_plugins;
+  }
+
+  public function getLoDColumnsToArguments() {
+    $custom = $this->getCustomLoDEndpoints(TRUE);
+    return static::LOD_COLUMN_TO_ARGUMENTS + $custom;
+}
 
 
 }

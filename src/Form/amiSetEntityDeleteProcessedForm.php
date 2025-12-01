@@ -97,6 +97,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
 
       if (TRUE) {
         $data_csv = clone $data;
+        $last_processed_config = [];
 /*
         $data->info = [
           'csv_file' => The CSV File that will (or we hope so if well formed) generate multiple ADO Queue items
@@ -134,9 +135,24 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
           'time_submitted' => $run_timestamp,
           'batch_size' => 25
         ];
+
+        $last_processed_config = [
+          'operation' => $data_csv->pluginconfig->op,
+          'zip_file_id' => $zip_file ? $zip_file->id() : NULL,
+          'csv_file_id' =>  $file ?  $file->id(): NULL,
+          'uid' => $data_csv->info['uid'],
+          'action' => 'delete',
+          'action_config' => [],
+          'queue_name' =>  $data_csv->info['queue_name'],
+          'time_submitted' => $data_csv->info['time_submitted'],
+          'batch_size' => 25
+        ];
+
         \Drupal::queue('ami_csv_ado')
           ->createItem($data_csv);
         $form_state->setRedirectUrl($this->getCancelUrl());
+        $this->entity->setLastProcessedConfig($last_processed_config);
+        $this->entity->save();
       }
       else {
       // Only UUIDs you can delete will be added.

@@ -49,6 +49,10 @@ class EADImporter extends SpreadsheetImporter {
         'file_validate_extensions' => ['csv'],
       ],
     ];
+    if (version_compare(\Drupal::VERSION, '10.2', '>=')) {
+      $form['file']['#upload_validators']['FileExtension']['extensions'] = 'csv';
+      unset($form['file']['#upload_validators']['file_validate_extensions']);
+    }
 
     return $form;
   }
