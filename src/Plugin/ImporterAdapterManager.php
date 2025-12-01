@@ -2,6 +2,7 @@
 
 namespace Drupal\ami\Plugin;
 
+use Drupal\ami\Entity\ImporterAdapterInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Plugin\DefaultPluginManager;
 use Drupal\Core\Cache\CacheBackendInterface;
@@ -49,7 +50,7 @@ class ImporterAdapterManager extends DefaultPluginManager {
    */
   public function createInstanceFromConfig($id) {
     $config = $this->entityTypeManager->getStorage('importeradapter')->load($id);
-    if (!$config instanceof \Drupal\ami\Entity\ImporterAdapterInterface) {
+    if (!$config instanceof ImporterAdapterInterface) {
       return NULL;
     }
 

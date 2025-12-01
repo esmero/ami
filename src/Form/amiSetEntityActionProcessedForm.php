@@ -128,50 +128,64 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
     }
     // We only run this in background
     if ($file && $data!== new \stdClass()) {
-        $data_csv = clone $data;
-/*
-        $data->info = [
-          'csv_file' => The CSV File that will (or we hope so if well formed) generate multiple ADO Queue items
-       'csv_file_name' => Only present if this is called not from the root
-       'set_id' => The Set id
-       'uid' => The User ID that processed the Set
-       'set_url' => A direct URL to the set.
-        'action' => The action to run
-       'action_config' => An array of additional configs/settings the particular action takes.
-        'attempt' => The number of attempts to process. We always start with a 1
-       'zip_file' => Zip File/File Entity
-       'queue_name' => because well ... we use Hydroponics too
-       'time_submitted' => Timestamp on when the queue was send. All Entries will share the same. We will use this value + set_id to generate a temporary key store to be used as batch context,
-       'batch_size' =>  the number of ADOs to process via a batch action. Some actions like detele can/should handle multiple UUIDs at the same time in a single Queue item
-     ];
-*/
-        // Overrides the original OP
-        $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
-          ->toString();
-        $queue_name = 'ami_ingest_ado';
-        $run_timestamp = $this->time->getCurrentTime();
-        $data_csv->pluginconfig->op = "action";
-        $data_csv->info = [
-          'zip_file' => $zip_file,
-          'csv_file' => $file,
-          'set_id' => $this->entity->id(),
-          'uid' => $this->currentUser()->id(),
-          'action' => $pluginid,
-          'action_config' => $action_config ?? [],
-          'set_url' => $SetURL,
-          'attempt' => 1,
-          'queue_name' => $queue_name,
-          'time_submitted' => $run_timestamp,
-          'batch_size' => 25
-        ];
-        \Drupal::queue('ami_csv_ado')
-          ->createItem($data_csv);
-        $form_state->setRedirectUrl($this->getCancelUrl());
-        $this->messenger()->addStatus(
-          $this->t('Your ADOs have been enqueued for Action Processing')
-        );
-      }
-     else {
+      $data_csv = clone $data;
+      $last_processed_config = [];
+      /*
+              $data->info = [
+                'csv_file' => The CSV File that will (or we hope so if well formed) generate multiple ADO Queue items
+             'csv_file_name' => Only present if this is called not from the root
+             'set_id' => The Set id
+             'uid' => The User ID that processed the Set
+             'set_url' => A direct URL to the set.
+              'action' => The action to run
+             'action_config' => An array of additional configs/settings the particular action takes.
+              'attempt' => The number of attempts to process. We always start with a 1
+             'zip_file' => Zip File/File Entity
+             'queue_name' => because well ... we use Hydroponics too
+             'time_submitted' => Timestamp on when the queue was send. All Entries will share the same. We will use this value + set_id to generate a temporary key store to be used as batch context,
+             'batch_size' =>  the number of ADOs to process via a batch action. Some actions like detele can/should handle multiple UUIDs at the same time in a single Queue item
+           ];
+      */
+      // Overrides the original OP
+      $SetURL = $this->entity->toUrl('canonical', ['absolute' => TRUE])
+        ->toString();
+      $queue_name = 'ami_ingest_ado';
+      $run_timestamp = $this->time->getCurrentTime();
+      $data_csv->pluginconfig->op = "action";
+      $data_csv->info = [
+        'zip_file' => $zip_file,
+        'csv_file' => $file,
+        'set_id' => $this->entity->id(),
+        'uid' => $this->currentUser()->id(),
+        'action' => $pluginid,
+        'action_config' => $action_config ?? [],
+        'set_url' => $SetURL,
+        'attempt' => 1,
+        'queue_name' => $queue_name,
+        'time_submitted' => $run_timestamp,
+        'batch_size' => 25
+      ];
+      $last_processed_config = [
+        'operation' => $data_csv->pluginconfig->op,
+        'zip_file_id' => $zip_file ? $zip_file->id() : NULL,
+        'csv_file_id' =>  $file ?  $file->id(): NULL,
+        'uid' => $data_csv->info['uid'],
+        'action' =>  $data_csv->info['action'],
+        'action_config' => $data_csv->info['action_config'],
+        'queue_name' =>  $data_csv->info['queue_name'],
+        'time_submitted' => $data_csv->info['time_submitted'],
+        'batch_size' => 25
+      ];
+      \Drupal::queue('ami_csv_ado')
+        ->createItem($data_csv);
+      $form_state->setRedirectUrl($this->getCancelUrl());
+      $this->entity->setLastProcessedConfig($last_processed_config);
+      $this->entity->save();
+      $this->messenger()->addStatus(
+        $this->t('Your ADOs have been enqueued for Action Processing')
+      );
+    }
+    else {
       $this->messenger()->addError(
         $this->t('So Sorry. Ami Set @label has incorrect Metadata and/or has its CSV file missing. We need it to know which ADOs where generated via this Set. Please correct or manually delete your ADOs.',
           [
@@ -203,7 +217,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
       ];
       foreach ($this->actionManager->getDefinitions() as $id => $definition) {
         if (empty($definition['type']) || \in_array($definition['type'], ['node'], TRUE)) {
-         $actions[$id] = $definition;
+          $actions[$id] = $definition;
         }
       }
       $ajax = [

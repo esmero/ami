@@ -3,7 +3,9 @@
  * @file
  * Contains ami.module.
  */
-
+use Drupal\Core\Entity\EntityInterface;
+use Drupal\Component\Utility\DeprecationHelper;
+use Drupal\Core\Utility\Error;
 use Drupal\ami\AmiEventType;
 use Drupal\ami\Event\AmiCrudEvent;
 use Drupal\Core\Routing\RouteMatchInterface;
@@ -163,7 +165,7 @@ function ami_form_metadatadisplay_entity_form_alter(&$form,FormStateInterface $f
 /**
  * Implements hook_entity_update().
  */
-function ami_entity_update(Drupal\Core\Entity\EntityInterface $entity) {
+function ami_entity_update(EntityInterface $entity) {
   if ($entity->getEntityTypeId() == 'ami_set_entity') {
     // Invalidate AMI Set delete processed ADOs access check cache.
     AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
@@ -173,7 +175,7 @@ function ami_entity_update(Drupal\Core\Entity\EntityInterface $entity) {
 /**
  * Implements hook_entity_delete().
  */
-function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
+function ami_entity_delete(EntityInterface $entity) {
   if ($entity->getEntityTypeId() == 'ami_set_entity') {
     // Invalidate AMI Set delete processed ADOs access check cache.
     AmiUtilityService::invalidateAmiSetDeleteAdosAccessCache($entity);
@@ -186,7 +188,7 @@ function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
       \Drupal::service('file_system')->delete($filePath);
     }
     catch (\Exception $exception) {
-      watchdog_exception('ami', $exception);
+      DeprecationHelper::backwardsCompatibleCall(\Drupal::VERSION, '10.1.0', fn() => Error::logException(\Drupal::logger('ami'), $exception), fn() => watchdog_exception('ami', $exception));
     }
   }
 }
@@ -195,7 +197,7 @@ function ami_entity_delete(Drupal\Core\Entity\EntityInterface $entity) {
 /**
  * Implements hook_ENTITY_TYPE_presave().
  */
-function ami_ami_set_entity_presave(Drupal\Core\Entity\EntityInterface $entity) {
+function ami_ami_set_entity_presave(EntityInterface $entity) {
   if ($sbf_fields = \Drupal::service('strawberryfield.utility')->bearsStrawberryfield($entity)) {
     $event_type = AmiEventType::PRESAVE;
     $event = new AmiCrudEvent($event_type, $entity, $sbf_fields);
@@ -210,7 +212,7 @@ function ami_ami_set_entity_presave(Drupal\Core\Entity\EntityInterface $entity) 
  *
  */
 function ami_file_download($uri) {
-  if (!preg_match('#'.\Drupal\ami\AmiUtilityService::AMI_CSV_FOLDER.'/.*?csv|$#', $uri, $match)) {
+  if (!preg_match('#'.AmiUtilityService::AMI_CSV_FOLDER.'/.*?csv|$#', $uri, $match)) {
     return NULL;
   }
 

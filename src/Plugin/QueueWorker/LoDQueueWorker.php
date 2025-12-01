@@ -184,19 +184,22 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
 
       foreach ($lod_route_arguments as $lod_route_argument) {
         $lod_route_argument_list = explode(';', $lod_route_argument);
-        //@TODO allow the number of results to be set on the \Drupal\ami\Form\amiSetEntityReconcileForm
-        // And passed as an argument. Same with Language? Not all LoD Routes can make use or more languages.
         $lod_route_column_name = strtolower(implode('_', $lod_route_argument_list));
         if (isset($existing_lod[$lod_route_column_name]['lod'])) {
           // retrieve the saved $lod if present, even if Empty
           $lod = $existing_lod[$lod_route_column_name]['lod'] ?? [];
         }
         else {
-          $lod = $this->AmiLoDService->invokeLoDRoute(
-            $data->info['domain'],
-            $data->info['label'], $lod_route_argument_list[0],
-            $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1
-          );
+          if ($lod_route_argument_list[0] == "custom") {
+            $lod = $this->AmiLoDService->invokeCustomLoD($data->info['label'],  $lod_route_argument_list[1]);
+          }
+          else {
+            $lod = $this->AmiLoDService->invokeLoDRoute(
+              $data->info['domain'],
+              $data->info['label'], $lod_route_argument_list[0],
+              $lod_route_argument_list[1], $lod_route_argument_list[2], 'en', 1
+            );
+          }
         }
 
         $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?? '';

@@ -19,7 +19,7 @@ use Drupal\ami\AmiUtilityService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use Drupal\views\ViewExecutable;
-use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionCompletedTrait;
+use Drupal\views_bulk_operations\Traits\ViewsBulkOperationsActionCompletedTrait;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInterface;
 use Psr\Log\LoggerInterface;

@@ -92,6 +92,7 @@ use Drupal\user\Entity\User;
  *     "access" = "Drupal\ami\Entity\Controller\amiSetEntityAccessControlHandler",
  *   },
  *   base_table = "ami_setentity",
+ *   list_cache_contexts = {"user", "url"},
  *   admin_permission = "administer amiset entity",
  *   fieldable = TRUE,
  *   entity_keys = {
@@ -220,6 +221,18 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
   public function setStatus($status) {
     return $this->set('status', $status);
   }
+
+
+  /**
+   * @param array $config
+   *
+   * @return \Drupal\ami\amiSetEntityInterface
+   */
+  public function setLastProcessedConfig(array $config) {
+    $config_as_json = json_encode($config, JSON_PRETTY_PRINT);
+    return $this->set('last_processed_config', $config_as_json);
+  }
+
 
   /**
    * {@inheritdoc}
@@ -363,11 +376,22 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDisplayConfigurable('view', TRUE)
       ->setDisplayConfigurable('form', TRUE)
       ->addConstraint('NotBlank');
-
+    if (version_compare(\Drupal::VERSION, '10.2', '>=')) {
+      $validators = [
+        'FileExtension' => [
+          'extensions' => 'csv'
+        ],
+        'FileSizeLimit' => [
+          'fileLimit' => Environment::getUploadMaxSize()
+        ]
+      ];
+    }
+    else {
     $validators = [
       'file_validate_extensions' => ['csv'],
       'file_validate_size' => [Environment::getUploadMaxSize()],
     ];
+    }
     // We may want to add an extra validator so uploaded CSV files have correct columns.
     // TO discuss if we even should allow this to be replaced.
     $fields['source_data'] = BaseFieldDefinition::create('file')
@@ -409,10 +433,25 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ])
       ->setDisplayConfigurable('view', TRUE)
       ->setDisplayConfigurable('form', TRUE);
-    $validatorszip = [
-      'file_validate_extensions' => ['zip'],
-      'file_validate_size' => [Environment::getUploadMaxSize()],
-    ];
+
+
+
+    if (version_compare(\Drupal::VERSION, '10.2', '>=')) {
+      $validatorszip = [
+        'FileExtension' => [
+          'extensions' => 'zip'
+        ],
+        'FileSizeLimit' => [
+          'fileLimit' => Environment::getUploadMaxSize()
+        ]
+      ];
+    }
+    else {
+      $validatorszip = [
+        'file_validate_extensions' => ['zip'],
+        'file_validate_size' => [Environment::getUploadMaxSize()],
+      ];
+    }
     $fields['zip_file'] = BaseFieldDefinition::create('file')
       ->setLabel(t('Attached ZIP file'))
       ->setDescription(t('A Zip file containing accompanying Files for the Source Data'))
@@ -430,7 +469,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
         'type' => 'file',
         'description' => [
           'theme' => 'file_upload_help',
-          'description' => t('Source Files for this Set')
+          'description' => t('Zipped Source Files for this Set')
         ],
         'settings' => [
           'upload_validators' => $validatorszip,
@@ -440,21 +479,21 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
       ->setDisplayConfigurable('view', TRUE)
       ->setDisplayConfigurable('form', TRUE);
 
-    $fields['report_file'] = BaseFieldDefinition::create('file')
-      ->setLabel(t('AMI Process Reports'))
-      ->setDescription(t('Processed set reports in CSV format'))
-      ->setSetting('file_extensions', 'csv')
-      ->setSetting('upload_validators', $validators)
-      ->setSetting('uri_scheme', 'private')
-      ->setSetting('file_directory', '/ami/reports')
-      ->setRequired(FALSE)
+
+    // Holds the last sent-to-Processing config
+    $fields['last_processed_config'] = BaseFieldDefinition::create('strawberryfield_field')
+      ->setLabel(t('Last Config used to send to processing'))
+      ->setTranslatable(FALSE)
       ->setDisplayOptions('view', [
-        'label' => 'above',
-        'type' => 'file',
-        'weight' => -2,
+        'label' => 'hidden',
+        'type' => 'strawberry_default_formatter',
+        'weight' => 1,
       ])
+      ->setDisplayConfigurable('form', FALSE)
       ->setDisplayConfigurable('view', TRUE)
-      ->setDisplayConfigurable('form', TRUE);
+      ->setRequired(FALSE)
+      ->addConstraint('valid_strawberry_json');
+
     return $fields;
   }
 }

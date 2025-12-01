@@ -2,6 +2,7 @@
 
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
+use Solarium\QueryType\Select\Result\Document;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerInterface;
@@ -1192,7 +1193,7 @@ class SolrImporter extends SpreadsheetImporter {
    *
    * @return array|string[]
    */
-  protected function buildDatastreamURL(array $config, \Solarium\QueryType\Select\Result\Document $document):array {
+  protected function buildDatastreamURL(array $config, Document $document):array {
     $datastreams = [];
     $additional_datastreams = $config['solarium_mapping']['datastreams_mapping'] ?? [];
     $additional_datastreams = array_filter($additional_datastreams);

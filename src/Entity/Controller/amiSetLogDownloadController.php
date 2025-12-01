@@ -79,6 +79,7 @@ class amiSetLogDownloadController extends ControllerBase {
         // Let other modules provide headers and controls access to the file.
         $response = new BinaryFileResponse($uri, 200, $headers, TRUE);
         $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT);
+        $response->setPrivate();
         return $response;
       }
       throw new NotFoundHttpException();
