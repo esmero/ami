@@ -8,4 +8,6 @@ dependencies:
   - 'views_bulk_operations'
   - 'strawberryfield'
   - 'drupal:views'
+  - 'webform_strawberryfield'
   - 'google_api_client'
+  - 'format_strawberryfield'
