@@ -10,3 +10,4 @@ dependencies:
   - 'drupal:views'
   - 'webform_strawberryfield'
   - 'google_api_client'
+  - 'format_strawberryfield'
