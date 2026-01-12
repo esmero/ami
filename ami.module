@@ -226,3 +226,21 @@ function ami_file_download($uri) {
     'Content-Disposition' => HeaderUtils::makeDisposition(HeaderUtils::DISPOSITION_ATTACHMENT, (string) $filename),
   ];
 }
+/**
+ * Implements hook_menu_local_tasks_alter().
+ *
+ * Adds the user context to the $cacheability
+ *
+ */
+ function ami_menu_local_tasks_alter(&$data, $route_name, \Drupal\Core\Cache\RefinableCacheableDependencyInterface &$cacheability) {
+  // Something changed in Drupal 10.2+ and Local tabs (on AMI set entity view route)
+  // were stuck by "permission" context. Which implies, if a user had "op own ami set"
+  // permission, and a user not owning the AMI set, but sharing the same role //
+  // looked at the AMI set, from there on the owner itself would no longer see the tabs/
+  // and would get the cached (bc sharing the same role) menu.
+  $route_name = \Drupal::routeMatch()->getRouteName();
+  if ($route_name !== 'entity.ami_set_entity.canonical') {
+    return;
+  }
+  $cacheability->addCacheContexts(['user']);
+}
