@@ -307,7 +307,7 @@ class AmiUtilityService {
    *   One of these possibilities:
    *   - If remote and exists a Drupal file object
    *   - If not remote and exists a Drupal file object
-   *   - If does not exist boolean FALSE
+   *   - If it does not exist boolean FALSE
    */
   public function file_get($uri, File $zip_file = NULL, $force = FALSE) {
     $uri = trim($uri);
@@ -323,9 +323,9 @@ class AmiUtilityService {
           $remote_schemes
         ))
     ) {
-      // Now that we know its not remote, try with our registered schemas
-      // means its either private/public/s3, etc
-      // normalize targetx
+      // Now that we know it's not remote, try with our registered schemas
+      // means its either private/public/s3, etc.
+      // normalize target.
 
       $scheme = $this->streamWrapperManager->getScheme($uri);
       if ($scheme) {
@@ -544,14 +544,14 @@ class AmiUtilityService {
         && (strlen($filename_from_remote_without_extension) > 0) ? $filename_from_remote_without_extension : NULL;
       }
     }
-    catch (\Exception $exception) {
-      // Deals with 4xx and 5xx too.
+    catch (\Throwable $t) {
+      // Deals with 4xx and 5xx too. Guzzle Exceptions extend \Throwable
       $message_vars = [
         '@uri' => $uri,
         '@path' => $path,
-        '@error' => $exception->getMessage(),
+        '@error' => $t->getMessage(),
         '@time' => $max_time,
-        '@code' => $exception->getCode()
+        '@code' => $t->getCode()
       ];
       $message = 'Unable to download remote file from @uri to local @path with HTTP code @code and error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible and destination is writable.';
       $this->loggerFactory->get('ami')->error($message, $message_vars);
@@ -829,15 +829,17 @@ class AmiUtilityService {
 
   /**
    * @param \Drupal\file\Entity\File $zip_file
-   * @param $files
+   * @param array $files
    *    an array of arrays with a structure containing File paths and internal File name/path destination
    *    array [
    *        array['path'] => '/tmp/path/filename.ext' Source file to be copied into ZIP
    *        array['dest'] => 'path/filename.ext' inside the ZIP
-   * @return bool
+   *
+   * @return bool TRUE if all went well.
    *    TRUE if all went well.
+   * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function AddFilesToZip(File $zip_file, array $files): ?string {
+  public function AddFilesToZip(File $zip_file, array $files): bool {
     $success = FALSE;
     $zip_realpath = $zip_original_path = $this->fileSystem->realpath($zip_file->getFileUri());
     if (!$zip_realpath) {
@@ -846,8 +848,8 @@ class AmiUtilityService {
     }
     if ($zip_realpath) {
       $z = new \ZipArchive();
-      $z->open($zip_realpath);
-      if ($z) {
+      $opened = $z->open($zip_realpath);
+      if ($opened === TRUE) {
         foreach ($files as $file) {
           if (!empty($file['path']) && !empty($file['dest'])) {
             if (file_exists($file['path'])) {
@@ -857,6 +859,10 @@ class AmiUtilityService {
         }
         $success = $z->close();
       }
+      else {
+        return FALSE;
+      }
+
     }
     // We should update the size/info here ...
     clearstatcache(TRUE, $zip_realpath);
@@ -906,7 +912,7 @@ class AmiUtilityService {
         }
         try {
           $moved_file = $this->fileSystem->move(
-            $localpath, $new_uri, FileSystemInterface::EXISTS_REPLACE
+            $localpath, $new_uri, FileExists::Replace
           );
           $message = 'File generated during Ami Set Processing with temporary URI @longuri was longer than 255 characters (Drupal field limit) so had to be renamed to shorter @path';
           $this->loggerFactory->get('ami')->warning($message, [
@@ -1352,7 +1358,7 @@ class AmiUtilityService {
       return NULL;
     }
     // Ensure the file
-    $tempurl = $this->fileSystem->saveData( '', $path . '/' . $filenametemp, FileSystemInterface::EXISTS_REPLACE);
+    $tempurl = $this->fileSystem->saveData( '', $path . '/' . $filenametemp, FileExists::Replace);
 
     if (!$tempurl) {
       return NULL;
@@ -1881,7 +1887,7 @@ class AmiUtilityService {
       // Initialize in case the Mapping provides no parents
       $ado['anyparent'] = [];
       $ado['parent'] = [];
-      foreach ($data->adomapping->parents as $parent_key) {
+      foreach (($data->adomapping->parents ?? []) as $parent_key) {
         // Used to access parent columns using numerical indexes for when looking back inside $file_data_all
         $parent_to_index[$parent_key] = array_search(
           $parent_key, $config['data']['headers']
@@ -2226,7 +2232,7 @@ class AmiUtilityService {
    *
    * @param null|string $op
    *
-   * @return mixed
+   * @return array
    *  UUIDs will be in the keys, possible child CSVs (array) in the values.
    *
    * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
@@ -2353,7 +2359,7 @@ class AmiUtilityService {
       $expanded = json_decode($value, TRUE);
       $json_error = json_last_error();
       // WE ignore JSON errors since simple strings or arrays are not valid
-      // JSON STRINGs and its OK if we do not decode them.
+      // JSON Strings and it's OK if we do not decode them.
       if ($json_error == JSON_ERROR_NONE) {
         $value = $expanded;
       }
@@ -2449,15 +2455,15 @@ class AmiUtilityService {
       'patch' => 'patched',
     ];
 
-    $row_id = $data->info['row']['row_id'];
-    $set_id = $data->info['set_id'];
-    $setURL = $data->info['set_url'];
+    $row_id = $data->info['row']['row_id'] ?? 'Undefined CSV Row ID';
+    $set_id = $data->info['set_id'] ?? 'Undefined Set ID';
+    $setURL = $data->info['set_url'] ?? 'Undefined Set URL';
     // Should never happen but better stop processing here
     if (!$data->info['row']['data']) {
       $message = $this->t(
         'Empty or Null Data Row. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
         [
-          '@uuid' => $data->info['row']['uuid'],
+          '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
           '@row' => $row_id,
           '@setid' => $set_id,
         ]
@@ -2466,7 +2472,7 @@ class AmiUtilityService {
       return NULL;
     }
     $jsonstring = NULL;
-    if ($data->mapping->globalmapping == "custom") {
+    if (($data->mapping->globalmapping ?? FALSE) == "custom") {
       $metadatadisplay_id = $data->mapping->custommapping_settings->{$data->info['row']['type']}->metadata_config->template ?? NULL;
     }
     else {
@@ -2477,213 +2483,236 @@ class AmiUtilityService {
         $message = $this->t(
           'Ups. No template mapping for type @type. Skipping for AMI Set ID @setid, Row @row, future ADO with UUID @uuid.',
           [
-            '@uuid' => $data->info['row']['uuid'],
+            '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
             '@row' => $row_id,
             '@setid' => $set_id,
-            '@type' => $data->info['row']['type'],
+            '@type' => $data->info['row']['type'] ?? 'Undefined ADO Type',
           ]
         );
         $this->loggerFactory->get('ami')->error($message);
         return NULL;
       }
     }
+    // From here give it a "try".
+    try {
+      $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
+        ->load($metadatadisplay_id);
+      if ($metadatadisplay_entity) {
+        $node = NULL;
+        $original_value = NULL;
+        // Deal with passing current to be updated data as context to the template.
+        if ($op == 'update' || $op == 'patch') {
+          /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
+          $existing = $this->entityTypeManager->getStorage('node')
+            ->loadByProperties(
+              ['uuid' => $data->info['row']['uuid']]
+            );
 
-    $metadatadisplay_entity = $this->entityTypeManager->getStorage('metadatadisplay_entity')
-      ->load($metadatadisplay_id);
-    if ($metadatadisplay_entity) {
-      $node = NULL;
-      $original_value = NULL;
-      // Deal with passing current to be updated data as context to the template.
-      if ($op == 'update' || $op == 'patch') {
-        /** @var \Drupal\Core\Entity\ContentEntityInterface[] $existing */
-        $existing = $this->entityTypeManager->getStorage('node')
-          ->loadByProperties(
-            ['uuid' => $data->info['row']['uuid']]
-          );
-
-        if (!count($existing) == 1) {
-          $this->messenger()->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping',
-            [
-              '@uuid' => $data->info['row']['uuid'],
-              '@setid' => $set_id,
-              '@ophuman' => $ophuman[$op],
-            ]));
-          return NULL;
-        }
-
-        $account = $data->info['uid'] == \Drupal::currentUser()
-          ->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')
-          ->load($data->info['uid']);
-
-        if ($account) {
-          $existing_object = reset($existing);
-          if (!$existing_object->access('update', $account)) {
-            $this->messenger()->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping',
-              [
-                '@uuid' => $data->info['row']['uuid'],
-                '@setid' => $set_id,
-                '@ophuman' => $ophuman[$op],
-              ]));
+          if (!count($existing) == 1) {
+            $this->messenger()
+              ->addError($this->t('Sorry, the ADO with UUID @uuid you requested to be @ophuman via Set @setid does not exist. Skipping.',
+                [
+                  '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
+                  '@setid' => $set_id,
+                  '@ophuman' => $ophuman[$op] ?? 'Undefined Operation',
+                ]));
             return NULL;
           }
 
-          $vid = $this->entityTypeManager
-            ->getStorage('node')
-            ->getLatestRevisionId($existing_object->id());
+          $account = $data->info['uid'] == \Drupal::currentUser()
+            ->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')
+            ->load($data->info['uid']);
 
-          $node = $vid ? $this->entityTypeManager->getStorage('node')
-            ->loadRevision($vid) : $existing[0];
+          if ($account) {
+            $existing_object = reset($existing);
+            if (!$existing_object->access('update', $account)) {
+              $this->messenger()
+                ->addError($this->t('Sorry you have no system permission to @ophuman ADO with UUID @uuid via Set @setid. Skipping.',
+                  [
+                    '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
+                    '@setid' => $set_id ?? 'Undefined Set ID',
+                    '@ophuman' => $ophuman[$op] ?? 'Undefined Operation',
+                  ]));
+              return NULL;
+            }
 
-          if ($data->mapping->globalmapping == "custom") {
-            $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
-          }
-          else {
-            $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
-          }
-          $property_path_split = explode(':', $property_path);
-          if (!$property_path_split || count($property_path_split) < 2) {
-            $this->messenger()->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',
-              [
-                '@uuid' => $data->info['row']['uuid'],
-                '@setid' => $data->info['set_id']
-              ]));
-            return NULL;
-          }
+            $vid = $this->entityTypeManager
+              ->getStorage('node')
+              ->getLatestRevisionId($existing_object->id());
 
-          $field_name = $property_path_split[1];
-          // @TODO make this configurable.
-          // This allows us not to pass an offset if the SBF is multivalued.
-          // WE do not do this, Why would you want that? Who knows but possible.
-          $field_name_offset = $property_path_split[2] ?? 0;
-          /** @var \Drupal\Core\Field\FieldItemInterface $field */
-          $field = $node->get($field_name);
-          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
-          if (!$field->isEmpty()) {
-            /** @var $field \Drupal\Core\Field\FieldItemList */
-            foreach ($field->getIterator() as $delta => $itemfield) {
-              /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
-              if ($field_name_offset == $delta) {
-                $original_value = $itemfield->provideDecoded(TRUE);
-                break;
+            $node = $vid ? $this->entityTypeManager->getStorage('node')
+              ->loadRevision($vid) : $existing[0];
+
+            if ($data->mapping->globalmapping == "custom") {
+              $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
+            }
+            else {
+              $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
+            }
+            /// Can't explode a NULL
+            $property_path_split = FALSE;
+            if (is_string($property_path)) {
+              $property_path_split = explode(':', $property_path);
+            }
+
+            if (!$property_path_split || (is_array($property_path_split) && count($property_path_split) < 2)) {
+              $this->messenger()
+                ->addError($this->t('Sorry, your Bundle/Fields set for the requested an ADO with @uuid on Set @setid are wrong. You may have made a larger change in your repo and deleted a Content Type. Aborting.',
+                  [
+                    '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
+                    '@setid' => $set_id
+                  ]));
+              return NULL;
+            }
+
+            $field_name = $property_path_split[1];
+            // @TODO make this configurable.
+            // This allows us not to pass an offset if the SBF is multivalued.
+            // WE do not do this, Why would you want that? Who knows but possible.
+            $field_name_offset = $property_path_split[2] ?? 0;
+            /** @var \Drupal\Core\Field\FieldItemInterface $field */
+            $field = $node->get($field_name);
+            /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
+            if (!$field->isEmpty()) {
+              /** @var $field \Drupal\Core\Field\FieldItemList */
+              foreach ($field->getIterator() as $delta => $itemfield) {
+                /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $itemfield */
+                if ($field_name_offset == $delta) {
+                  $original_value = $itemfield->provideDecoded(TRUE);
+                  break;
+                }
               }
             }
           }
         }
-      }
 
-      $context['data'] = $this->expandJson($data->info['row']['data']);
-      $context_lod = [];
-      $context_lod_contextual = [];
-      // get the mappings for this set if any
-      // @TODO Refactor into a Method?
-      $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
-      /* @TODO refactor into a reusable method */
-      if ($lod_mappings) {
-        foreach($lod_mappings as $source_column => $destination) {
-          if (isset($context['data'][$source_column])) {
-            // sad here. Ok, this is a work around for our normally
-            // Strange CSV data structure
-            $data_to_clean['data'][0] = [$context['data'][$source_column]];
-            $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
-              0);
-            if (empty($labels)) {
-              $labels = $this->getDifferentValuesfromColumnJSON($data_to_clean,
+        $context['data'] = $this->expandJson($data->info['row']['data']);
+        $context_lod = [];
+        $context_lod_contextual = [];
+        // get the mappings for this set if any
+        // @TODO Refactor into a Method?
+        $lod_mappings = $this->AmiLoDService->getKeyValueMappingsPerAmiSet($set_id);
+        /* @TODO refactor into a reusable method */
+        if ($lod_mappings) {
+          foreach ($lod_mappings as $source_column => $destination) {
+            if (isset($context['data'][$source_column])) {
+              // sad here. Ok, this is a workaround for our normally
+              // Strange CSV data structure
+              $data_to_clean['data'][0] = [$context['data'][$source_column]];
+              $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
                 0);
-            }
-            foreach($labels as $label) {
-              $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
-              if (is_array($lod_for_label) && count($lod_for_label) > 0) {
-                foreach ($lod_for_label as $approach => $lod) {
-                  if (isset($lod['lod'])) {
-                    $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
-                    $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
-                    $unique = array_unique($serialized);
-                    $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
-                    $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
+              if (empty($labels)) {
+                $labels = $this->getDifferentValuesfromColumnJSON($data_to_clean,
+                  0);
+              }
+              foreach ($labels as $label) {
+                $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
+                if (is_array($lod_for_label) && count($lod_for_label) > 0) {
+                  foreach ($lod_for_label as $approach => $lod) {
+                    if (isset($lod['lod'])) {
+                      $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
+                      $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
+                      $unique = array_unique($serialized);
+                      $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
+                      $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
+                    }
                   }
                 }
               }
             }
           }
         }
-      }
 
-      $context['data_lod'] = $context_lod;
-      $context['data_lod_contextual'] = $context_lod_contextual;
-      $context['dataOriginal'] = $original_value;
-      $context['setURL'] = $setURL;
-      $context['setId'] = $set_id;
-      $context['rowId'] = $row_id;
-      $context['setOp'] = ucfirst($op);
+        $context['data_lod'] = $context_lod;
+        $context['data_lod_contextual'] = $context_lod_contextual;
+        $context['dataOriginal'] = $original_value;
+        $context['setURL'] = $setURL;
+        $context['setId'] = $set_id;
+        $context['rowId'] = $row_id;
+        $context['setOp'] = ucfirst($op);
 
-      $context['node'] = $node;
-      // Add any extras passed to the caller.
-      $context = $context + $additional_context;
-      $original_context = $context;
-      // Allow other modules to provide extra Context!
-      // Call modules that implement the hook, and let them add items.
-      \Drupal::moduleHandler()
-        ->alter('format_strawberryfield_twigcontext', $context);
-      $context = $context + $original_context;
-      $cacheabledata = [];
-      // @see https://www.drupal.org/node/2638686 to understand
-      // What cacheable, Bubbleable metadata and early rendering means.
-      try {
-        $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
-          new RenderContext(),
-          function () use ($context, $metadatadisplay_entity) {
-            return $metadatadisplay_entity->renderNative($context);
-          }
-        );
-      }
-      catch (\Exception $error) {
-        $message = $this->t(
-          'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
-          [
-            '@metadatadisplayid' => $metadatadisplay_id,
-            '@uuid' => $data->info['row']['uuid'],
-            '@row' => $row_id,
-            '@setid' => $set_id,
-            '%output' => $error->getMessage(),
-          ]
-        );
-        $this->loggerFactory->get('ami')->error($message);
-        return NULL;
-      }
-      if (count($cacheabledata)) {
-        $jsonstring = $cacheabledata->__toString();
-        $jsondata = json_decode($jsonstring, TRUE);
-        $json_error = json_last_error();
-        // Just because i like to clean up memory.
-        unset($jsondata);
-        if ($json_error != JSON_ERROR_NONE) {
+        $context['node'] = $node;
+        // Add any extras passed to the caller.
+        $context = $context + $additional_context;
+        $original_context = $context;
+        // Allow other modules to provide extra Context!
+        // Call modules that implement the hook, and let them add items.
+        \Drupal::moduleHandler()
+          ->alter('format_strawberryfield_twigcontext', $context);
+        $context = $context + $original_context;
+        $cacheabledata = [];
+        // @see https://www.drupal.org/node/2638686 to understand
+        // What cacheable, Bubbleable metadata and early rendering means.
+        try {
+          $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
+            new RenderContext(),
+            function() use ($context, $metadatadisplay_entity) {
+              return $metadatadisplay_entity->renderNative($context);
+            }
+          );
+        }
+        catch (\Throwable $t) {
           $message = $this->t(
-            'We could not generate JSON via Metadata Display with ID @metadatadisplayid for AMI Set ID @setid, Row @row, future ADO with UUID @uuid. This is the Template %output',
+            'Twig could not render the Metadata Display ID @metadatadisplayid for AMI Set ID @setid, with Row @row, future ADO with UUID @uuid. The Twig internal renderer error is: %output. Please check your template against that AMI row and make sure you are handling values, arrays and filters correctly.',
             [
               '@metadatadisplayid' => $metadatadisplay_id,
-              '@uuid' => $data->info['row']['uuid'],
+              '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
               '@row' => $row_id,
               '@setid' => $set_id,
-              '%output' => $jsonstring,
+              '%output' => $t->getMessage(),
             ]
           );
           $this->loggerFactory->get('ami')->error($message);
           return NULL;
         }
+        if (count($cacheabledata)) {
+          $jsonstring = $cacheabledata->__toString();
+          $jsondata = json_decode($jsonstring, TRUE);
+          $json_error = json_last_error();
+          // Just because I like to clean up memory.
+          unset($jsondata);
+          if ($json_error != JSON_ERROR_NONE) {
+            $message = $this->t(
+              'We could not generate JSON via Metadata Display with ID @metadatadisplayid for AMI Set ID @setid, Row @row, future ADO with UUID @uuid. This is the Template %output',
+              [
+                '@metadatadisplayid' => $metadatadisplay_id,
+                '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
+                '@row' => $row_id,
+                '@setid' => $set_id,
+                '%output' => $jsonstring,
+              ]
+            );
+            $this->loggerFactory->get('ami')->error($message);
+            return NULL;
+          }
+        }
+      }
+      else {
+        $message = $this->t(
+          'Metadata Display with ID @metadatadisplayid could not be found for AMI Set ID @setid, Row @row for a future node with UUID @uuid.',
+          [
+            '@metadatadisplayid' => $metadatadisplay_id ?? 'Undefined Metadata Display Entity ID',
+            '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
+            '@row' => $row_id,
+            '@setid' => $set_id,
+          ]
+        );
+        $this->loggerFactory->get('ami')->error($message);
+        return NULL;
       }
     }
-    else {
+    catch (\Throwable $t) {
       $message = $this->t(
-        'Metadata Display with ID @metadatadisplayid could not be found for AMI Set ID @setid, Row @row for a future node with UUID @uuid.',
+        'Sorry, an error happened during Metadata Display processing for Metadata Display with ID @metadatadisplayid for AMI Set ID @setid, Row @row for a future node with UUID @uuid, with error @error.',
         [
-          '@metadatadisplayid' => $metadatadisplay_id,
-          '@uuid' => $data->info['row']['uuid'],
+          '@metadatadisplayid' => $metadatadisplay_id ?? 'Undefined Metadata Display Entity ID',
+          '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
           '@row' => $row_id,
           '@setid' => $set_id,
+          '@error' => $t->getMessage(),
         ]
       );
       $this->loggerFactory->get('ami')->error($message);
-      return NULL;
     }
     return $jsonstring;
   }
@@ -2734,7 +2763,6 @@ class AmiUtilityService {
     return $unique;
   }
 
-
   /**
    * For a given Numeric Column index, get different/json values
    *
@@ -2743,10 +2771,12 @@ class AmiUtilityService {
    *
    * @param array $valid_sub_keys
    *    Subkeys to check for values, in case the decoded json is an array of objects.
+   * @param bool $exclude_urls
+   *
    * @return array
    */
   public function getDifferentValuesfromColumnJSON(array $data, int $key, array $valid_sub_keys = ['label', 'value', 'type', 'name'], $exclude_urls = TRUE): array {
-    $unique = [];
+
     $all = array_column($data['data'], $key);
     $all_jsondecoded = array_map(function($value) {
       if (is_string($value)) {
