@@ -1088,7 +1088,6 @@ class AmiUtilityService {
     return $file->id();
   }
 
-
   /**
    * Creates an CSV from array and returns file.
    *
@@ -1102,11 +1101,14 @@ class AmiUtilityService {
    * @param boolean $auto_uuid
    *    Defines if we are going to generate UUIDs when not valid/not present
    *    Or leave the $uuid_key field as it is and let this fail/if later.
+   * @param bool $permanent
+   * @param bool $escape_character
+   *    If used, CSV might not end being RFC 4180 compliant.
+   * @param string $logger_channel
    *
    * @return int|string|null
-   * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE, $permanent = TRUE, $logger_channel = 'ami') {
+  public function csv_save(array $data, $uuid_key = 'node_uuid', $auto_uuid = TRUE, $permanent = TRUE, bool $escape_character = FALSE, $logger_channel = 'ami') {
 
     //$temporary_directory = $this->fileSystem->getTempDirectory();
     // We should be allowing downloads for this from temp
@@ -1160,9 +1162,12 @@ class AmiUtilityService {
     if ($haskey === FALSE) {
       array_unshift($data['headers'], $uuid_key);
     }
-
-    $fh->fputcsv($data['headers']);
-
+    if ($escape_character) {
+      $fh->fputcsv($data['headers'],   separator: ',', enclosure: '"', escape: "\\");
+    }
+    else {
+      $fh->fputcsv($data['headers'], separator: ',', enclosure: '"', escape: "");
+    }
     foreach ($data['data'] as $row) {
       if ($haskey === FALSE) {
         array_unshift($row, $uuid_key);
@@ -1185,8 +1190,13 @@ class AmiUtilityService {
           }
         }
       }
+      if ($escape_character) {
+        $fh->fputcsv($row, separator: ',', enclosure: '"', escape: "\\");
+      }
+      else {
+        $fh->fputcsv($row, separator: ',', enclosure: '"', escape: "");
+      }
 
-      $fh->fputcsv($row);
     }
     // PHP Bug! This should happen automatically
     clearstatcache(TRUE, $url);
@@ -1213,7 +1223,6 @@ class AmiUtilityService {
     return $file->id();
   }
 
-
   /**
    * Appends CSV from array and returns file.
    *
@@ -1224,20 +1233,19 @@ class AmiUtilityService {
    *
    * @param \Drupal\file\Entity\File $file
    *
-   * @param string|null $uuid_key
+   * @param string $uuid_key
    *    IF NULL then no attempt of using UUIDS will be made.
    *    Needed for LoD Reconciling CSVs
    * @param bool $append_header
    *
-   * @param bool $escape_characters
-   *    Defaults to internal PHP mechanism for escaping characters (a "/")
-   *    Set to FALSE if you are passing JSON encoded strings into cells.
-   *    NOTE: Make sure you also disable it IF reading back from files generated through this
+   * @param bool $escape_character
+   *     If used, CSV might not end being RFC 4180 compliant.
+   * @param bool $auto_uuid
    *
    * @return int|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE, $escape_characters = TRUE, $auto_uuid = TRUE) {
+  public function csv_append(array $data, File $file, $uuid_key = 'node_uuid', bool $append_header = TRUE, bool $escape_character = TRUE, $auto_uuid = TRUE) {
 
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
@@ -1259,7 +1267,12 @@ class AmiUtilityService {
       }
     }
     if ($append_header) {
-      $fh->fputcsv($data['headers']);
+      if ($escape_character) {
+        $fh->fputcsv($data['headers'], separator: ',', enclosure: '"', escape: "\\");
+      }
+      else {
+        $fh->fputcsv($data['headers'], separator: ',', enclosure: '"', escape: "");
+      }
     }
 
     foreach ($data['data'] as $row) {
@@ -1282,11 +1295,11 @@ class AmiUtilityService {
           }
         }
       }
-      if ($escape_characters) {
-        $fh->fputcsv($row);
+      if ($escape_character) {
+        $fh->fputcsv($row, separator: ',', enclosure: '"', escape: "\\");
       }
       else {
-        $fh->fputcsv($row, ',', '"', "");
+        $fh->fputcsv($row, separator: ',', enclosure: '"', escape: "");
       }
     }
     // PHP Bug! This should happen automatically
@@ -1310,32 +1323,32 @@ class AmiUtilityService {
    * @param bool $always_include_header
    *    Always return header even with an offset.
    *
-   * @param bool $escape_characters
-   *
+   * @param bool $escape_character
+   *     If used, CSV might not end being RFC 4180 compliant.
    * @return array|null
    *   Returning array will be in this form:
    *    'headers' => $rowHeaders_utf8 or [] if $always_include_header == FALSE
    *    'data' => $table,
    *    'totalrows' => $maxRow,
    */
-  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE, bool $escape_characters = TRUE) {
+  public function csv_read(File $file, int $offset = 0, int $count = 0, bool $always_include_header = TRUE, bool $escape_character = FALSE) {
     // 1.6.0: wrapper around this function now that we moved it to strawberryfield so webform module does not depend on AMI for CSV reading
     // This was needed bc if not we would have an undeclared circular dependency/or would have to change all the code (many parts)
     // there this service was used to call csv_read(). Only thing new is that the logging/caller_module is used for logging now.
-    return $this->strawberryfieldUtility->csv_read($file, $offset, $count, $always_include_header, $escape_characters, 'ami');
+    return $this->strawberryfieldUtility->csv_read($file, $offset, $count, $always_include_header, $escape_character, 'ami');
   }
-
 
   /**
    *  Removes columns from an existing CSV.
    *
    * @param \Drupal\file\Entity\File $file
    * @param array $headerwithdata
-   *
+   * @param bool $escape_character
+   *     If used, CSV might not end being RFC 4180 compliant.
    * @return int|mixed|string|null
    * @throws \Drupal\Core\Entity\EntityStorageException
    */
-  public function csv_clean(File $file, array $headerwithdata = []) {
+  public function csv_clean(File $file, array $headerwithdata = [], bool $escape_character = FALSE) {
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
       return NULL;
@@ -1382,7 +1395,12 @@ class AmiUtilityService {
         unset($data[$key]);
       }
       $data = array_values($data);
-      $spltmp->fputcsv($data);
+      if ($escape_character) {
+        $spltmp->fputcsv($data, separator: ',', enclosure: '"', escape: "\\");
+      }
+      else {
+        $spltmp->fputcsv($data, separator: ',', enclosure: '"', escape: "");
+      }
       $i++;
     }
     $size = $spltmp->getSize();
@@ -1399,11 +1417,11 @@ class AmiUtilityService {
   /**
    * @param \Drupal\file\Entity\File $file
    *
-   * @param bool $escape_characters
-   *
+   * @param bool $escape_character
+   *     If used, CSV might not end being RFC 4180 compliant.
    * @return int
    */
-  public function csv_count(File $file, $escape_characters = TRUE) {
+  public function csv_count(File $file, $escape_character = FALSE) {
     $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
     if (!$wrapper) {
       return NULL;
@@ -1419,11 +1437,11 @@ class AmiUtilityService {
       SplFileObject::DROP_NEW_LINE
     );
     while (!$spl->eof()) {
-      if (!$escape_characters) {
+      if (!$escape_character) {
         $spl->fgetcsv( ',', '"', "");
       }
       else {
-        $spl->fgetcsv();
+        $spl->fgetcsv( ',', '"', "\\");
       }
       $key = $spl->key();
     }
