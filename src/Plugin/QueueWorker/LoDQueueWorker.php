@@ -202,9 +202,9 @@ class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginIn
           }
         }
 
-        $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE) ?? '';
+        $newdata['data'][0][$lod_route_column_name] = json_encode($lod, JSON_PRETTY_PRINT|JSON_UNESCAPED_SLASHES|JSON_UNESCAPED_UNICODE|JSON_HEX_QUOT) ?? '';
         $newdata['data'][0]['original'] = (string) $data->info['label'];
-        $newdata['data'][0]['csv_columns'] = json_encode((array)$data->info['csv_columns']) ?? '';
+        $newdata['data'][0]['csv_columns'] = json_encode((array)$data->info['csv_columns'], JSON_HEX_QUOT) ?? '';
         // Adds a "Checked" column used to mark manually reconciliated elements.
         $newdata['data'][0]['checked'] = FALSE;
         // Context data is simpler

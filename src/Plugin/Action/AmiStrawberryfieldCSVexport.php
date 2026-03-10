@@ -373,7 +373,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
         $ami_set = TRUE;
       }
       $logger_channel = (string) $this->context['sandbox']['logger_channel'] ?? 'ami';
-      $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid', TRUE, $ami_set, $logger_channel);
+      $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid', TRUE, $ami_set, FALSE, $logger_channel);
       if ($file_id && $this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $amisetdata = new \stdClass();
         $amisetdata->plugin = 'spreadsheet';
