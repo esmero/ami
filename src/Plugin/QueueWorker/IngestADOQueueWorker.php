@@ -952,6 +952,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
          // Ignore status for updates if status_keep == TRUE.
          if ($status && is_string($status) && $status_keep == FALSE) {
            $node->set('moderation_state', $status);
+           $nodeValues['moderation_state'] = $status;
            $status = 0;
          }
          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
