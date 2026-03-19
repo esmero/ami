@@ -571,29 +571,6 @@ class AmiLoDService {
     return $results_processed;
   }
 
-
-  /**
-   * Checks if a string is valid JSON
-   *
-   * @param $string
-   *
-   * @return bool
-   */
-  public function isJson($string) {
-    json_decode($string);
-    return json_last_error() === JSON_ERROR_NONE;
-  }
-
-  /**
-   * Helper function that negates ::isJson.
-   * @param $string
-   *
-   * @return bool
-   */
-  public function isNotJson($string) {
-    return !$this->isJson($string);
-  }
-
   public function getCustomLoDEndpoints($as_arguments = FALSE) {
     $active_plugins = [];
     /* @var $plugin_config_entities \Drupal\webform_strawberryfield\Entity\LoDendpointEntity[] */
