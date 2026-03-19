@@ -1554,15 +1554,17 @@ class AmiUtilityService {
     $data = $this->csv_read($file);
     $column_keys = $data['headers'] ?? [];
     $alldifferent = [];
+    $alldifferent_json = [];
     foreach ($columns as $column) {
       $column_index = array_search($column, $column_keys);
       if ($column_index !== FALSE) {
+        // New for 1.7.0/2.1.0 We process both. Strings and JSON. More expensive
+        // but also more precise.
         $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
           $column_index);
-        if (empty($alldifferent[$column])) {
-          $alldifferent[$column] = $this->getDifferentValuesfromColumnJSON($data,
+        $alldifferent_json[$column] = $this->getDifferentValuesfromColumnJSON($data,
             $column_index);
-        }
+        $alldifferent[$column] = array_unique(array_merge($alldifferent[$column],  $alldifferent_json[$column]));
       }
     }
     return $alldifferent;
@@ -2619,10 +2621,12 @@ class AmiUtilityService {
               $data_to_clean['data'][0] = [$context['data'][$source_column]];
               $labels = $this->getDifferentValuesfromColumnSplit($data_to_clean,
                 0);
-              if (empty($labels)) {
-                $labels = $this->getDifferentValuesfromColumnJSON($data_to_clean,
+              // New for 1.7.0/2.1.0 We process both. Strings and JSON. More expensive
+              // but also more precise. The Preview does the same now
+              $labels_json= $this->getDifferentValuesfromColumnJSON($data_to_clean,
                   0);
-              }
+              // WE merge both results and make them unique
+              $labels = array_unique(array_merge($labels, $labels_json));
               foreach ($labels as $label) {
                 $lod_for_label = $this->AmiLoDService->getKeyValuePerAmiSet($label, $set_id);
                 if (is_array($lod_for_label) && count($lod_for_label) > 0) {
@@ -2886,15 +2890,24 @@ class AmiUtilityService {
 
 
   /**
-   * Checks if a string is valid JSON
+   * Checks if a string is valid RFC JSON (object or array)
+   * Skips if its a valid JSON-y-fable native, like a pure string
+   * or a number
    *
    * @param $string
    *
    * @return bool
    */
   public function isJson($string) {
-    json_decode($string);
-    return json_last_error() === JSON_ERROR_NONE;
+    try {
+      $decoded = json_decode($string, TRUE, 512,JSON_THROW_ON_ERROR);
+      if (is_array($decoded) ) {
+        return TRUE;
+      }
+    }
+    catch (\Throwable $e) {
+      return FALSE;
+    }
   }
 
   /**
