@@ -2900,9 +2900,12 @@ class AmiUtilityService {
    */
   public function isJson($string) {
     try {
-      $decoded = json_decode($string, TRUE, 512,JSON_THROW_ON_ERROR);
+      $decoded = json_decode($string, TRUE, 512, JSON_THROW_ON_ERROR);
       if (is_array($decoded) ) {
         return TRUE;
+      }
+      else {
+        return FALSE;
       }
     }
     catch (\Throwable $e) {
