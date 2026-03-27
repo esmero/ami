@@ -147,6 +147,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
 
 
   public const STATUS_READY = 'READY';
+  public const STATUS_NEEDS_REVIEW = 'NEEDS_REVIEW';
   public const STATUS_NOT_READY = 'NOT_READY';
   public const STATUS_PROCESSING = 'PROCESSING';
   public const STATUS_PROCESSED = 'PROCESSED';
@@ -166,6 +167,7 @@ class amiSetEntity extends ContentEntityBase implements amiSetEntityInterface {
     amiSetEntity::STATUS_PROCESSED_WITH_ERRORS => 'Processed with errors',
     amiSetEntity::STATUS_FAILED => 'Failed',
     amiSetEntity::STATUS_ENTITIES_DELETED => 'ADOs Deleted',
+    amiSetEntity::STATUS_NEEDS_REVIEW => 'CSV associated data needs review'
   ];
 
   /**
