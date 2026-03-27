@@ -661,9 +661,9 @@ class AmiUtilityService {
    * @param \Drupal\file\Entity\File $zip_file
    *     A Zip file with that may contain the $uri
    *
-   * @return mixed
+   * @return false|string
    *   One of these possibilities:
-   *   - If it succeeds an managed file object
+   *   - If it succeeds a Path to a managed file object
    *   - If it fails or NULL, FALSE.
    */
   public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, File $zip_file = NULL) {
@@ -1563,7 +1563,7 @@ class AmiUtilityService {
         $alldifferent[$column] = $this->getDifferentValuesfromColumnSplit($data,
           $column_index);
         $alldifferent_json[$column] = $this->getDifferentValuesfromColumnJSON($data,
-            $column_index);
+          $column_index);
         $alldifferent[$column] = array_unique(array_merge($alldifferent[$column],  $alldifferent_json[$column]));
       }
     }
@@ -2624,7 +2624,7 @@ class AmiUtilityService {
               // New for 1.7.0/2.1.0 We process both. Strings and JSON. More expensive
               // but also more precise. The Preview does the same now
               $labels_json= $this->getDifferentValuesfromColumnJSON($data_to_clean,
-                  0);
+                0);
               // WE merge both results and make them unique
               $labels = array_unique(array_merge($labels, $labels_json));
               foreach ($labels as $label) {
@@ -2998,4 +2998,85 @@ class AmiUtilityService {
     \Drupal::cache()->invalidate($cache_id);
   }
 
+  /**
+   * Checks if a CSV has escaped special characters
+   *
+   * Old PHP defaults used "\" as escaping mechanis
+   * Which can break amongst other JSON encoded ROWS
+   * Starting with AMI 1.1.0 and 2.1.0 we read/write CSV unescaped
+   * following RFC 4180 to ensure a safe round trip and also
+   * Excel and Google Sheets editing and export compatibility
+   *
+   * @param \Drupal\file\Entity\File $file
+   *
+   * @return bool
+   *    TRUE means it has escaping or some other sanity issue
+   *    FALSE means all is good
+   */
+  public function csv_check_escaped(File $file): bool {
+    $needs_review = FALSE;
+    $wrapper = $this->streamWrapperManager->getViaUri($file->getFileUri());
+    if (!$wrapper) {
+      return FALSE;
+    }
+    $url = $wrapper->getUri();
+    $fh = new \SplFileObject($url, 'r');
+    if (!$fh) {
+      $this->messenger()->addError(
+        $this->t('Error reading the CSV file!.')
+      );
+      return FALSE;
+    }
+    // Instead or using PHP's CSV read line, we will get the complete lines first
+    // Then decode and apply a temporary fix to output unescaped.
+    // We compare the original read with the unescaped generation using md5
+    // ,and we also compare that each ROW has exactly the same columns
+    // as the header.
+    // In this case, since we are only checking, we bail out on the first encountered
+    // abnormality. Of course if all is OK we have to still iterate over all of them
+    $i = 0;
+    $header_count = FALSE;
+    while (!$fh->eof()) {
+      if ($i == 0) {
+        // Read the header unescaped. We do not support headers with double quotes
+        $header = $fh->fgetcsv(',', '"', "");
+        $header_count = is_array($header) ? count($header) : FALSE;
+        $needs_review = !($header_count);
+        $i++;
+      }
+      elseif ($header_count) {
+        $row_string = $fh->fgets();
+        if (!empty($row_string)) {
+          $row_unescaped = str_getcsv($row_string, ',', '"', "");
+          // Try replacing \" with \""
+          // but only if:
+          // - not before a comma.
+          // - 2 x double quote.
+          // - or a double quote followed by a space.
+          $pattern = '}\\\\"(?!(,|""|"\s))}';
+          $replacement = '\""';
+          $row_string_replaced = preg_replace($pattern, $replacement, $row_string);
+          $row_unescaped_after_replace = str_getcsv($row_string_replaced, ',', '"', "");
+          if (count($row_unescaped_after_replace) != $header_count) {
+            $needs_review = TRUE;
+            break;
+          }
+          if (md5(implode(";", $row_unescaped)) != md5(implode(";", $row_unescaped_after_replace))) {
+            $needs_review = TRUE;
+            break;
+          }
+          else {
+            $needs_review = FALSE;
+          }
+        }
+      }
+      else {
+        // $header_count is FALSE, means the CSV is malformed.
+        $needs_review = TRUE;
+      }
+    }
+    // Closes the SPL File Object.
+    $fh = NULL;
+    return $needs_review;
+  }
 }
