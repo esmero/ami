@@ -372,7 +372,10 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
       if ($this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $ami_set = TRUE;
       }
-      $logger_channel = (string) $this->context['sandbox']['logger_channel'] ?? 'ami';
+      $logger_channel = 'ami';
+      if (isset($this->context['sandbox']['logger_channel']) && !empty($this->context['sandbox']['logger_channel'])) {
+        $logger_channel =  (string) $this->context['sandbox']['logger_channel'];
+      }
       $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid', TRUE, $ami_set, FALSE, $logger_channel);
       if ($file_id && $this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $amisetdata = new \stdClass();
@@ -408,15 +411,15 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
         if ($amiset_id) {
           $url = Url::fromRoute('entity.ami_set_entity.canonical',
             ['ami_set_entity' => $amiset_id]);
-          $message = $this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
-            ['@url' => $url->toString()]);
+          $message = $this->t('Well Done! New AMI Set was created and you can <a href=":url">see it here</a>',
+            [':url' => $url->toString()]);
           $this->messenger()
             ->addStatus($message);
         }
         return $message;
       }
       else if ($this->configuration['create_ami_set'] && !$this->context['sandbox']['ado_type_exists']) {
-        $message = $this->t('AMI Set could not be created because object(s) are missing the type key.');
+        $message = $this->t('AMI Set could not be created because object(s) are missing the "type" key.');
         $this->messenger()
              ->addStatus($message);
         return $message;
@@ -576,21 +579,6 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
     }
 
     return $this->context['sandbox']['cid_prefix'] . $this->context['sandbox']['current_batch'];
-  }
-
-  /**
-   * Prepares sandbox data (header and cache ID).
-   *
-   * @return array
-   *   Table header.
-   */
-  protected function getHeader() {
-    // Build output header array.
-    $header = &$this->context['sandbox']['header'];
-    if (!empty($header)) {
-      return $header;
-    }
-    return $this->setHeader();
   }
 
   public function getConfiguration() {
