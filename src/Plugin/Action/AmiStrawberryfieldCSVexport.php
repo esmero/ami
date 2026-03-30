@@ -5,7 +5,6 @@ namespace Drupal\ami\Plugin\Action;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\Url;
-use Drupal\Core\Link;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Action\ConfigurableActionBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
@@ -24,7 +23,6 @@ use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Provides an action that export SBFs to CSV.
