@@ -151,7 +151,7 @@ function ami_update_8905() {
     ->accessCheck(FALSE)
     ->execute();
 
-  // Load all the articles.
+  // Load all the AMI sets.
   $entities = \Drupal::entityTypeManager()->getStorage('ami_set_entity')->loadMultiple($entities_nids);
   foreach ($entities as $entity) {
     $entity->setStatus(amiSetEntity::STATUS_READY);
@@ -235,4 +235,36 @@ function ami_update_10161() {
     'weight' => -3,
   ]);
   \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_zip_file);
+}
+/**
+ * Update ami_update_10171 - Checks for pre-update AMI set CSV escaping,
+ * If a CSV row attached to an AMI set that has escaped characters is found
+ * The AMI set is marked as needing a suggested Update process.
+ */
+function ami_update_10171() {
+  $run_time = \Drupal::time()->getRequestTime();
+  \Drupal::state()->set('ami_pre_csvrfc_update',$run_time);
+  // Update all AMI sets already with 'ready' use the new uppercase default
+  $entities_nids = \Drupal::entityQuery('ami_set_entity')
+    ->condition('changed',  \Drupal::time()->getRequestTime())
+    ->accessCheck(FALSE)
+    ->execute();
+
+  $entities = \Drupal::entityTypeManager()
+    ->getStorage('ami_set_entity')
+    ->loadMultiple($entities_nids);
+  foreach ($entities as $ami_set_entity) {
+    $csv_file_reference = $ami_set_entity->get('source_data')->getValue();
+    if (isset($csv_file_reference[0]['target_id'])) {
+      /** @var \Drupal\file\Entity\File $file */
+      $file = \Drupal::entityTypeManager() > getStorage('file')->load(
+          $csv_file_reference[0]['target_id']
+        );
+      $amiUtilityService = \Drupal::service('ami.utility');
+      // To avoid adding a new field, we will use the actual updated date
+      // as a check.
+      // $entity->set('changed', $run_time); //
+      $hasescaping = $amiUtilityService->csv_check_escaped($file);
+    }
+  }
 }
