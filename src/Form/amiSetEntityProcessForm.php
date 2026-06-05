@@ -681,9 +681,18 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
       $form['preview']['ado_amiset_preview_diff_rendered'] = [
         '#type' => 'checkbox',
-        '#title' => $this->t('Preview as a diff'),
+        '#title' => $this->t('Preview Rendered as a diff'),
         '#description' => $this->t(
           'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the HTML old v/s new one will be attempted. If the ADO is new no diff will be produced.'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
+      $form['preview']['ado_amiset_preview_diff_json'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Preview JSON as a diff'),
+        '#description' => $this->t(
+          'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the RAW JSON v/s new one will be attempted. If the ADO is new no diff will be produced.'
         ),
         '#required' => FALSE,
         '#default_value' => FALSE,
