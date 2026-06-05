@@ -11,6 +11,7 @@ use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Drupal\Core\Url;
 use Drupal\ami\Entity\amiSetEntity;
+use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -33,6 +34,14 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   protected $statusStore;
 
   /**
+   * The Strawberry Field Utility Service.
+   *
+   * @var \Drupal\strawberryfield\StrawberryfieldUtilityService
+   */
+  protected $strawberryfieldUtility;
+
+
+  /**
    * Constructs a ContentEntityForm object.
    *
    * @param \Drupal\Core\Entity\EntityRepositoryInterface $entity_repository
@@ -47,9 +56,14 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function __construct(
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, AmiUtilityService $ami_utility, PrivateTempStoreFactory $temp_store_factory) {
+    TimeInterface $time = NULL,
+    AmiUtilityService $ami_utility,
+    PrivateTempStoreFactory $temp_store_factory,
+    StrawberryfieldUtilityService $strawberryfield_utility_service,
+  ) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
+    $this->strawberryfieldUtility = $strawberryfield_utility_service;
     $this->statusStore = $temp_store_factory->get('ami_queue_status');
   }
 
@@ -62,7 +76,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
       $container->get('ami.utility'),
-      $container->get('tempstore.private')
+      $container->get('tempstore.private'),
+      $container->get('strawberryfield.utility')
     );
   }
 
@@ -421,6 +436,16 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $bundles[] = $data->mapping->globalmapping_settings->bundle ?? NULL;
       }
       $bundles = array_values(array_unique($bundles));
+
+      $csv_file_reference = $this->entity->get('source_data')->getValue();
+      $file = NULL;
+      if (isset($csv_file_reference[0]['target_id'])) {
+        /** @var \Drupal\file\Entity\File $file */
+        $file = $this->entityTypeManager->getStorage('file')->load(
+          $csv_file_reference[0]['target_id']
+        );
+      }
+
       // we can't assume the user did not mess with the AMI set data?
       $op = $data->pluginconfig->op ?? NULL;
       $ops = [
@@ -632,7 +657,61 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         '#required' => FALSE,
         '#default_value' => FALSE,
       ];
-    }
+      $rows = 0;
+      if ($file) {
+        $rows = $this->strawberryfieldUtility->csv_count($file);
+      }
+      $form['preview']['ado_amiset_preview_row'] = [
+        '#type' => 'textfield',
+        '#weight' => -8,
+        '#title' => t('Row to preview'),
+        '#description' => t('Your Source CSV has @count rows. Row 1 is the header and if used will always return row 2. You can also use the mapped "ADO label" column to autocomplete.', ['@count' => $rows]),
+        '#states' => [
+          'visible' => [
+            ':input[name="entity_type"]' => ['value' => 'ami'],
+            ':input[name="ado_amiset_preview"]' => ['filled' => true],
+          ],
+        ],
+      ];
+
+        $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_name'] = 'ami.rowsbylabel.autocomplete';
+        $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_parameters'] = [
+          'ami_set_entity' => $this->entity->id()
+        ];
+
+      $form['preview']['ado_amiset_preview_diff_rendered'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Preview as a diff'),
+        '#description' => $this->t(
+          'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the HTML old v/s new one will be attempted. If the ADO is new no diff will be produced.'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
+
+      $form['preview']['button_preview'][
+      '#states'] = [
+        'visible' => [
+          ':input[name="ado_context_preview"]' => ['filled' => true],
+          ':input[name="entity_type"]' => ['value' => 'ado'],
+        ],
+      ];
+      $controller = \Drupal::service('class_resolver')->getInstanceFromDefinition('\Drupal\ami\Controller\AmiQueueWorkerPreviewHandler');
+      $form['preview']['button_preview_amiset'] = [
+        '#type' => 'button',
+        '#op' => 'preview',
+        '#weight' => -7,
+        '#value' => t('Show preview for AMI Set'),
+        '#ajax' => [
+          'callback' => [$controller, 'simulateItemAjax'],
+        ],
+        '#attached' => [
+          'library' => ['core/drupal.dialog.ajax'],
+        ],
+      ];
+
+
+  }
     return $form + parent::buildForm($form, $form_state);
   }
 
