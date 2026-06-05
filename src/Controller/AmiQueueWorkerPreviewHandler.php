@@ -398,7 +398,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                 // the actual behavior will be determined by a column named "ami_sync_op"
               }
               if ($data_ado->pluginconfig->op !== 'action' && !$skip) {
-                
                 $ado_entity = $this->simulateQueueItem($data_ado, $parsed_json);
                 $build = [];
                 $content_selector = 'ami-preview-container';
@@ -418,8 +417,22 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                     '#attributes' => ['id' => $content_selector],
                     'preview_wrapper' => $render_array
                   ];
+                  if (!empty($parsed_json)) {
+                    $dialog_content['body']['json'] = [
+                      '#type' => 'fieldset',
+                      '#collapsible' => TRUE,
+                      '#collapsed' => TRUE,
+                      '#title' => $this->t('Raw JSON produced by row @row', ['@row' => $row_id]),
+                      '#attributes' => ['id' => $content_selector . '-json'],
+                      'json_raw' =>  [
+                        '#type' => 'markup',
+                        '#prefix' => '<pre>',
+                        '#suffix' => '</pre>',
+                        '#markup' => json_encode($parsed_json, JSON_PRETTY_PRINT) ?? '{}'
+                        ]
+                    ];
+                  }
                 }
-
 
                 // 3. Open the modal dialog overlay
                 $title = $this->t('AMI ADO Preview for "@label" with UUID @uuid', [
@@ -427,8 +440,8 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                   '@uuid' => $ado_entity->uuid(),
                 ]);
                 $options =  [
-                  'height' => '75%',
-                  'width' => '75%',
+                  'height' => '85%',
+                  'width' => '85%',
                 ];
                 $response->addCommand(new OpenModalDialogCommand($title, $dialog_content, $options));
                 $response->addAttachments([
@@ -437,7 +450,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                     'ami/ami_preview_helper'
                   ],
                 ]);
-
               }
             }
           }
@@ -1699,7 +1711,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             // extra CSS classes added to the diff container <div> in HTML renderers
             wrapperClasses: ['diff-wrapper'],
           );
-          $jsonResult = DiffHelper::calculate($build_existing, $build, 'Json'); // may store the JSON result in your database
+          $jsonResult = DiffHelper::calculate($build_existing, $build, 'Json', $differOptions); // may store the JSON result in your database
           $htmlRenderer = RendererFactory::make($rendererName, $rendererOptions);
           $result = $htmlRenderer->renderArray(json_decode($jsonResult, true));
           $render_array['preview']['#attributes']['id'] = 'ami-preview-container-ado';
