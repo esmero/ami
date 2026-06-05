@@ -446,6 +446,148 @@ class AmiUtilityService {
   }
 
   /**
+   * Checks if an URI exists (local/zip/remote)
+   *
+   * @param string $uri
+   *   The URL of the file to grab.
+   *
+   * @param \Drupal\file\Entity\File|NULL $zip_file
+   *
+   * @return bool
+   *    TRUE if it exists or is available to be fetched (URL)
+   *    FALSE if not.
+   */
+  public function file_check_availability($uri, File $zip_file = NULL) {
+    $uri = trim($uri);
+
+    $parsed_url = parse_url($uri);
+    $remote_schemes = ['http', 'https', 'feed'];
+    $ami_temp_folder = 'ami/setfiles/';
+    $destination = "temporary://" . $ami_temp_folder;
+    if (!isset($parsed_url['scheme'])
+      || (isset($parsed_url['scheme'])
+        && !in_array(
+          $parsed_url['scheme'],
+          $remote_schemes
+        ))
+    ) {
+      // Now that we know it's not remote, try with our registered schemas
+      // means its either private/public/s3, etc.
+      // normalize target.
+
+      $scheme = $this->streamWrapperManager->getScheme($uri);
+      if ($scheme) {
+        // Try also with our internal S3 check-if-its-there-function
+        if (!file_exists($uri) && !$this->strawberryfieldFilePersisterService->fileS3Exists($uri)) {
+          return FALSE;
+        }
+        $finaluri = $uri;
+      }
+      else {
+        // Means it may be local to the accessible file storage, eg. a path inside
+        // the server or inside a provided ZIP file
+        $localfile = $this->fileSystem->realpath($uri);
+
+        if (!$localfile && !$zip_file) {
+          return FALSE;
+        }
+        elseif ($localfile) {
+          // We can not allow DIRS. C'mon
+          if (is_dir($localfile)) {
+            return FALSE;
+          }
+          // Means the file is there already locally. Just assign.
+          $finaluri = $localfile;
+        }
+        elseif (!$localfile && $zip_file) {
+          // Means no local file but we can check inside a ZIP.
+          // Try with the ZIP file in case there is a ZIP and local failed
+          // Use the Zip file uuid to prefix the destination.
+          $localfile = $this->streamWrapperManager->normalizeUri(
+            $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
+          );
+          if (!file_exists($localfile) || $force) {
+            $zip_file_exists = $this->check_fromzip_file($uri, $zip_file);
+            if ($zip_file_exists) {
+              $finaluri = $localfile;
+            }
+          }
+        }
+        $finaluri = $localfile;
+      }
+    }
+    else {
+      // This may be remote!
+      // Simulate what could be the final path of a remote download.
+      // to avoid re downloading.
+      $md5uri = md5($uri);
+      $destination = $destination . $md5uri . '/' ;
+      $path = str_replace(
+          '///',
+          '//',
+          "{$destination}"
+        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+      $localfile = $this->streamWrapperManager->normalizeUri($path);
+      $escaped_path = str_replace(' ', '\ ', $path);
+      // This is very naive since the remote file might be different than
+      // the last part of the actual URL (header given name).
+      $isthere = glob($this->fileSystem->realpath($escaped_path) . '.*');
+      $isthere = is_array($isthere) && (count($isthere) == 1) ? $isthere : glob($this->fileSystem->realpath($escaped_path));
+
+      if (is_array($isthere) && count($isthere) == 1) {
+        // Ups its here
+        // Use path here instead of the first entry to keep the streamwrapper
+        // around for future use
+        $localfile = $path;
+      }
+      // Actual remote headers via HEAD
+      if (!file_exists($localfile) || $force) {
+        // use HEAD instead of GET
+        $stream_context = stream_context_create(
+          [
+            'http' => array(
+              'method' => 'HEAD'
+            )
+          ]
+        );
+        $remote_response_headers = @get_headers($uri,1, $stream_context);
+        if (is_array($remote_response_headers)) {
+          /* Something like this but could have redirects. So we should parse [0] as either an string or an array
+          // and find anything that is less than 400.
+           * (
+    [0] => HTTP/1.1 200 OK
+    [Date] => Sat, 29 May 2004 12:28:14 GMT
+    [Server] => Apache/1.3.27 (Unix)  (Red-Hat/Linux)
+    [Last-Modified] => Wed, 08 Jan 2003 23:11:55 GMT
+    [ETag] => "3f80f-1b6-3e1cb03b"
+    [Accept-Ranges] => bytes
+    [Content-Length] => 438
+    [Connection] => close
+    [Content-Type] => text/html
+           */
+          $remote_response_headers = $remote_response_headers[max(array_filter(array_keys($remote_response_headers), 'is_int'))] ?? '';
+          $response_code = explode(" ", $remote_response_headers ?? '')[1];
+          if (intval($response_code) >= 200 && intval($response_code) < 400) {
+            // We use the localfile/simulated one here. Does not matter if we have not yet fetched it.
+            $finaluri = $localfile;
+          }
+        }
+        else {
+          return FALSE;
+        }
+      }
+      else {
+        $finaluri = $localfile;
+      }
+    }
+    // This is the actual file creation independently of the source.
+    if ($finaluri) {
+      return TRUE;
+    }
+    return FALSE;
+  }
+
+  /**
    * Attempts to get a file using drupal_http_request and to store it locally.
    *
    * @param string $url
@@ -748,6 +890,110 @@ class AmiUtilityService {
       $this->messenger()->addError(
         $this->t(
           'Unable to extract file @uri from ZIP @zip to local @path. Verify ZIP exists, its readable and destination is writable.',
+          [
+            '@uri' => $uri,
+            '@zip' => $zip_realpath,
+            '@path' => $path,
+          ]
+        )
+      );
+    }
+    return FALSE;
+  }
+
+  /**
+   * Attempts to find a file in a ZIP file without storing it.
+   *
+   * @param string $uri
+   *
+   * @param \Drupal\file\Entity\File $zip_file
+   *     A Zip file with that may contain the $uri
+   *
+   * @return false|string
+   *   One of these possibilities:
+   *   - If it succeeds a Path to a managed file object
+   *   - If it fails or NULL, FALSE.
+   */
+  public function check_fromzip_file($uri, File $zip_file = NULL) {
+    if (!$zip_file) {
+      return FALSE;
+    }
+    $zip_realpath = NULL;
+    $parsed_url = parse_url($uri);
+    if (!isset($destination)) {
+      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
+      $path = $this->streamWrapperManager->normalizeUri($basename);
+    }
+    else {
+      if (is_dir($this->fileSystem->realpath($destination))) {
+        // Prevent URIs with triple slashes when glueing parts together.
+        $path = str_replace(
+            '///',
+            '//',
+            "{$destination}"
+          ) . $this->fileSystem->basename(
+            $parsed_url['path']
+          );
+      }
+      else {
+        $path = $destination;
+      }
+    }
+    try {
+      $zip_realpath = $this->fileSystem->realpath($zip_file->getFileUri());
+      // Means Mr. Zip is in S3 or who knows where
+      // And ZipArchive (Why!!) can not stream from remote
+      // @TODO write once for all a remote ZIP file streamer DIEGO
+      if (!$zip_realpath) {
+        // This will add a delay once...
+        $zip_realpath = $this->strawberryfieldFileMetadataService->ensureFileAvailability($zip_file, NULL);
+      }
+      $z = new \ZipArchive();
+      $contents = NULL;
+      // UTF-8 Normalization here
+      // See https://unicode.org/reports/tr15/#Introduction
+      $uri_form_c = Normalizer::normalize($uri, Normalizer::FORM_C);
+      $uri_form_d = Normalizer::normalize($uri, Normalizer::FORM_D);
+      $normalized = false;
+      if ($uri == $uri_form_c && $uri == $uri_form_d) {
+        $normalized = true;
+      }
+
+      if ($z->open($zip_realpath)) {
+        $fp = $z->getStream($uri);
+        if (!$fp && $normalized) {
+          return FALSE;
+        }
+        else {
+          if (!$fp) {
+            // try form c
+            $fp = $z->getStream($uri_form_c);
+            if (!$fp) {
+              // try form D (really edge case)
+              $fp = $z->getStream($uri_form_d);
+            }
+          }
+        }
+        if ($fp) {
+          fclose($fp);
+          return TRUE;
+        }
+        else {
+          fclose($fp);
+          return FALSE;
+        }
+      }
+      else {
+        // Opening the ZIP file failed.
+        // This might be OK if we also tried other options. Should we log it?
+        return FALSE;
+      }
+    }
+    catch (\Exception $exception) {
+      $this->messenger()->addError(
+        $this->t(
+          'Unable to find file @uri from ZIP @zip. Verify ZIP exists and its readable.',
           [
             '@uri' => $uri,
             '@zip' => $zip_realpath,
@@ -2150,6 +2396,305 @@ class AmiUtilityService {
     return $info;
   }
 
+  /**
+   * Processes a single ROW and assigns correct parents and UUIDs
+   *
+   * @param \Drupal\file\Entity\File $file
+   *   A CSV
+   * @param \stdClass $data
+   *     The AMI Set Config data
+   * @param array $invalid
+   *    Keeps track of invalid rows.
+   * @param bool $strict
+   *    TRUE means Set Config and CSV will be strictly validated,
+   *    FALSE means it will just validate for the needed elements
+   * @param int $row
+   *    The row number we actually care for.
+   *
+   * @return array
+   * @throws \Drupal\Component\Plugin\Exception\InvalidPluginDefinitionException
+   * @throws \Drupal\Component\Plugin\Exception\PluginNotFoundException
+   */
+  public function preprocessAmiSetSingleRow(File $file, \stdClass $data, array &$invalid = [], $strict = FALSE, int $row_id = 2): array {
+
+    // Use the AMI set user ID for checking access to entity operations.
+    $uid = $data->info['uid'] ?? \Drupal::currentUser()->id();
+    $account = $uid == \Drupal::currentUser()->id() ? \Drupal::currentUser() : $this->entityTypeManager->getStorage('user')->load($uid);
+    $file_data_all = $this->csv_read($file);
+    if (!$file_data_all) {
+      return [];
+    }
+    // We want to validate here if the found Headers match at least the
+    // Mapped ones during AMI setup. If not we will return an empty array
+    // And send a Message to the user.
+    if (!$this->validateAmiSet($file_data_all, $data, $strict)) {
+      return [];
+    }
+
+
+    $config['data']['headers'] = $file_data_all['headers'];
+    // In old times we totally depended on position, now we are going to do something different, we will combine
+    // Headers and keys.
+    $data->mapping->type_key = isset($data->mapping->type_key)
+      ? $data->mapping->type_key : 'type';
+
+    // Keeps track of all parents and child that don't have a PID assigned.
+    $parent_hash = [];
+    // Keps track of UUIDs found and their original Row Index. Adds sadly another Foreach
+    // But we need this so we can also sort CSVs where parents are all UUIDs.
+    // To do so we will count the level/deepness of a tree, and sort by shortest.
+    $uuid_to_row_index_hash = [];
+    $info = [];
+
+    // @TODO for 1.7.0/2.1.0. Optimize. bail out once a Root was found IF
+    // starting with $index == $row_id or bailout if $row_id in $failed
+
+
+    // First pass to accumulate UUIDs and their CSV order of appearance.
+    foreach ($file_data_all['data'] as $index => $keyedrow) {
+      $row = array_combine($config['data']['headers'], $keyedrow);
+      // UUIDs should be already assigned by this time
+      $possibleUUID = $row[$data->adomapping->uuid->uuid] ?? NULL;
+      $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
+      // Double check? User may be tricking us!
+      if ($possibleUUID && Uuid::isValid($possibleUUID)) {
+        $uuid_to_row_index_hash[$possibleUUID] = $index;
+      }
+    }
+
+    foreach ($file_data_all['data'] as $index => $keyedrow) {
+      // This makes tracking of values more consistent and easier for the actual processing via
+      // twig templates, webforms or direct
+      $row = array_combine($config['data']['headers'], $keyedrow);
+      // Each row will be an object.
+      $ado = [];
+      $ado['type'] = trim(
+        $row[$data->mapping->type_key] ?? 'Thing'
+      );
+      // Let's start by grouping by parents, namespaces and generate uuids
+      // namespaces are inherited, so we just need to find collection
+      // objects in parent uuid column.
+
+      // We may have multiple parents
+      // @dmer deal with files as parents of a node in a next iteration.
+      // So, we will here simply track also any parent
+      // Initialize in case the Mapping provides no parents
+      $ado['anyparent'] = [];
+      $ado['parent'] = [];
+      foreach (($data->adomapping->parents ?? []) as $parent_key) {
+        // Used to access parent columns using numerical indexes for when looking back inside $file_data_all
+        $parent_to_index[$parent_key] = array_search(
+          $parent_key, $config['data']['headers']
+        );
+        $parent_ados_toexpand = (array) trim(
+          $row[$parent_key]
+        );
+        $parent_ados_array = [];
+        $parent_ados_expanded = $this->expandJson($parent_ados_toexpand);
+        $parent_ados_expanded = $parent_ados_expanded[0] ?? NULL;
+        if (is_array($parent_ados_expanded)) {
+          $parent_ados_array = $parent_ados_expanded;
+        }
+        elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
+          // This allows single value and or ; and trims. Neat?
+          $parent_ados_array = array_map(function($value) {
+            $value = $value ?? '';
+            return trim($value);
+          }, explode(';', $parent_ados_expanded));
+        }
+
+        $ado['parent'][$parent_key] = $parent_ados_array;
+        $ado['anyparent'] = array_unique(array_merge($ado['anyparent'], $ado['parent'][$parent_key]));
+      }
+
+      $ado['data'] = $row;
+
+      // UUIDs should be already assigned by this time
+      $possibleUUID = $row[$data->adomapping->uuid->uuid] ?? NULL;
+      $possibleUUID = $possibleUUID ? trim($possibleUUID) : $possibleUUID;
+      if ($possibleUUID && isset($uuid_to_row_index_hash[$possibleUUID])) {
+        $ado['uuid'] = $possibleUUID;
+        // Now be more strict for action = update/patch or sync
+        // With the introduction of sync this gets more complex
+        if ($data->pluginconfig->op === 'sync') {
+          $sync_op = $ado['data']['ami_sync_op'] ?? 'create';
+          // only valid sync_ops are these 3
+          if ($sync_op != 'create' && in_array($sync_op, ['create','delete','update'] )) {
+            $existing_objects = $this->entityTypeManager->getStorage('node')
+              ->loadByProperties(['uuid' => $ado['uuid']]);
+            // Do access control here, will be done again during the atomic operation
+            // In case access changes later of course
+            $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+            if (!$existing_object || !$existing_object->access($sync_op, $account)) {
+              unset($ado);
+              $index = max($row_id - 2, 0 );
+              $invalid = $invalid + [$index => $index];
+            }
+          }
+          elseif (!in_array($sync_op, ['create','delete','update'])) {
+            // means invalid sync_op
+            unset($ado);
+            $invalid = $invalid + [$index => $index];
+          }
+          // Will have to read the actual OP from $ado['data']['ami_sync_op']
+          // if missing we assume ingest. Worst case it will fail bc it is already there.
+        }
+        elseif ($data->pluginconfig->op !== 'create') {
+          $existing_objects = $this->entityTypeManager->getStorage('node')
+            ->loadByProperties(['uuid' => $ado['uuid']]);
+          // Do access control here, will be done again during the atomic operation
+          // In case access changes later of course
+
+          $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
+          if (!$existing_object || !$existing_object->access('update', $account)) {
+            unset($ado);
+            $invalid = $invalid + [$index => $index];
+          }
+        }
+      }
+      else {
+        unset($ado);
+        $invalid = $invalid + [$index => $index];
+      }
+
+      if (isset($ado)) {
+        //We might have multiple relationships/or none at all.
+        foreach ($ado['parent'] as $parent_key => &$parent_ados) {
+          foreach ($parent_ados as $parent_ado) {
+            $rootfound = FALSE;
+            $parent_numeric = $this->getParentRowId($parent_ado, $uuid_to_row_index_hash);
+            if ($parent_numeric === FALSE) {
+              $invalid[$parent_numeric] = $parent_numeric;
+              $invalid[$index] = $index;
+              unset($ado);
+              continue;
+            }
+            elseif ($parent_numeric === NULL) {
+              // This will also be true if there was no parent value.
+              $rootfound = TRUE;
+              continue;
+            }
+            else {
+              $parent_hash[$parent_key][$parent_numeric][$index] = $index;
+            }
+            $parentchilds = [];
+            $parent_numeric_loop = $parent_numeric;
+            while (!$rootfound) {
+              // $parentup gets the same treatment as $ado['parent']
+              $parentup_toexpand = [trim(
+                $file_data_all['data'][$parent_numeric_loop][$parent_to_index[$parent_key]]
+              )];
+              $parentup_array = [];
+              $parentup_expanded = $this->expandJson($parentup_toexpand);
+              $parentup_expanded = $parentup_expanded[0] ?? NULL;
+              if (is_array($parentup_expanded)) {
+                $parentup_array = $parent_ados_expanded;
+              }
+              elseif (is_string($parentup_expanded)
+                || is_integer(
+                  $parentup_expanded
+                )
+              ) {
+                // This allows single value and or ; and trims. Neat?
+                $parentup_array = array_map(function($value) {
+                  $value = $value ?? '';
+                  return trim($value);
+                }, explode(';', $parentup_expanded));
+              }
+
+              foreach ($parentup_array as $parentup) {
+                $parentup_numeric = $this->getParentRowId($parentup, $uuid_to_row_index_hash);
+                if ($parentup_numeric === FALSE) {
+                  $invalid[$parentup_numeric] = $parentup_numeric;
+                  $invalid[$index] = $index;
+                  unset($ado);
+                  $rootfound = TRUE;
+                  break;
+                }
+                elseif ($parentup_numeric === NULL) {
+                  $rootfound = TRUE;
+                  break;
+                }
+
+                // If $parentup
+                // The Simplest approach for breaking a knot /infinite loop,
+                // is invalidating the whole parentship chain for good.
+                $inaloop = isset($parentchilds[$parentup_numeric]);
+                // If $inaloop === true means we already traversed this branch
+                // so we are in a loop and all our original child and it's
+                // parent objects are invalid.
+                if ($inaloop) {
+                  // In a loop
+                  $invalid = $invalid + $parentchilds;
+                  unset($ado);
+                  $rootfound = TRUE;
+                  // Means this object is already doomed. We break any attempt
+                  // to get relationships for this one.
+                  break 2;
+                }
+
+                $parentchilds[$parentup_numeric] = $parentup_numeric;
+                // If this parent is either a UUID or empty means we reached the root
+                // This a simple accumulator, means all is well,
+                // parent is still an index.
+                $parent_hash[$parent_key][$parentup_numeric][$parent_numeric_loop]
+                  = $parent_numeric_loop;
+                $parent_numeric_loop = $parentup_numeric;
+              }
+            }
+          }
+        }
+      }
+      if (isset($ado) and !empty($ado)) {
+        $info[$index] = $ado;
+      }
+    }
+
+    if (isset($invalid[$row_id])) {
+      // Means our ROW is already invalid.
+      return [];
+    }
+
+    // Now the real pass, iterate over every row.
+    $parent_hash_flat = [];
+    $requested_info = [];
+    foreach ($info as $index => &$ado) {
+      foreach ($data->adomapping->parents as $parent_key) {
+        // Is this object parent of someone?
+        // at this stage $ado['parent'][$parent_key] SHOULD BE AN ARRAY IF VALID
+        if (is_array($ado['parent'][$parent_key])) {
+          foreach ($ado['parent'][$parent_key] ?? [] as $index_rel => $parentnumeric) {
+            // This will only match if the original value is a row, if not the existing UUID will be preserved?
+            if (!empty($parentnumeric) && isset($parent_hash[$parent_key][$parentnumeric])) {
+              $ado['parent'][$parent_key][$index_rel] = $info[$parentnumeric]['uuid'];
+            }
+          }
+          $ado['parent'][$parent_key] = array_filter(array_unique($ado['parent'][$parent_key]));
+        }
+        if (isset($parent_hash[$parent_key][$index])) {
+          $parent_hash_flat[$index] = array_unique(array_merge($parent_hash_flat[$index] ?? [], $parent_hash[$parent_key][$index]));
+        }
+      }
+      // Since we are reodering we may want to keep the original row_id around
+      // To help users debug which row has issues in case of ingest errors
+      $ado['row_id'] = $index;
+      if ($index == $row_id) {
+        $requested_info[] = $ado;
+      }
+    }
+
+    // But here we do not sort.
+    // We only need to return  $ado['row_id'] == $row_id
+
+    unset($parent_hash_flat);
+    unset($info);
+    unset($parent_hash);
+    unset($uuid_to_row_index_hash);
+
+    return $requested_info;
+  }
+
+
   protected function sortTreeByChildren($row_id, $tree, &$ordered, $ordered_completetree) {
     if (isset($tree[$row_id]) && !in_array($row_id, $ordered)) {
       $subtree[] = $row_id;
@@ -2348,6 +2893,34 @@ class AmiUtilityService {
    *    NULL if a UUID but not in this CSV or empty (so no parent)
    */
   protected function getParentRowId(string $parent_ado, $uuid_to_row_index_hash) {
+    $parent_numeric = FALSE;
+    if (empty($parent_ado) || strlen(trim($parent_ado)) == 0) {
+      $parent_numeric = NULL;
+    }
+    elseif (!Uuid::isValid(trim($parent_ado))
+      && is_scalar($parent_ado)
+      && (intval($parent_ado) > 1 && intval($parent_ado) <= count($uuid_to_row_index_hash)+1 )
+    ) {
+      $parent_numeric = intval(trim($parent_ado));
+    }
+    elseif (Uuid::isValid(trim($parent_ado)))  {
+      // fetch the actual ROW id using the
+      $parent_numeric = isset($uuid_to_row_index_hash[trim($parent_ado)]) ? $uuid_to_row_index_hash[trim($parent_ado)] : NULL;
+    }
+    return  $parent_numeric;
+  }
+
+  /**
+   * Callback to get the Index number in the CSV File of a parent numeric id
+   * or uuid. This literally searches the CSV File itself.
+   *
+   * @param string $parent
+   *
+   * @return int|null|bool
+   *    FALSE if not present at all
+   *    NULL if a UUID but not in this CSV or empty (so no parent)
+   */
+  protected function getParentRowIdFromCSV(File $file, string $parent_ado, $uuid_to_row_index_hash) {
     $parent_numeric = FALSE;
     if (empty($parent_ado) || strlen(trim($parent_ado)) == 0) {
       $parent_numeric = NULL;
