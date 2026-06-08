@@ -220,6 +220,27 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         );
         return $form;
       }
+      $csv_file_reference = $this->entity->get('source_data')->getValue();
+      $file = NULL;
+      if (isset($csv_file_reference[0]['target_id'])) {
+        $file = $this->entityTypeManager->getStorage('file')->load($csv_file_reference[0]['target_id']);
+      }
+      if (!$file) {
+        $form = $form + parent::buildForm($form, $form_state);
+        $form['actions']['submit']['#access'] = FALSE;
+        $form['description'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' =>  $this->t(
+            'Error'
+          ),
+          '#markup' => $this->t(
+            'Sorry. This AMI set has no Source CSV attached and thus can not be used to delete ingested entities. Please edit this AMI set and add a CSV with your source data, having at least the same mapped columns present in your configuration and also proper UUIDs for each row (normally under a <em>node_uuid<em> column, if not manually overriden).'
+          ),
+        ];
+        return $form;
+      }
+
       $form['delete_enqueued'] = [
         '#type' => 'fieldset',
         '#title' => $this->t('Delete Ingested ADOs via this Set'),
