@@ -2527,7 +2527,6 @@ class AmiUtilityService {
             $existing_object = $existing_objects && count($existing_objects) == 1 ? reset($existing_objects) : NULL;
             if (!$existing_object || !$existing_object->access($sync_op, $account)) {
               unset($ado);
-              $index = max($row_id - 2, 0 );
               $invalid = $invalid + [$index => $index];
             }
           }

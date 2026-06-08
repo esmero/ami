@@ -20,12 +20,10 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
-use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strawberryfield\Event\StrawberryfieldFileEvent;
 use Drupal\strawberryfield\StrawberryfieldEventType;
 use Drupal\strawberryfield\StrawberryfieldFilePersisterService;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
-use Drupal\views\Entity\View;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Swaggest\JsonDiff\JsonDiff;
 use Jfcherng\Diff\DiffHelper;
@@ -38,8 +36,6 @@ use Symfony\Component\EventDispatcher\EventDispatcherInterface;
 use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionManager;
 use Drupal\views_bulk_operations\Service\ViewsBulkOperationsActionProcessorInterface;
 use Drupal\Core\Session\AccountSwitcherInterface;
-use Drupal\Core\Access\AccessResultReasonInterface;
-use Drupal\Core\Action\ActionInterface;
 use Drupal\Core\DependencyInjection\DependencySerializationTrait;
 use Drupal\Core\Ajax\MessageCommand;
 use Drupal\Core\Ajax\OpenModalDialogCommand;
@@ -157,13 +153,14 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
   protected $renderer;
 
   /**
+   * Helper property to keep the patched JSON around.
+   */
+   protected ?string $json_patch = NULL;
+
+  /**
    * Constructor.
    *
-   * @param array $configuration
-   * @param string $plugin_id
-   * @param mixed $plugin_definition
    * @param EntityTypeManagerInterface $entity_type_manager
-   * @param LoggerChannelFactoryInterface $logger_factory
    * @param StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param AmiUtilityService $ami_utility
    * @param AmiLoDService $ami_lod
@@ -171,9 +168,8 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
    * @param StrawberryfieldFilePersisterService $strawberry_filepersister
    * @param PrivateTempStoreFactory $temp_store_factory
    * @param EventDispatcherInterface $event_dispatcher
-   * @param ViewsBulkOperationsActionManager $actionManager
-   * @param ViewsBulkOperationsActionProcessorInterface $actionProcessor
    * @param AccountSwitcherInterface $accountSwitcher
+   * @param \Drupal\Core\Render\RendererInterface $renderer
    */
   public function __construct(
     EntityTypeManagerInterface $entity_type_manager,
@@ -230,10 +226,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     /** @var \Drupal\format_strawberryfield\MetadataDisplayInterface $entity */
     $ami_set_entity = $form_state->getFormObject()->getEntity();
     // We have two choices here.
-    // A) Keep the code as similar as \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker
+    // A, Keep the code as similar as \Drupal\ami\Plugin\QueueWorker\IngestADOQueueWorker
     // which implies generating a $data structure as it was meant for the CSV expander
     // then let the Same Code Generate a $data structure for the Ingest ADO queue woker
-    // or B) skip steps/go for the final $data structure. Which requires on any future updates on processing code
+    // or B. skip steps/go for the final $data structure. Which requires on any future updates on processing code
     // to also mimic it here.
     // It is a bummer i can not just re-use logic, but this is a form driven process v/s a queue one and
     // there is no persistence so i need the ADO state in a single method as return.
@@ -244,11 +240,23 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     $row_id = $form_state->getValue('ado_amiset_preview_row', 2);
     if ($row_id < 2) { $row_id = 2; }
     $render_diff = (bool) $form_state->getValue('ado_amiset_preview_diff_rendered', FALSE);
+    $render_json_diff = (bool) $form_state->getValue('ado_amiset_preview_diff_json', FALSE);
+    $content_selector = 'ami-preview-container';
+    $message_selector = 'ami-preview-messages-container';
+    $dialog_content = [
+      '#type' => 'container',
+      '#attributes' => ['id' => $message_selector], // Wrapper used for message placement
+      'body' => [
+        '#markup' => '<p></p>',
+      ],
+    ];
+    // 3. Open the modal dialog overlay
+    $dialog_title = $this->t('AMI Preview');
     $ops_skip_onmissing_file = (bool) $form_state->getValue('skip_onmissing_file', TRUE);
     $ops_forcemanaged_destination_file = (bool) $form_state->getValue('take_control_file', TRUE);
 
     // Normalize Un Moderadet Statuses if 0 and 1
-    foreach ($statuses as $bundle => &$value) {
+    foreach ($statuses as &$value) {
       if ($value == "1") {
         $value = 1;
       }
@@ -258,6 +266,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     }
 
     $csv_file_reference = $ami_set_entity->get('source_data')->getValue();
+    $file = NULL;
     if (isset($csv_file_reference[0]['target_id'])) {
       /** @var \Drupal\file\Entity\File $file */
       $file = $this->entityTypeManager->getStorage('file')->load(
@@ -280,19 +289,14 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
       $data = $item->provideDecoded(FALSE);
     }
     if ($file && $data !== new \stdClass()) {
-      $invalid = [];
       $SetURL = $ami_set_entity->toUrl('canonical', ['absolute' => TRUE])
         ->toString();
 
       $run_timestamp = \Drupal::time()->getCurrentTime();
-
-      $notprocessnow = $form_state->getValue('not_process_now', NULL);
-      $added = [];
       $op_secondary = NULL;
       // Only applies to Update/Patch operations but for contract reasons
       // we generate all $data->info the same.
       $ops_safefiles = TRUE;
-      $last_processed_config = [];
 
       if (isset($data->pluginconfig->op) && $data->pluginconfig->op != 'create') {
         $op_secondary = $form_state->getValue(['ops_secondary','ops_secondary_update'], 'update');
@@ -321,13 +325,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         'time_submitted' => $run_timestamp
       ];
 
-
-
       try {
         $data_ado = clone $data_csv;
         $data_ado->info = NULL;
         $added = [];
-        $ado = NULL;
         $csv_file = $data_csv->info['csv_file'] ?? NULL;
         if ($csv_file instanceof FileInterface) {
           $invalid = [];
@@ -337,123 +338,119 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             if (!count($info)) {
               //@TODO tell the user which CSV failed please?
               $message = $this->t('So sorry. CSV @csv for @setid produced no ADOs. Please correct your source CSV data', [
-                '@setid' => $data_ado->info['set_id'],
-                '@csv' => $csv_file->getFilename(),
+                '@setid' => $data_ado->info['set_id'] ?? 'Undefined AMI set',
+                '@csv' => $csv_file->getFilename() ?? 'Unknown CSV File',
               ]);
-               $this->messenger->addError($message);
-              return $response;
+              $this->messenger->addError($message);
             }
-
-            foreach ($info as $item) {
-              // We set current User here since we want to be sure the final owner of
-              // the object is this and not the user that runs the queue
-              $data_ado->info = [
-                'zip_file' => $data_csv->info['zip_file'] ?? NULL,
-                'row' => $item,
-                'set_id' => $data_csv->info['set_id'],
-                'uid' => $data_csv->info['uid'],
-                'status_keep' => $data_csv->info['status_keep'] ?? FALSE,
-                'status' => $data_csv->info['status'],
-                'op_secondary' => $data_csv->info['op_secondary'] ?? NULL,
-                'ops_safefiles' => $data_csv->info['ops_safefiles'] ? TRUE : FALSE,
-                'log_jsonpatch' => FALSE,
-                'set_url' => $data_csv->info['set_url'],
-                'attempt' => 1,
-                'queue_name' => $data_csv->info['queue_name'],
-                'force_file_queue' => $data_csv->info['force_file_queue'],
-                'force_file_process' => $data_csv->info['force_file_process'],
-                'manyfiles' => $data_csv->info['manyfiles'],
-                'ops_skip_onmissing_file' => $data_csv->info['ops_skip_onmissing_file'],
-                'ops_forcemanaged_destination_file' => $data_csv->info['ops_forcemanaged_destination_file'],
-                'time_submitted' => $data_csv->info['time_submitted'],
-              ];
-              // Overrides in case we are in a sync operation.
-              $valid_op = TRUE;
-              $skip = FALSE;
-              if ($data_ado->pluginconfig->op == 'sync') {
-                // Important we will move the data driven (ami_sync_op) info the que info
-                // structure secondary.
-                // Fixed key:
-                $sync_op = $item['data']['ami_sync_op'] ?? 'create';
-                if ($sync_op === 'create') {
-                  $data_ado->info['op_secondary'] = 'create';
-                }
-                elseif ($sync_op === 'update') {
-                  $data_ado->info['op_secondary'] = 'update';
-                }
-                elseif ($sync_op === 'delete') {
-                  // This needs to go a different queue.
-                  $skip = TRUE;
-                  // We only need the UUIDs to delete.
-                  // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
-                  // If so we need to pass the CSV data also to this array.
-                  // $uuids_sync_action should be formed the way $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL); would.
-                  // For now safer to not. We are deleting direct references of deletion of a ROW.
-                  $uuids_sync_action[$item['uuid'] ?? ''] = [];
-                }
-                else {
-                  $skip = TRUE;
-                  // Flag as false?
-                }
-                // the actual behavior will be determined by a column named "ami_sync_op"
-              }
-              if ($data_ado->pluginconfig->op !== 'action' && !$skip) {
-                $ado_entity = $this->simulateQueueItem($data_ado, $parsed_json);
-                $build = [];
-                $content_selector = 'ami-preview-container';
-                $message_selector = 'ami-preview-messages-container';
-                $dialog_content = [
-                  '#type' => 'container',
-                  '#attributes' => ['id' => $message_selector], // Wrapper used for message placement
-                  'body' => [
-                    '#markup' => '<p></p>',
-                  ],
+            else {
+              foreach ($info as $item) {
+                // We set current User here since we want to be sure the final owner of
+                // the object is this and not the user that runs the queue
+                $data_ado->info = [
+                  'zip_file' => $data_csv->info['zip_file'] ?? NULL,
+                  'row' => $item,
+                  'set_id' => $data_csv->info['set_id'],
+                  'uid' => $data_csv->info['uid'],
+                  'status_keep' => $data_csv->info['status_keep'] ?? FALSE,
+                  'status' => $data_csv->info['status'],
+                  'op_secondary' => $data_csv->info['op_secondary'] ?? NULL,
+                  'ops_safefiles' => $data_csv->info['ops_safefiles'] ? TRUE : FALSE,
+                  'log_jsonpatch' => FALSE,
+                  'set_url' => $data_csv->info['set_url'],
+                  'attempt' => 1,
+                  'queue_name' => $data_csv->info['queue_name'],
+                  'force_file_queue' => $data_csv->info['force_file_queue'],
+                  'force_file_process' => $data_csv->info['force_file_process'],
+                  'manyfiles' => $data_csv->info['manyfiles'],
+                  'ops_skip_onmissing_file' => $data_csv->info['ops_skip_onmissing_file'],
+                  'ops_forcemanaged_destination_file' => $data_csv->info['ops_forcemanaged_destination_file'],
+                  'time_submitted' => $data_csv->info['time_submitted'],
                 ];
-                if ($ado_entity) {
-                  $added[] = $ado_entity->uuid();
-                  $render_array = $this->processAdoDiff($ado_entity, $render_diff);
-                  $dialog_content['body'] = [
-                    '#type' => 'container',
-                    '#attributes' => ['id' => $content_selector],
-                    'preview_wrapper' => $render_array
-                  ];
-                  if (!empty($parsed_json)) {
-                    $dialog_content['body']['json'] = [
-                      '#type' => 'fieldset',
-                      '#collapsible' => TRUE,
-                      '#collapsed' => TRUE,
-                      '#title' => $this->t('Raw JSON produced by row @row', ['@row' => $row_id]),
-                      '#attributes' => ['id' => $content_selector . '-json'],
-                      'json_raw' =>  [
-                        '#type' => 'markup',
-                        '#prefix' => '<pre>',
-                        '#suffix' => '</pre>',
-                        '#markup' => json_encode($parsed_json, JSON_PRETTY_PRINT) ?? '{}'
-                        ]
-                    ];
+                // Overrides in case we are in a sync operation.
+                $skip = FALSE;
+                if ($data_ado->pluginconfig->op == 'sync') {
+                  // Important we will move the data driven (ami_sync_op) info the que info
+                  // structure secondary.
+                  // Fixed key:
+                  $sync_op = $item['data']['ami_sync_op'] ?? 'create';
+                  if ($sync_op === 'create') {
+                    $data_ado->info['op_secondary'] = 'create';
                   }
+                  elseif ($sync_op === 'update') {
+                    $data_ado->info['op_secondary'] = 'update';
+                  }
+                  elseif ($sync_op === 'delete') {
+                    // This needs to go a different queue.
+                    $skip = TRUE;
+                    // We only need the UUIDs to delete.
+                    // Will we allow a Sync operation to delete a TOP and automatically delete all the children?
+                    // If so we need to pass the CSV data also to this array.
+                    // $uuids_sync_action should be formed the way $this->AmiUtilityService->getProcessedAmiSetNodeUUids($csv_file, $data, NULL); would.
+                    // For now safer to not. We are deleting direct references of deletion of a ROW.
+                    $uuids_sync_action[$item['uuid'] ?? ''] = [];
+                  }
+                  else {
+                    $skip = TRUE;
+                    // Flag as false?
+                  }
+                  // the actual behavior will be determined by a column named "ami_sync_op"
                 }
+                if ($data_ado->pluginconfig->op !== 'action' && !$skip) {
+                  $ado_entity = $this->simulateQueueItem($data_ado, $parsed_json);
+                  $build = [];
 
-                // 3. Open the modal dialog overlay
-                $title = $this->t('AMI ADO Preview for "@label" with UUID @uuid', [
-                  '@label' => $ado_entity->label(),
-                  '@uuid' => $ado_entity->uuid(),
-                ]);
-                $options =  [
-                  'height' => '85%',
-                  'width' => '85%',
-                ];
-                $response->addCommand(new OpenModalDialogCommand($title, $dialog_content, $options));
-                $response->addAttachments([
-                  'library' => [
-                    'core/drupal.dialog.ajax',
-                    'ami/ami_preview_helper'
-                  ],
-                ]);
+                  if ($ado_entity) {
+                    $added[] = $ado_entity->uuid();
+                    $render_array = $this->processAdoDiff($ado_entity, $render_diff);
+                    $dialog_content['body'] = [
+                      '#type' => 'container',
+                      '#attributes' => ['id' => $content_selector],
+                      'preview_wrapper' => $render_array
+                    ];
+                    if (!empty($parsed_json)) {
+                      $dialog_content['body']['json'] = [
+                        '#type' => 'fieldset',
+                        '#collapsible' => TRUE,
+                        '#collapsed' => TRUE,
+                        '#title' => $this->t('Raw JSON produced by row @row', ['@row' => $row_id]),
+                        '#attributes' => ['id' => $content_selector . '-json'],
+                        'json_raw' => [
+                          '#type' => 'markup',
+                          '#prefix' => '<pre>',
+                          '#suffix' => '</pre>',
+                          '#markup' => json_encode($parsed_json, JSON_PRETTY_PRINT) ?? '{}'
+                        ]
+                      ];
+                    }
+                    if ($render_json_diff) {
+                      if ($patched_json = $this->getJsonPatch()) {
+                        $dialog_content['body']['json_diff'] = [
+                          '#type' => 'fieldset',
+                          '#collapsible' => TRUE,
+                          '#collapsed' => TRUE,
+                          '#title' => $this->t('JSON Diff as JSON Patch'),
+                          '#attributes' => ['id' => $content_selector . '-json-diff'],
+                          'json_raw' => [
+                            '#type' => 'markup',
+                            '#prefix' => '<pre>',
+                            '#suffix' => '</pre>',
+                            '#markup' => $patched_json
+                          ]
+                        ];
+                      }
+                    }
+                  }
+
+                  // 3. Open the modal dialog overlay
+                  $dialog_title = $this->t('AMI ADO Preview for "@label" with UUID @uuid', [
+                    '@label' => $ado_entity->label(),
+                    '@uuid' => $ado_entity->uuid(),
+                  ]);
+                }
               }
             }
           }
-         
 
           if (!in_array($data_ado->pluginconfig->op ?? 'missing op', [
             'action',
@@ -463,10 +460,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             'patch'
           ])) {
             $message = $this->t('Set @setid has a non valid Operation @op. We can not expand the CSV', [
-              '@setid' => $data_ado->info['set_id'],
-              '@op' => $data_ado->pluginconfig->op,
+              '@setid' => $data_ado->info['set_id'] ?? 'Undefined AMI set',
+              '@op' => $data_ado->pluginconfig->op ?? 'Undefined Operation',
             ]);
-             $this->messenger->addError($message);
+            $this->messenger->addError($message);
           }
           if (count($invalid)) {
             $invalid_message = $this->formatPlural(count($invalid),
@@ -481,7 +478,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           if (!count($added)) {
             $message = $this->t('CSV @csv for Set @setid generated no ADOs. Check your CSV for missing UUIDs and other required elements', [
               '@setid' => $data_ado->info['set_id'] ?? 'Undefined AMI set ID',
-              '@csv' => $csv_file->getFilename(),
+              '@csv' => $csv_file->getFilename() ?? 'Unknown CSV File',
             ]);
             $this->messenger->addError($message);
           }
@@ -490,19 +487,31 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           $message = $this->t('The referenced CSV @filename from Set @setid, enqueued to be expanded, could not be found. Skipping',
             [
               '@setid' => $data_ado->info['set_id'] ?? 'Undefined AMI set ID',
-              '@filename' => $data_ado->info['csv_filename'] ?? 'Undefined CSV Filename',
+              '@filename' => $csv_file->getFilename() ?? 'Unknown CSV File',
             ]);
-           $this->messenger->addError($message);
+          $this->messenger->addError($message);
         }
       }
       catch (\Throwable $exception) {
+        // Here $data_ado won't be available
         $message = $this->t('Sorry, something failed badly while we attempted to Expand an AMI set CSV into multiple ADO Ingest and Action Queue Items on Set @setid with error @error. This is quite strange. Please check your Drupal Logs and notify your admin.', [
-          '@setid' => $data_ado->info['set_id'] ?? 'Undefined AMI set ID',
+          '@setid' => $data_csv->info['set_id'] ?? 'Undefined AMI set ID',
           '@error' => $exception->getMessage(),
         ]);
-         $this->messenger->addError($message);
+        $this->messenger->addError($message);
       }
     }
+    $options =  [
+      'height' => '85%',
+      'width' => '85%',
+    ];
+    $response->addCommand(new OpenModalDialogCommand($dialog_title, $dialog_content, $options));
+    $response->addAttachments([
+      'library' => [
+        'core/drupal.dialog.ajax',
+        'ami/ami_preview_helper'
+      ],
+    ]);
     $messages = $this->messenger->deleteAll();
     foreach ($messages as $type => $type_messages) {
       foreach ($type_messages as $message) {
@@ -527,8 +536,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         $file_csv_columns = array_values(get_object_vars($csv_file_object));
       }
 
-      $persisted = FALSE;
-      $should_process = TRUE;
       $should_process_simulated = $this->canProcess($data);
       // On the actual queue worker we would bail out ::canProcess returning false. But here we want to accumulate the messages
       // and give the user feedback while stile trying to at least render a representation even if
@@ -553,17 +560,11 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
               '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
               '@parent_uuids' => implode(',', $parent_uuids)
             ]);
-             $this->messenger->addError($message);
+            $this->messenger->addError($message);
             $parent_nodes[$parent_property] = [];
-            foreach ($existing as $node) {
-              $parent_nodes[$parent_property][] = (int) $node->id();
-            }
           }
-          else {
-            // Get the IDs!
-            foreach ($existing as $node) {
-              $parent_nodes[$parent_property][] = (int) $node->id();
-            }
+          foreach ($existing as $node) {
+            $parent_nodes[$parent_property][] = (int) $node->id();
           }
         }
       }
@@ -581,7 +582,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
             '@setid' => $data->info['set_id']
           ]);
-           $this->messenger->addError($message);
+          $this->messenger->addError($message);
           // Here we actuall return FALSE BC there is no possible rendering situation.
           return FALSE;
         }
@@ -592,7 +593,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@uuid' => $data->info['row']['uuid'] ?? "MISSING UUID",
             '@setid' => $data->info['set_id']
           ]);
-           $this->messenger->addError($message);
+          $this->messenger->addError($message);
           return FALSE;
         }
         elseif (!isset($data->info['row']['data'])) {
@@ -600,7 +601,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             [
               '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
             ]);
-           $this->messenger->addError($message);
+          $this->messenger->addError($message);
           return FALSE;
         }
 
@@ -612,7 +613,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
             '@setid' => $data->info['set_id']
           ]);
-           $this->messenger->addError($message);
+          $this->messenger->addError($message);
           return FALSE;
         }
       }
@@ -628,7 +629,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
           '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
         ]);
-         $this->messenger->addError($message);
+        $this->messenger->addError($message);
         return FALSE;
       }
 
@@ -709,7 +710,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
               '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
               '@count' => $number_of_files
             ]);
-             $this->messenger->addStatus($message);
+            $this->messenger->addStatus($message);
           }
           foreach ($filenames as $filename) {
             $filename = trim($filename);
@@ -748,7 +749,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                     '@filename' => $filename ?? 'Undefined Filename',
                     '@filecolumn' => $file_column ?? 'Undefined File CSV Column',
                   ]);
-                 $this->messenger->addError($message);
+                $this->messenger->addError($message);
               }
             }
           }
@@ -762,7 +763,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
             '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
           ]);
-         $this->messenger->addError($message);
+        $this->messenger->addError($message);
       }
       // Only persist if we passed this.
       // True if all ok, to the best of our knowledge of course
@@ -806,29 +807,17 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@error' => $exception->getMessage(),
           '@uuid' => $data->info['uuids'] ?? 'Unknown UUID',
         ]);
-       $this->messenger->addError($message);
+      $this->messenger->addError($message);
       return FALSE;
     }
   }
 
+  public function getJsonPatch(): ?string {
+    return $this->json_patch;
+  }
 
-  /**
-   * Quick helper is Remote or local helper
-   *
-   * @param $uri
-   *
-   * @return bool
-   */
-  private function isRemote($uri) {
-    // WE do have a similar code in \Drupal\ami\AmiUtilityService::file_get
-    // @TODO refactor to a single method.
-    $parsed_url = parse_url($uri);
-    $remote_schemes = ['http', 'https', 'feed'];
-    $remote = FALSE;
-    if (isset($parsed_url['scheme']) && in_array($parsed_url['scheme'], $remote_schemes)) {
-      $remote = TRUE;
-    }
-    return $remote;
+  public function setJsonPatch(?string $json_patch): void {
+    $this->json_patch = $json_patch;
   }
 
   /**
@@ -865,10 +854,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     try {
       // @TODO: $property_path, if null should return with failure. Also on the Queue worker
       if ($data->mapping->globalmapping == "custom") {
-        $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? NULL;
+        $property_path = $data->mapping->custommapping_settings->{$data->info['row']['type']}->bundle ?? '';
       }
       else {
-        $property_path = $data->mapping->globalmapping_settings->bundle ?? NULL;
+        $property_path = $data->mapping->globalmapping_settings->bundle ?? '';
       }
 
       $label_column = $data->adomapping->base->label ?? 'label';
@@ -891,12 +880,13 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
           '@setid' => $data->info['set_id']
         ]);
-       $this->messenger->addError($message);
-       return FALSE;
+        $this->messenger->addError($message);
+        return FALSE;
       }
 
       $bundle = $property_path_split[0];
       $field_name = $property_path_split[1];
+
       // @TODO make this configurable.
       // This would allows us to pass an offset if the SBF is multivalued.
       // WE do not do this, Why would you want that? Who knows but possible.
@@ -1040,10 +1030,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                     }
                     $processed_metadata = $original_value;
                   }
-                  //@TODO. Since we are previewing, maybe on Updates we SHOULD always show to the end user this patch?
-                  if (isset($data->info['log_jsonpatch']) && $data->info['log_jsonpatch']) {
-                    $this->patchJson($original_value ?? [], $processed_metadata ?? [], TRUE);
-                  }
+
 
                   if ($op_secondary == 'append') {
                     $processed_metadata_keys = array_keys($processed_metadata);
@@ -1149,6 +1136,8 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                   }
 
                   $itemfield->setMainValueFromArray($processed_metadata);
+
+                  $this->setJsonPatch($this->patchJson($original_value ?? [], $processed_metadata ?? [], TRUE));
                   break;
                 }
               }
@@ -1187,7 +1176,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '%title' => $label ?? 'Unnamed ADO',
             '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
           ]);
-           $this->messenger->addStatus($message);
+          $this->messenger->addStatus($message);
           return $node ?? FALSE;
         }
         catch (\Throwable $exception) {
@@ -1197,7 +1186,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original],
             '@e' => $exception->getMessage()
           ]);
-           $this->messenger->addError($message);
+          $this->messenger->addError($message);
           return FALSE;
         }
       }
@@ -1207,7 +1196,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
           '@ophuman' => $op == $op_original ? static::OP_HUMAN[$op] : static::OP_HUMAN[$op] . ' and ' . static::OP_HUMAN[$op_original]
         ]);
-         $this->messenger->addError($message);
+        $this->messenger->addError($message);
         return FALSE;
       }
     }
@@ -1218,13 +1207,13 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         '@ophuman' => $op == $op_original ? (static::OP_HUMAN[$op] ?? "Undefined operation") : (static::OP_HUMAN[$op] ?? "Undefined operation"). ' and ' . (static::OP_HUMAN[$op_original] ?? "Undefined operation"),
         '@error' => $exception->getMessage(),
       ]);
-       $this->messenger->addError($message);
+      $this->messenger->addError($message);
       return FALSE;
     }
   }
 
   /**
-   * Will return a Patched array using on original/new arrays.
+   * Will return a Patched array as string using on original/new arrays.
    *
    * @param array $original
    * @param array $new
@@ -1232,7 +1221,8 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
    * @param bool $reverse
    *     If true we will generate an UNDO patch
    *
-   * @return false|string
+   * @return string
+   *    On failure, it will return an empty JSON encoded object.
    */
   protected function patchJson(array $original, array $new, $reverse = FALSE) {
     // IMPORTANT:
@@ -1262,10 +1252,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
       $patch = $r->getPatch()->jsonSerialize();
     }
     catch (\Swaggest\JsonDiff\Exception $exception) {
-      // We do not want to make ingesting slower. Just return [];
+      // We do not want to make processing slower. Just return '{}';
       return '{}';
     }
-    return json_encode($patch ?? []);
+    return json_encode($patch ?? []) ?? '{}';
   }
 
   /**
@@ -1294,7 +1284,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@setid' => $data->info['set_id'] ?? 'Unknown Set',
             '@filename' => $data->info['filename']
           ]);
-         $this->messenger->addError($message);
+        $this->messenger->addError($message);
         return FALSE;
       }
     }
@@ -1305,7 +1295,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@filename' => $data->info['filename'],
           '@error' => $e->getMessage(),
         ]);
-       $this->messenger->addError($message);
+      $this->messenger->addError($message);
       return FALSE;
     }
   }
@@ -1387,7 +1377,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
           '@setid' => $data->info['set_id']
         ]);
-         $this->messenger->addWarning($message);
+        $this->messenger->addWarning($message);
 
         return NULL;
       }
@@ -1397,8 +1387,8 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
           '@ophuman' => static::OP_HUMAN[$op],
         ]);
-        
-         $this->messenger->addWarning($message);
+
+        $this->messenger->addWarning($message);
         return FALSE;
       }
       $account = $data->info['uid'] == \Drupal::currentUser()
@@ -1413,7 +1403,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
             '@ophuman' => static::OP_HUMAN[$op],
           ]);
-           $this->messenger->addWarning($message);
+          $this->messenger->addWarning($message);
           return FALSE;
         }
       }
@@ -1426,7 +1416,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         '@ophuman' => static::OP_HUMAN[$op],
         '@error' => $e->getMessage()
       ]);
-       $this->messenger->addError($message);
+      $this->messenger->addError($message);
 
       return FALSE;
     }
@@ -1535,7 +1525,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     $render_array = [];
 
 
-
+    // We could instead of loading the ADO from storage, check if during this process
+    // we generated a new revision on $ado. BUT. We can't assume EVERY strawberryfield
+    // will have revisions. The user could create a new Field/New Bundle and set no revisions
+    // SO re-loading is safer.
     $uuid = $ado->uuid();
     $viewBuilder = \Drupal::entityTypeManager()->getViewBuilder('node');
     $view_mode = \Drupal::service('format_strawberryfield.view_mode_resolver')->get($ado);
@@ -1552,8 +1545,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           'rel' => 'noopener noreferrer',
         ]
       ]);
-
-
 
     $ado->preview_view_mode = $view_mode;
     $ado->in_preview = TRUE;
@@ -1721,7 +1712,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     }
     return $render_array;
   }
-
 }
 
 
