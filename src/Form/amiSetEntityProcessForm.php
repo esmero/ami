@@ -8,6 +8,7 @@ use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Element;
 use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Drupal\Core\Url;
 use Drupal\ami\Entity\amiSetEntity;
@@ -657,70 +658,86 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         '#required' => FALSE,
         '#default_value' => FALSE,
       ];
+
+      $form['preview_enabled'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t(
+          'Preview Instead of Processing'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
       $rows = 0;
       if ($file) {
         $rows = $this->strawberryfieldUtility->csv_count($file);
-      }
-      $form['preview']['ado_amiset_preview_row'] = [
-        '#type' => 'textfield',
-        '#weight' => -8,
-        '#title' => t('Row to preview'),
-        '#description' => t('Your Source CSV has @count rows. Row 1 is the header and if used will always return row 2. You can also use the mapped "ADO label" column to autocomplete.', ['@count' => $rows]),
-        '#states' => [
-          'visible' => [
-            ':input[name="entity_type"]' => ['value' => 'ami'],
-            ':input[name="ado_amiset_preview"]' => ['filled' => true],
-          ],
-        ],
-      ];
+        $form['preview'] = [
+          '#type' => 'fieldset',
+          '#states' => [
+            'visible' => [
+              ':input[name="preview_enabled"]' => ['checked' => TRUE],
+            ]
+          ]
+        ];
+        $form['preview']['ado_amiset_preview_row'] = [
+          '#type' => 'textfield',
+          '#weight' => -8,
+          '#title' => t('Row to preview'),
+          '#description' => t('Your Source CSV has @count rows. Row 1 is the header and if used will always return row 2. You can also use the mapped "ADO label" column to autocomplete.', ['@count' => $rows]),
+          '#states' => [
+            'required' => [
+              ':input[name="preview_enabled"]' => ['checked' => TRUE],
+            ]
+          ]
+        ];
 
         $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_name'] = 'ami.rowsbylabel.autocomplete';
         $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_parameters'] = [
           'ami_set_entity' => $this->entity->id()
         ];
 
-      $form['preview']['ado_amiset_preview_diff_rendered'] = [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Preview Rendered as a diff'),
-        '#description' => $this->t(
-          'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the HTML old v/s new one will be attempted. If the ADO is new no diff will be produced.'
-        ),
-        '#required' => FALSE,
-        '#default_value' => FALSE,
-      ];
-      $form['preview']['ado_amiset_preview_diff_json'] = [
-        '#type' => 'checkbox',
-        '#title' => $this->t('Preview JSON as a diff'),
-        '#description' => $this->t(
-          'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the RAW JSON v/s new one will be attempted. If the ADO is new no diff will be produced.'
-        ),
-        '#required' => FALSE,
-        '#default_value' => FALSE,
-      ];
+        $form['preview']['ado_amiset_preview_diff_rendered'] = [
+          '#type' => 'checkbox',
+          '#title' => $this->t('Preview Rendered as a diff'),
+          '#description' => $this->t(
+            'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the HTML old v/s new one will be attempted. If the ADO is new no diff will be produced.'
+          ),
+          '#required' => FALSE,
+          '#default_value' => FALSE,
+        ];
+        $form['preview']['ado_amiset_preview_diff_json'] = [
+          '#type' => 'checkbox',
+          '#title' => $this->t('Preview JSON as a diff'),
+          '#description' => $this->t(
+            'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the RAW JSON v/s new one will be attempted. If the ADO is new no diff will be produced.'
+          ),
+          '#required' => FALSE,
+          '#default_value' => FALSE,
+        ];
 
-      $form['preview']['button_preview'][
-      '#states'] = [
-        'visible' => [
-          ':input[name="ado_context_preview"]' => ['filled' => true],
-          ':input[name="entity_type"]' => ['value' => 'ado'],
-        ],
-      ];
-      $controller = \Drupal::service('class_resolver')->getInstanceFromDefinition('\Drupal\ami\Controller\AmiQueueWorkerPreviewHandler');
-      $form['preview']['button_preview_amiset'] = [
-        '#type' => 'button',
-        '#op' => 'preview',
-        '#weight' => -7,
-        '#value' => t('Show preview for AMI Set'),
-        '#ajax' => [
-          'callback' => [$controller, 'simulateItemAjax'],
-        ],
-        '#attached' => [
-          'library' => ['core/drupal.dialog.ajax'],
-        ],
-      ];
+        $controller = \Drupal::service('class_resolver')
+          ->getInstanceFromDefinition('\Drupal\ami\Controller\AmiQueueWorkerPreviewHandler');
+        $form['preview']['button_preview_amiset'] = [
+          '#type' => 'button',
+          '#op' => 'preview',
+          '#button_type' => 'primary',
+          '#weight' => -7,
+          '#value' => t('Show preview for AMI Set'),
+          '#ajax' => [
+            'callback' => [$controller, 'simulateItemAjax'],
+          ],
+          '#attached' => [
+            'library' => ['core/drupal.dialog.ajax'],
+          ],
+          '#states' => [
+            'enabled' => [
+              ':input[name="ado_amiset_preview_row"]' => ['filled' => TRUE],
+            ]
+          ]
+        ];
+      }
 
 
-  }
+    }
     return $form + parent::buildForm($form, $form_state);
   }
 
@@ -806,6 +823,45 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ],
         ],
       ];
+    }
+
+    return $element;
+  }
+
+  /**
+   * Returns the action form element for the current entity form.
+   */
+  protected function actionsElement(array $form, FormStateInterface $form_state) {
+    $element = $this->actions($form, $form_state);
+
+    if (isset($element['delete'])) {
+      // Move the delete action as last one, unless weights are explicitly
+      // provided.
+      $delete = $element['delete'];
+      unset($element['delete']);
+      $element['delete'] = $delete;
+      $element['delete']['#button_type'] = 'danger';
+    }
+
+    if (isset($element['submit'])) {
+      // Give the primary submit button a #button_type of primary.
+      $element['submit']['#button_type'] = 'primary';
+      $element['submit']['#states'] = [
+        'enabled' => [
+          ':input[name="preview_enabled"]' => ['checked' => FALSE],
+        ]
+      ];
+    }
+
+    $count = 0;
+    foreach (Element::children($element) as $action) {
+      $element[$action] += [
+        '#weight' => ++$count * 5,
+      ];
+    }
+
+    if (!empty($element)) {
+      $element['#type'] = 'actions';
     }
 
     return $element;
