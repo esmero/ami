@@ -672,6 +672,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $rows = $this->strawberryfieldUtility->csv_count($file);
         $form['preview'] = [
           '#type' => 'fieldset',
+          '#description' => $this->t('Preview will attempt to process a single ROW of this AMI set\'s CSV source data as it it would happen via a Queue Worker. Any referenced Files will be also validated to exists, but will not be downloaded/processed, which means also that your Preview might lack any `as:filetype` structure which will be reflected also when asking for a <em>diff</em> of the rendered version or the JSON. <br> That is by design and should be ignored.'),
           '#states' => [
             'visible' => [
               ':input[name="preview_enabled"]' => ['checked' => TRUE],
