@@ -151,7 +151,7 @@ function ami_update_8905() {
     ->accessCheck(FALSE)
     ->execute();
 
-  // Load all the articles.
+  // Load all the AMI sets.
   $entities = \Drupal::entityTypeManager()->getStorage('ami_set_entity')->loadMultiple($entities_nids);
   foreach ($entities as $entity) {
     $entity->setStatus(amiSetEntity::STATUS_READY);
@@ -235,4 +235,63 @@ function ami_update_10161() {
     'weight' => -3,
   ]);
   \Drupal::entityDefinitionUpdateManager()->updateFieldStorageDefinition($field_storage_definition_zip_file);
+}
+/**
+ * Update ami_update_10171 - Checks for pre-update AMI set CSV escaping,
+ * If a CSV row attached to an AMI set that has escaped characters is found
+ * The AMI set is marked as needing a suggested Update process.
+ */
+function ami_update_10171() {
+  $to_be_reviewed = [];
+  $entities_nids = \Drupal::entityQuery('ami_set_entity')
+    ->condition('changed',  \Drupal::time()->getRequestTime())
+    ->accessCheck(FALSE)
+    ->execute();
+  /** @var \Drupal\ami\Entity\amiSetEntity[] $entities */
+  $entities = \Drupal::entityTypeManager()
+    ->getStorage('ami_set_entity')
+    ->loadMultiple($entities_nids);
+  foreach ($entities as $ami_set_entity) {
+    // Check first source data
+    $csv_file_reference = $ami_set_entity->get('source_data')->getValue();
+    if (isset($csv_file_reference[0]['target_id'])) {
+      /** @var \Drupal\file\Entity\File $file */
+      $file = \Drupal::entityTypeManager()->getStorage('file')->load(
+          $csv_file_reference[0]['target_id']
+        );
+      $amiUtilityService = \Drupal::service('ami.utility');
+      // To avoid adding a new field, we will use the actual updated date
+      // as a check.
+      $hasescaping = $amiUtilityService->csv_check_escaped($file);
+      if ($hasescaping) {
+        $to_be_reviewed[] = $ami_set_entity->id();
+        $ami_set_entity->setStatus(amiSetEntity::STATUS_NEEDS_REVIEW);
+      }
+    }
+    // Also check Processed data (LoD reconciliation)
+    $csv_file_reference_processed = $ami_set_entity->get('processed_data')->getValue();
+    if (isset($csv_file_reference_processed[0]['target_id'])) {
+      /** @var \Drupal\file\Entity\File $file */
+      $file = \Drupal::entityTypeManager()->getStorage('file')->load(
+          $csv_file_reference_processed[0]['target_id']
+        );
+      $amiUtilityService = \Drupal::service('ami.utility');
+      // To avoid adding a new field, we will use the actual updated date
+      // as a check.
+      $hasescaping = $amiUtilityService->csv_check_escaped($file);
+      if ($hasescaping) {
+        $to_be_reviewed[] = $ami_set_entity->id();
+        $ami_set_entity->setStatus(amiSetEntity::STATUS_NEEDS_REVIEW);
+      }
+    }
+  }
+  if (!empty($to_be_reviewed)) {
+    $to_be_reviewed = array_unique($to_be_reviewed);
+    return t('Possible none-compliant, with RFC 4180, CSVs found in the following AMI set entities: @entities. All those wehre marked as "Needing Review", if you need to re-run them.',  [
+      '@entities' => implode(', ',$to_be_reviewed)
+    ]);
+  }
+  else {
+    return t('Good! All your AMI set entity\'s CSVs seem to be RFC 4180 compliant!');
+  }
 }

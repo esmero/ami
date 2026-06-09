@@ -8,9 +8,11 @@ use Drupal\Core\Entity\ContentEntityConfirmFormBase;
 use Drupal\Core\Entity\EntityRepositoryInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
 use Drupal\Core\Form\FormStateInterface;
+use Drupal\Core\Render\Element;
 use Drupal\Core\TempStore\PrivateTempStoreFactory;
 use Drupal\Core\Url;
 use Drupal\ami\Entity\amiSetEntity;
+use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
@@ -33,6 +35,14 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   protected $statusStore;
 
   /**
+   * The Strawberry Field Utility Service.
+   *
+   * @var \Drupal\strawberryfield\StrawberryfieldUtilityService
+   */
+  protected $strawberryfieldUtility;
+
+
+  /**
    * Constructs a ContentEntityForm object.
    *
    * @param \Drupal\Core\Entity\EntityRepositoryInterface $entity_repository
@@ -47,9 +57,14 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   public function __construct(
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, AmiUtilityService $ami_utility, PrivateTempStoreFactory $temp_store_factory) {
+    TimeInterface $time = NULL,
+    AmiUtilityService $ami_utility,
+    PrivateTempStoreFactory $temp_store_factory,
+    StrawberryfieldUtilityService $strawberryfield_utility_service,
+  ) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
+    $this->strawberryfieldUtility = $strawberryfield_utility_service;
     $this->statusStore = $temp_store_factory->get('ami_queue_status');
   }
 
@@ -62,7 +77,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       $container->get('entity_type.bundle.info'),
       $container->get('datetime.time'),
       $container->get('ami.utility'),
-      $container->get('tempstore.private')
+      $container->get('tempstore.private'),
+      $container->get('strawberryfield.utility')
     );
   }
 
@@ -421,6 +437,30 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         $bundles[] = $data->mapping->globalmapping_settings->bundle ?? NULL;
       }
       $bundles = array_values(array_unique($bundles));
+
+      $csv_file_reference = $this->entity->get('source_data')->getValue();
+      $file = NULL;
+      if (isset($csv_file_reference[0]['target_id'])) {
+        /** @var \Drupal\file\Entity\File $file */
+        $file = $this->entityTypeManager->getStorage('file')->load(
+          $csv_file_reference[0]['target_id']
+        );
+      }
+
+      if (!$file) {
+        $form['status'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' =>  $this->t(
+            'Error'
+          ),
+          '#markup' => $this->t(
+            'Sorry. This AMI set has no Source CSV attached and thus can not be processed. Please edit this AMI set and add a CSV with your source data, having at least the same mapped columns present in your configuration and also proper UUIDs for each row (normally under a <em>node_uuid<em> column, if not manually overriden).'
+          ),
+        ];
+        return $form;
+      }
+
       // we can't assume the user did not mess with the AMI set data?
       $op = $data->pluginconfig->op ?? NULL;
       $ops = [
@@ -596,6 +636,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         unset($form['status_keep']);
         return $form;
       }
+
       $notprocessnow = $form_state->getValue('not_process_now', NULL);
 
       $form['not_process_now'] = [
@@ -631,6 +672,83 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
         ),
         '#required' => FALSE,
         '#default_value' => FALSE,
+      ];
+
+      $form['preview_enabled'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t(
+          'Preview Instead of Processing'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
+      $rows = 0;
+
+      $rows = $this->strawberryfieldUtility->csv_count($file);
+      $form['preview'] = [
+        '#type' => 'fieldset',
+        '#description' => $this->t('Preview will attempt to process a single ROW of this AMI set\'s CSV source data as it it would happen via a Queue Worker. Any referenced Files will be also validated to exists, but will not be downloaded/processed, which means also that your Preview might lack any `as:filetype` structure which will be reflected also when asking for a <em>diff</em> of the rendered version or the JSON. <br> That is by design and should be ignored.'),
+        '#states' => [
+          'visible' => [
+            ':input[name="preview_enabled"]' => ['checked' => TRUE],
+          ]
+        ]
+      ];
+      $form['preview']['ado_amiset_preview_row'] = [
+        '#type' => 'textfield',
+        '#weight' => -8,
+        '#title' => t('Row to preview'),
+        '#description' => t('Your Source CSV has @count rows. Row 1 is the header and if used will always return row 2. You can also use the mapped "ADO label" column to autocomplete.', ['@count' => $rows]),
+        '#states' => [
+          'required' => [
+            ':input[name="preview_enabled"]' => ['checked' => TRUE],
+          ]
+        ]
+      ];
+
+      $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_name'] = 'ami.rowsbylabel.autocomplete';
+      $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_parameters'] = [
+        'ami_set_entity' => $this->entity->id()
+      ];
+
+      $form['preview']['ado_amiset_preview_diff_rendered'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Preview Rendered as a diff'),
+        '#description' => $this->t(
+          'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the HTML old v/s new one will be attempted. If the ADO is new no diff will be produced.'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
+      $form['preview']['ado_amiset_preview_diff_json'] = [
+        '#type' => 'checkbox',
+        '#title' => $this->t('Preview JSON as a diff'),
+        '#description' => $this->t(
+          'If the Row previewed references an existing ADO (via its UUID), then a DIFF of the RAW JSON v/s new one will be attempted. If the ADO is new no diff will be produced.'
+        ),
+        '#required' => FALSE,
+        '#default_value' => FALSE,
+      ];
+
+      $controller = \Drupal::service('class_resolver')
+        ->getInstanceFromDefinition('\Drupal\ami\Controller\AmiQueueWorkerPreviewHandler');
+      $form['preview']['button_preview_amiset'] = [
+        '#type' => 'button',
+        '#op' => 'preview',
+        '#button_type' => 'primary',
+        '#weight' => -7,
+        '#value' => t('Show preview for AMI Set'),
+        '#ajax' => [
+          'callback' => [$controller, 'simulateItemAjax'],
+        ],
+        '#attached' => [
+          'library' => ['core/drupal.dialog.ajax'],
+        ],
+        '#states' => [
+          'enabled' => [
+            ':input[name="ado_amiset_preview_row"]' => ['filled' => TRUE],
+          ]
+        ]
       ];
     }
     return $form + parent::buildForm($form, $form_state);
@@ -718,6 +836,45 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ],
         ],
       ];
+    }
+
+    return $element;
+  }
+
+  /**
+   * Returns the action form element for the current entity form.
+   */
+  protected function actionsElement(array $form, FormStateInterface $form_state) {
+    $element = $this->actions($form, $form_state);
+
+    if (isset($element['delete'])) {
+      // Move the delete action as last one, unless weights are explicitly
+      // provided.
+      $delete = $element['delete'];
+      unset($element['delete']);
+      $element['delete'] = $delete;
+      $element['delete']['#button_type'] = 'danger';
+    }
+
+    if (isset($element['submit'])) {
+      // Give the primary submit button a #button_type of primary.
+      $element['submit']['#button_type'] = 'primary';
+      $element['submit']['#states'] = [
+        'enabled' => [
+          ':input[name="preview_enabled"]' => ['checked' => FALSE],
+        ]
+      ];
+    }
+
+    $count = 0;
+    foreach (Element::children($element) as $action) {
+      $element[$action] += [
+        '#weight' => ++$count * 5,
+      ];
+    }
+
+    if (!empty($element)) {
+      $element['#type'] = 'actions';
     }
 
     return $element;

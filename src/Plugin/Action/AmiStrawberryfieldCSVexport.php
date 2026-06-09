@@ -5,7 +5,6 @@ namespace Drupal\ami\Plugin\Action;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\Url;
-use Drupal\Core\Link;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Action\ConfigurableActionBase;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
@@ -24,7 +23,6 @@ use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\DependencyInjection\ContainerInterface;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 
 /**
  * Provides an action that export SBFs to CSV.
@@ -372,8 +370,11 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
       if ($this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $ami_set = TRUE;
       }
-      $logger_channel = (string) $this->context['sandbox']['logger_channel'] ?? 'ami';
-      $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid', TRUE, $ami_set, $logger_channel);
+      $logger_channel = 'ami';
+      if (isset($this->context['sandbox']['logger_channel']) && !empty($this->context['sandbox']['logger_channel'])) {
+        $logger_channel =  (string) $this->context['sandbox']['logger_channel'];
+      }
+      $file_id = $this->AmiUtilityService->csv_save($data, 'node_uuid', TRUE, $ami_set, FALSE, $logger_channel);
       if ($file_id && $this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
         $amisetdata = new \stdClass();
         $amisetdata->plugin = 'spreadsheet';
@@ -408,17 +409,17 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
         if ($amiset_id) {
           $url = Url::fromRoute('entity.ami_set_entity.canonical',
             ['ami_set_entity' => $amiset_id]);
-          $message = $this->t('Well Done! New AMI Set was created and you can <a href="@url">see it here</a>',
-            ['@url' => $url->toString()]);
+          $message = $this->t('Well Done! New AMI Set was created and you can <a href=":url">see it here</a>',
+            [':url' => $url->toString()]);
           $this->messenger()
             ->addStatus($message);
         }
         return $message;
       }
       else if ($this->configuration['create_ami_set'] && !$this->context['sandbox']['ado_type_exists']) {
-        $message = $this->t('AMI Set could not be created because object(s) are missing the type key.');
+        $message = $this->t('AMI Set could not be created because object(s) are missing the "type" key.');
         $this->messenger()
-             ->addStatus($message);
+             ->addWarning($message);
         return $message;
       }
     }
@@ -576,21 +577,6 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
     }
 
     return $this->context['sandbox']['cid_prefix'] . $this->context['sandbox']['current_batch'];
-  }
-
-  /**
-   * Prepares sandbox data (header and cache ID).
-   *
-   * @return array
-   *   Table header.
-   */
-  protected function getHeader() {
-    // Build output header array.
-    $header = &$this->context['sandbox']['header'];
-    if (!empty($header)) {
-      return $header;
-    }
-    return $this->setHeader();
   }
 
   public function getConfiguration() {
