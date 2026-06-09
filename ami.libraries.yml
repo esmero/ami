@@ -1,0 +1,10 @@
+ami_preview_helper:
+  version: 1.0
+  js:
+    js/ami_preview_helper.js: {minified: false}
+  css:
+    component:
+      css/ami_preview_helper.css: { }
+  dependencies:
+    - core/drupal
+    - core/once

@@ -173,103 +173,118 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       ];
       $access = TRUE;
       $csv_file_reference = $this->entity->get('source_data')->getValue();
+      $file =  NULL;
       if (isset($csv_file_reference[0]['target_id'])) {
         /** @var \Drupal\file\Entity\File $file */
         $file = $this->entityTypeManager->getStorage('file')->load(
           $csv_file_reference[0]['target_id']
         );
-        if ($file) {
-          $file_data_all = $this->AmiUtilityService->csv_read($file);
-          $column_keys = $file_data_all['headers'] ?? [];
-          sort($column_keys, SORT_NATURAL);
+      }
+      if ($file) {
+        $file_data_all = $this->AmiUtilityService->csv_read($file);
+        $column_keys = $file_data_all['headers'] ?? [];
+        sort($column_keys, SORT_NATURAL);
 
-          $reconcile_column_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->columns ?? []);
-          $reconcile_column_settings = (array) $reconcile_column_settings;
-          //@ TODO we should remove from settings columns not present in the Source Data.
-          // Forms state will do that automatically but i prefer that as a sanity check
-          $form['mapping']['lod_columns'] = [
-            '#type' => 'select',
-            '#title' => $this->t('Select which columns you want to reconcile against LoD providers'),
-            '#default_value' => $reconcile_column_settings,
-            '#options' => array_combine($column_keys, $column_keys),
-            '#size' => count($column_keys),
-            '#multiple' => TRUE,
-            '#description' => $this->t('Columns that contain data you want to reconcile against LoD providers'),
-            '#empty_option' => $this->t('- Please select columns -'),
-            '#ajax' => [
-              'callback' => [$this, 'lodOptionsAjaxCallback'],
-              'wrapper' => 'lod-options-wrapper',
-              'event' => 'change',
-            ],
-          ];
-          $form['lod_options'] = [
-            '#type' => 'hidden',
-            '#prefix' => '<div id="lod-options-wrapper">',
-            '#suffix' => '</div>',
-          ];
-          $saved_reconcile_mapping_settings = [];
-          if ($data->reconcileconfig->mappings ?? NULL) {
-            foreach ($data->reconcileconfig->mappings as $column => $mapping) {
-              $saved_reconcile_mapping_settings[md5($column)] = $mapping;
-            }
-          }
-
-          $reconcile_mapping_settings = $form_state->getValue(['lod_options', 'mappings'], NULL) ?? ($saved_reconcile_mapping_settings ?? NULL);
-          $reconcile_mapping_settings = (array) $reconcile_mapping_settings;
-
-          if ($reconcile_column_settings) {
-            $source_options = $reconcile_column_settings;
-            // We convert the values into its md5 representation, then flip
-            // This is because the webform_mapping element uses a value callback
-            // that converts form state values from Drupal Nested Arrays, which
-            // Parses ][  anything that looks like that, breaking e.g XML to CSV
-            // column headers with Xpaths.
-
-            foreach ($source_options as $key => &$value) {
-              $value = md5($value);
-            }
-            $source_options = array_flip($source_options);
-            $column_options = $this->AmiLoDService::AMI_FORM_EXPOSED_LOD_SOURCES;
-            // Fetch also Custom ones. The format will be "custom;the_custom_lod_entity_id"
-            $column_options = $column_options + $this->AmiLoDService->getCustomLoDEndpoints();
-            $form['lod_options']['#type'] = 'fieldset';
-            $form['lod_options']['#tree'] = TRUE;
-
-            $form['lod_options']['mappings'] = [
-              '#type' => 'webform_mapping',
-              '#title' => $this->t('LoD Sources'),
-              '#description' => $this->t(
-                'Please select how your chosen Columns will be LoD reconciled'
-              ),
-              '#description_display' => 'before',
-              '#empty_option' => $this->t('- Let AMI decide -'),
-              '#empty_value' => NULL,
-              '#default_value' => $reconcile_mapping_settings,
-              '#required' => TRUE,
-              '#destination__multiple' => TRUE,
-              '#source' => $source_options,
-              '#source__title' => $this->t('LoD reconcile options'),
-              '#destination__title' => $this->t('LoD Authority Sources'),
-              '#destination' => $column_options,
-              '#destination__size' => count($column_options),
-            ];
-            $form['lod_options']['select_preview'] = [
-              '#type' => 'select',
-              '#title' => $this->t('Choose a Column to Preview'),
-              '#options' => array_combine($source_options, $source_options),
-              '#default_value' => $form_state->getValue(['lod_options','select_preview']),
-              '#description' => $this->t('We will attempt to fetch first cells holding a string of delimited values (by "|@|" or ";"). If no luck, and the selected column cell\'s holds a valid JSON, any simple lists of values (e.g ["pup","dog","canine"], and/or any property where the JSON key name contains one of the following strings: "label, value, name". Any URL/URN or URI will be not taken in account'),
-            ];
-            $form['lod_options']['preview'] = [
-              '#type' => 'button',
-              '#op' => 'preview',
-              '#value' => $this->t('Inspect cleaned/split up/or JSON decoded column values'),
-              '#ajax' => [
-                'callback' => [$this, 'ajaxColumPreview'],
-              ],
-            ];
+        $reconcile_column_settings = $form_state->getValue(['mapping', 'lod_columns'], NULL) ?? ($data->reconcileconfig->columns ?? []);
+        $reconcile_column_settings = (array) $reconcile_column_settings;
+        //@ TODO we should remove from settings columns not present in the Source Data.
+        // Forms state will do that automatically but i prefer that as a sanity check
+        $form['mapping']['lod_columns'] = [
+          '#type' => 'select',
+          '#title' => $this->t('Select which columns you want to reconcile against LoD providers'),
+          '#default_value' => $reconcile_column_settings,
+          '#options' => array_combine($column_keys, $column_keys),
+          '#size' => count($column_keys),
+          '#multiple' => TRUE,
+          '#description' => $this->t('Columns that contain data you want to reconcile against LoD providers'),
+          '#empty_option' => $this->t('- Please select columns -'),
+          '#ajax' => [
+            'callback' => [$this, 'lodOptionsAjaxCallback'],
+            'wrapper' => 'lod-options-wrapper',
+            'event' => 'change',
+          ],
+        ];
+        $form['lod_options'] = [
+          '#type' => 'hidden',
+          '#prefix' => '<div id="lod-options-wrapper">',
+          '#suffix' => '</div>',
+        ];
+        $saved_reconcile_mapping_settings = [];
+        if ($data->reconcileconfig->mappings ?? NULL) {
+          foreach ($data->reconcileconfig->mappings as $column => $mapping) {
+            $saved_reconcile_mapping_settings[md5($column)] = $mapping;
           }
         }
+
+        $reconcile_mapping_settings = $form_state->getValue(['lod_options', 'mappings'], NULL) ?? ($saved_reconcile_mapping_settings ?? NULL);
+        $reconcile_mapping_settings = (array) $reconcile_mapping_settings;
+
+        if ($reconcile_column_settings) {
+          $source_options = $reconcile_column_settings;
+          // We convert the values into its md5 representation, then flip
+          // This is because the webform_mapping element uses a value callback
+          // that converts form state values from Drupal Nested Arrays, which
+          // Parses ][  anything that looks like that, breaking e.g XML to CSV
+          // column headers with Xpaths.
+
+          foreach ($source_options as $key => &$value) {
+            $value = md5($value);
+          }
+          $source_options = array_flip($source_options);
+          $column_options = $this->AmiLoDService::AMI_FORM_EXPOSED_LOD_SOURCES;
+          // Fetch also Custom ones. The format will be "custom;the_custom_lod_entity_id"
+          $column_options = $column_options + $this->AmiLoDService->getCustomLoDEndpoints();
+          $form['lod_options']['#type'] = 'fieldset';
+          $form['lod_options']['#tree'] = TRUE;
+
+          $form['lod_options']['mappings'] = [
+            '#type' => 'webform_mapping',
+            '#title' => $this->t('LoD Sources'),
+            '#description' => $this->t(
+              'Please select how your chosen Columns will be LoD reconciled'
+            ),
+            '#description_display' => 'before',
+            '#empty_option' => $this->t('- Let AMI decide -'),
+            '#empty_value' => NULL,
+            '#default_value' => $reconcile_mapping_settings,
+            '#required' => TRUE,
+            '#destination__multiple' => TRUE,
+            '#source' => $source_options,
+            '#source__title' => $this->t('LoD reconcile options'),
+            '#destination__title' => $this->t('LoD Authority Sources'),
+            '#destination' => $column_options,
+            '#destination__size' => count($column_options),
+          ];
+          $form['lod_options']['select_preview'] = [
+            '#type' => 'select',
+            '#title' => $this->t('Choose a Column to Preview'),
+            '#options' => array_combine($source_options, $source_options),
+            '#default_value' => $form_state->getValue(['lod_options','select_preview']),
+            '#description' => $this->t('We will attempt to fetch first cells holding a string of delimited values (by "|@|" or ";"). Additionally, if any selected column cell\'s holds a valid JSON, e.g. any simple lists of values (e.g ["pup","dog","canine"], and/or an object with any property where the JSON key name contains one of the following strings: "label, value, type, name". URL/URN or URI will be not taken in account.'),
+          ];
+          $form['lod_options']['preview'] = [
+            '#type' => 'button',
+            '#op' => 'preview',
+            '#value' => $this->t('Inspect cleaned/split up/or JSON decoded column values'),
+            '#ajax' => [
+              'callback' => [$this, 'ajaxColumPreview'],
+            ],
+          ];
+        }
+      }
+      else {
+        $form = [];
+        $form['status'] = [
+          '#tree' => TRUE,
+          '#type' => 'fieldset',
+          '#title' => $this->t(
+            'Error'
+          ),
+          '#markup' => $this->t(
+            'Sorry. This AMI set has no Source CSV attached and thus there is nothing to LoD reconciliate. Please edit this AMI set and add a CSV with your source data, having at least the same mapped columns present in your configuration and also proper UUIDs for each row (normally under a <em>node_uuid<em> column, if not manually overriden).'
+          ),
+        ];
+        return $form;
       }
 
       $notprocessnow = $form_state->getValue('not_process_now', NULL);

@@ -293,7 +293,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
         'manyfiles' => Number of files (passed by \Drupal\ami\Form\amiSetEntityProcessForm::submitForm) that will trigger queue processing for files,
         'ops_skip_onmissing_file' => Skips ADO operations if a passed/mapped file is not present,
         'ops_forcemanaged_destination_file' => Forces Archipelago to manage a files destination when the source matches the destination Schema (e.g S3),
-        'time_submitted' => Timestamp on when the queue was sendt All Entries will share the same
+        'time_submitted' => Timestamp on when the queue was sent All Entries will share the same
       ];
     */
     /* Data info for a File has this structure
@@ -364,7 +364,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
 
     // This will simply go to an alternate processing on this same Queue Worker
     // Just for files.
-    // No Try/catch for processFile invokation at this level,
+    // No Try/catch for processFile invocation at this level,
     // since it has its own wrapping try/catch logic.
     if (!empty($data->info['filename']) && !empty($data->info['file_column']) && !empty($data->info['processed_row'])) {
       $this->processFile($data);
@@ -952,6 +952,7 @@ class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPl
          // Ignore status for updates if status_keep == TRUE.
          if ($status && is_string($status) && $status_keep == FALSE) {
            $node->set('moderation_state', $status);
+           $nodeValues['moderation_state'] = $status;
            $status = 0;
          }
          /** @var \Drupal\strawberryfield\Field\StrawberryFieldItemList $field */
