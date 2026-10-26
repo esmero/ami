@@ -255,17 +255,17 @@ class EADSyncImporter extends SpreadsheetImporter {
                       // ispartof (all series?). This restores them. We add also document/dsc_csv because
                       // we might by mistake map also those for the container part.
                       // Very opinionanted
-                      $child_row['ispartof'] = $child_row['ispartof'] ?? '';
-                      $child_row['ismemberof'] = $child_row['ismemberof'] ?? '';
-                      $child_row['iscontainedby'] = $child_row['iscontainedby'] ?? '';
-                      $child_row['document'] = $child_row['document'] ?? '';
-                      $child_row['dsc_csv'] = $child_row['dsc_csv'] ?? '';
+                      $child_row['ispartof'] ??= '';
+                      $child_row['ismemberof'] ??= '';
+                      $child_row['iscontainedby'] ??= '';
+                      $child_row['document'] ??= '';
+                      $child_row['dsc_csv'] ??= '';
                       // We only need this one once, since ::processCSVfromXML already returns normalized ROWS.
                       $new_containers_headers = array_keys($child_row);
                     }
                   }
                   // either new or old.
-                  $new_containers_headers = $new_containers_headers ?? array_keys($original_data['children_data_with_headers'][0] ?? []);
+                  $new_containers_headers ??= array_keys($original_data['children_data_with_headers'][0] ?? []);
                   foreach (($original_data['children_data_with_headers'] ?? []) as $original_child_row) {
                     if (!in_array($original_child_row['node_uuid'], $new_uuids)) {
                       $new_row = array_fill_keys($new_containers_headers, NULL);
@@ -367,7 +367,7 @@ class EADSyncImporter extends SpreadsheetImporter {
         '#required' => TRUE,
       ];
       foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
-        if (strpos($key,'#') !== 0 && is_array($settings)) {
+        if (!str_starts_with($key, '#') && is_array($settings)) {
           if ($settings['metadata']['#default_value'] ?? NULL) {
             $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
             $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
@@ -394,7 +394,7 @@ class EADSyncImporter extends SpreadsheetImporter {
         '#disabled' => TRUE,
       ];
       foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
-        if (strpos($key,'#') !== 0 && is_array($settings)) {
+        if (!str_starts_with($key, '#') && is_array($settings)) {
           if ($settings['metadata']['#default_value'] ?? NULL) {
             $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
             $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
@@ -442,10 +442,9 @@ class EADSyncImporter extends SpreadsheetImporter {
       return FALSE;
     }
     $xml_files = $this->AmiUtilityService->listZipFileContent($zipfile, 'xml');
-    $xml_files = array_filter($xml_files?? [], function ($filepath)  {
-      // remove any dot files.
-      return !str_starts_with(basename((string)($filepath ?? '')), '.');
-    });
+    $xml_files = array_filter($xml_files?? [], 
+        // remove any dot files.
+        fn($filepath) => !str_starts_with(basename((string)($filepath ?? '')), '.'));
     // We need to re-index if not our increment/to file marker dies.
     $config['xml_files'] = array_values($xml_files ?? []);
     $file = $this->entityTypeManager->getStorage('file')->load($amisetdata->csv);
@@ -478,11 +477,9 @@ class EADSyncImporter extends SpreadsheetImporter {
     $config['eadsync_config']['bundle_component'] = $amisetdata->mapping->custommapping_settings->ArchiveComponent->bundle ?? 'digital_object_collection:field_descriptive_metadata';
     $config['eadsync_config']['bundle_container'] = $amisetdata->mapping->custommapping_settings->ArchiveContainer->bundle ?? 'digital_object:field_descriptive_metadata';
 
-    if (!isset($context['sandbox']['progress'])) {
-      $context['sandbox']['progress'] = 0;
-    }
-    $context['results']['processed']['headerswithdata'] = $context['results']['processed']['headerswithdata'] ?? [];
-    $context['results']['processed']['tempstore_ids'] =  $context['results']['processed']['tempstore_ids'] ?? [];
+    $context['sandbox']['progress'] ??= 0;
+    $context['results']['processed']['headerswithdata'] ??= [];
+    $context['results']['processed']['tempstore_ids'] ??= [];
 
     if (!array_key_exists('max',
         $context['sandbox']) || $context['sandbox']['max'] < $xml_files_count) {
@@ -492,7 +489,7 @@ class EADSyncImporter extends SpreadsheetImporter {
       $context['sandbox'])) {
       $context['sandbox']['prev_index'] = 0;
     }
-    $context['finished'] = $context['finished'] ?? 0;
+    $context['finished'] ??= 0;
     try {
       // Our increment here is always 1. EAD XML files can be huge.
 
@@ -688,9 +685,7 @@ class EADSyncImporter extends SpreadsheetImporter {
         if ($pastpost || $pastpost_next) {
           for($i =0; $i<=$pastpost;$i++) {
             // SUPER POOR APPROACH. SHOULD WORK?
-            if (!isset($flat[$propertypath . $path_key][$i])) {
-              $flat[$propertypath . $path_key][$i] = "NOT PRESENT";
-            }
+            $flat[$propertypath . $path_key][$i] ??= "NOT PRESENT";
           }
           $flat[$propertypath . $path_key][$pastpost] = $values;
         }
@@ -713,7 +708,7 @@ class EADSyncImporter extends SpreadsheetImporter {
    * @return array
    *   Same as the accumulator but left there in case someone needs a return.
    */
-  static function arrayToFlatCommonkeysWithParentEAD(
+  public static function arrayToFlatCommonkeysWithParentEAD(
     array &$array,
     &$flat = [],
     $jsonld = TRUE,
@@ -756,9 +751,7 @@ class EADSyncImporter extends SpreadsheetImporter {
           unset($value[$key]);
         }
         if (is_string($key)) {
-          if (!isset($flat[$key])) {
-            $flat[$key] = [];
-          }
+          $flat[$key] ??= [];
           // Means we can't keep flattening
           if (is_array($value)) {
             if (!static::arrayIsMultiSimple($value)) {
@@ -805,7 +798,7 @@ class EADSyncImporter extends SpreadsheetImporter {
    *
    * @return array
    */
-  static function jsonContainerADO($numeric_id, $parent_uuid): array {
+  public static function jsonContainerADO($numeric_id, $parent_uuid): array {
     $container_csv = [];
     $container_csv['node_uuid'] = Uuid::uuid5($parent_uuid, $numeric_id['@id']);
     $container_csv['node_uuid'] = $container_csv['node_uuid']->toString();
@@ -834,7 +827,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     return $container_csv;
   }
 
-  static function sortByParent(array $source, $predicate): array {
+  public static function sortByParent(array $source, $predicate): array {
     $children=[];
     $roots =[];
     // Key here is the original order.
@@ -855,7 +848,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     return $return;
   }
 
-  static function fetchChildren(array $roots, array $children, array &$return = [], &$i = 1, $predicate = 'parent'): void {
+  public static function fetchChildren(array $roots, array $children, array &$return = [], &$i = 1, $predicate = 'parent'): void {
     foreach ($roots as $key => $value) {
       $i++;
       // All Parents first
@@ -897,7 +890,7 @@ class EADSyncImporter extends SpreadsheetImporter {
     try {
       $simplexml = @simplexml_load_string($data);
     }
-    catch (\Throwable $e) {
+    catch (\Throwable) {
       $tabdata['errors'] = [$this->t('@file is not a valid XML', ['@file' => $file_name])];
       return $tabdata;
     }
@@ -995,7 +988,7 @@ class EADSyncImporter extends SpreadsheetImporter {
         $resulting_row['node_uuid'] = Uuid::uuid5($seed_uuid_for_uuidv5, $seed);
         $resulting_row['node_uuid'] = $resulting_row['node_uuid']->toString();
       }
-      catch (\Exception $error) {
+      catch (\Exception) {
         $tabdata['errors'] = [$this->t('@UUID or @ID are not good for generating an UUIDV5 Identifier ', ['@UUID'=>$seed_uuid_for_uuidv5, '@ID' => $seed])];
         return $tabdata;
       }
@@ -1012,9 +1005,9 @@ class EADSyncImporter extends SpreadsheetImporter {
     }
     // Can't be NULL bc we filter. But are needed even if empty bc we want to be sure
     // both children CSVs and Top CSV has all the needed arguments or the AMI set will fail.
-    $resulting_row['ispartof'] = $resulting_row['ispartof'] ?? '';
-    $resulting_row['ismemberof'] = $resulting_row['ismemberof'] ?? '';
-    $resulting_row['iscontainedby'] = $resulting_row['iscontainedby'] ?? '';
+    $resulting_row['ispartof'] ??= '';
+    $resulting_row['ismemberof'] ??= '';
+    $resulting_row['iscontainedby'] ??= '';
     // This might change afterwards once original XMLs (if any) are processed and compared.
     $resulting_row['ami_sync_op'] = 'create';
     // Now transform $resulting_row['c'] into the proper expected structure
@@ -1029,13 +1022,11 @@ class EADSyncImporter extends SpreadsheetImporter {
           unset($container[$nestedkey]);
         }
 
-        if (!isset($container["@id"])) {
-          // @TODO: how do we log this? print_r('Container has no id?');
-          $container["@id"] = 'automatic_id_' . $key;
-        }
+        // @TODO: how do we log this? print_r('Container has no id?');
+        $container["@id"] ??= 'automatic_id_' . $key;
         // Take each "@id" and put it into a hash, so we have map for numeric IDs
-        $numeric_ids[$container["@id"]] = $numeric_ids[$container["@id"]] ?? $container;
-        $numeric_ids_id[$container["@id"]] = $numeric_ids_id[$container["@id"]] ?? $k++;
+        $numeric_ids[$container["@id"]] ??= $container;
+        $numeric_ids_id[$container["@id"]] ??= $k++;
       }
     }
     $resulting_row["ap:importeddata"]["dsc_csv"]["format"] = "csv";
@@ -1096,9 +1087,9 @@ class EADSyncImporter extends SpreadsheetImporter {
       }
     }
     // Just in case restore these, since they are required.
-    $resulting_row_clean['ispartof'] = $resulting_row_clean['ispartof'] ?? '';
-    $resulting_row_clean['ismemberof'] = $resulting_row_clean['ismemberof'] ?? '';
-    $resulting_row_clean['iscontainedby'] = $resulting_row_clean['iscontainedby'] ?? '';
+    $resulting_row_clean['ispartof'] ??= '';
+    $resulting_row_clean['ismemberof'] ??= '';
+    $resulting_row_clean['iscontainedby'] ??= '';
 
     unset($resulting_row);
     unset($container_csv_data);
@@ -1107,8 +1098,8 @@ class EADSyncImporter extends SpreadsheetImporter {
     return $tabdata;
   }
 
-  static function arrayIsMultiSimple(array $sourcearray =  []) {
-    return !empty(array_filter(array_keys($sourcearray), 'is_string'));
+  public static function arrayIsMultiSimple(array $sourcearray =  []) {
+    return !empty(array_filter(array_keys($sourcearray), is_string(...)));
   }
 
 
