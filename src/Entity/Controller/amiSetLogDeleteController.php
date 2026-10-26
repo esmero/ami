@@ -77,7 +77,7 @@ class amiSetLogDeleteController extends ControllerBase {
           'Content-Length' => filesize($uri),
         ];
         // Let other modules provide headers and controls access to the file.
-        $response = new BinaryFileResponse($uri, 200, $headers, TRUE);
+        $response = new BinaryFileResponse($uri, \Symfony\Component\HttpFoundation\Response::HTTP_OK, $headers, TRUE);
         $response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT);
         $response->setPrivate();
         $response->deleteFileAfterSend(TRUE);
