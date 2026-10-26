@@ -30,11 +30,6 @@ class SpreadsheetImporter extends ImporterAdapterBase {
   use MessengerTrait;
 
   /**
-   * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
-   */
-  protected StreamWrapperManagerInterface $streamWrapperManager;
-
-  /**
    * @var string|null
    */
   protected ?string $tempFile;
@@ -51,9 +46,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
    *
    * @throws \Drupal\Component\Plugin\Exception\PluginException
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  protected StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
     parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $ami_utility);
-    $this->streamWrapperManager = $streamWrapperManager;
     $this->tempFile = NULL;
     register_shutdown_function([$this, 'shutdown']);
   }
@@ -192,8 +186,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
       foreach($rowHeaders_utf8 as &$header) {
         $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : utf8_encode($header);
       }
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(strtolower(...), $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(trim(...), $rowHeaders_utf8);
       $rowHeaders_utf8 = array_filter($rowHeaders_utf8);
       $headercount = count($rowHeaders_utf8);
 
