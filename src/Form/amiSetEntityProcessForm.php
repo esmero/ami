@@ -58,9 +58,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
     TimeInterface $time = NULL,
-    AmiUtilityService $ami_utility,
-    PrivateTempStoreFactory $temp_store_factory,
-    StrawberryfieldUtilityService $strawberryfield_utility_service,
+    ?AmiUtilityService $ami_utility = null,
+    ?PrivateTempStoreFactory $temp_store_factory = null,
+    ?StrawberryfieldUtilityService $strawberryfield_utility_service = null,
   ) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
@@ -547,7 +547,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
 
       /* Give users a view of Free space in temporary */
       $bytes = disk_free_space(\Drupal::service('file_system')->getTempDirectory());
-      $si_prefix = array( 'B', 'KB', 'MB', 'GB', 'TB', 'EB', 'ZB', 'YB' );
+      $si_prefix = [ 'B', 'KB', 'MB', 'GB', 'TB', 'EB', 'ZB', 'YB' ];
       $base = 1024;
       $class = min((int)log($bytes , $base) , count($si_prefix) - 1);
 
@@ -580,7 +580,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
           ['@op' => $op]
         ),
         '#description' => $this->t('You have @free remaining free space on your Drupal temporary filesystem. Please be aware of that before running a batch with large files', [
-            '@free' => sprintf('%1.2f' , $bytes / pow($base,$class)) . ' ' . $si_prefix[$class],
+            '@free' => sprintf('%1.2f' , $bytes / $base ** $class) . ' ' . $si_prefix[$class],
           ]
         ),
       ];
@@ -731,7 +731,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
       ];
 
       $controller = \Drupal::service('class_resolver')
-        ->getInstanceFromDefinition('\Drupal\ami\Controller\AmiQueueWorkerPreviewHandler');
+        ->getInstanceFromDefinition(\Drupal\ami\Controller\AmiQueueWorkerPreviewHandler::class);
       $form['preview']['button_preview_amiset'] = [
         '#type' => 'button',
         '#op' => 'preview',
@@ -764,7 +764,7 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
     $batch = [
       'title' => $this->t('Batch processing your Set'),
       'operations' => [],
-      'finished' => ['\Drupal\ami\AmiBatchQueue', 'finish'],
+      'finished' => [\Drupal\ami\AmiBatchQueue::class, 'finish'],
       'progress_message' => t('Processing Set @current of @total. Estimated time left: @estimate, elapsed: @elapsed.'),
     ];
     $batch['operations'][] = [
@@ -786,9 +786,9 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
   protected function getModerationElementForBundle(string $bundle) {
     $element = [];
     // Simplest way for this is to create a fake Node of type bundle
-    $entity = $this->entityTypeManager->getStorage('node')->create(array(
+    $entity = $this->entityTypeManager->getStorage('node')->create([
       'type'  => $bundle,
-    ));
+    ]);
     // previously we were accessing a protected method ->type and then ->label(), that would explode in PHP 8.4. So we do this now.
     $bundle_label = $this->entityTypeManager->getStorage('node_type')->load($bundle)->label() ?? $bundle;
 
