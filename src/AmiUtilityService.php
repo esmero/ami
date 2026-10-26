@@ -187,11 +187,6 @@ class AmiUtilityService {
   private ConfigFactoryInterface $config_factory;
 
   /**
-   * @var \Drupal\strawberryfield\StrawberryfieldFilePersisterService
-   */
-  private StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService;
-
-  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -212,7 +207,7 @@ class AmiUtilityService {
    * @param \Drupal\ami\AmiLoDService $ami_lod
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
    * @param \Drupal\strawberryfield\StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
-   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberryfield_file_persister_service
+   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -233,7 +228,7 @@ class AmiUtilityService {
     AmiLoDService $ami_lod,
     KeyValueFactoryInterface $key_value,
     StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service,
-    StrawberryfieldFilePersisterService $strawberryfield_file_persister_service
+    private StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -260,7 +255,6 @@ class AmiUtilityService {
     $this->keyValue = $key_value;
     $this->strawberryfieldFileMetadataService = $strawberryfield_file_metadata_service;
     $this->config_factory = $config_factory;
-    $this->strawberryfieldFilePersisterService = $strawberryfield_file_persister_service;
   }
 
 
@@ -289,7 +283,7 @@ class AmiUtilityService {
    * @return bool
    */
   public function getIdfromPrefixedEntityNode($key) {
-    if (strpos($key, 'entity:node:', 0) !== FALSE) {
+    if (str_contains($key, 'entity:node:')) {
       return substr($key, strlen("entity:node:"));
     }
     return FALSE;
@@ -394,7 +388,7 @@ class AmiUtilityService {
           '///',
           '//',
           "{$destination}"
-        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+        ) . basename(urldecode($parsed_url['path']));
       $localfile = $this->streamWrapperManager->normalizeUri($path);
       $escaped_path = str_replace(' ', '\ ', $path);
       // This is very naive since the remote file might be different than
@@ -526,7 +520,7 @@ class AmiUtilityService {
           '///',
           '//',
           "{$destination}"
-        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+        ) . basename(urldecode($parsed_url['path']));
       $localfile = $this->streamWrapperManager->normalizeUri($path);
       $escaped_path = str_replace(' ', '\ ', $path);
       // This is very naive since the remote file might be different than
@@ -545,12 +539,12 @@ class AmiUtilityService {
         // use HEAD instead of GET
         $stream_context = stream_context_create(
           [
-            'http' => array(
+            'http' => [
               'method' => 'HEAD'
-            )
+            ]
           ]
         );
-        $remote_response_headers = @get_headers($uri,1, $stream_context);
+        $remote_response_headers = @get_headers($uri,true, $stream_context);
         if (is_array($remote_response_headers)) {
           /* Something like this but could have redirects. So we should parse [0] as either an string or an array
           // and find anything that is less than 400.
@@ -565,7 +559,7 @@ class AmiUtilityService {
     [Connection] => close
     [Content-Type] => text/html
            */
-          $remote_response_headers = $remote_response_headers[max(array_filter(array_keys($remote_response_headers), 'is_int'))] ?? '';
+          $remote_response_headers = $remote_response_headers[max(array_filter(array_keys($remote_response_headers), is_int(...)))] ?? '';
           $response_code = explode(" ", $remote_response_headers ?? '')[1];
           if (intval($response_code) >= 200 && intval($response_code) < 400) {
             // We use the localfile/simulated one here. Does not matter if we have not yet fetched it.
@@ -611,7 +605,7 @@ class AmiUtilityService {
   ) {
     // pre set a failure
     $parsed_url = parse_url($uri);
-    $basename = $this->fileSystem->basename(urldecode($parsed_url['path']));
+    $basename = basename(urldecode($parsed_url['path']));
     if (!isset($destination)) {
       $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
       $path = $this->streamWrapperManager->normalizeUri($basename);
@@ -627,7 +621,7 @@ class AmiUtilityService {
       }
       else {
         $path = $destination;
-        $basename = $this->fileSystem->basename($destination);
+        $basename = basename($destination);
       }
     }
     /* @var \Psr\Http\Message\ResponseInterface $response */
@@ -815,7 +809,7 @@ class AmiUtilityService {
     $zip_realpath = NULL;
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = basename($parsed_url['path']);
       $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
       $path = $this->streamWrapperManager->normalizeUri($basename);
     }
@@ -826,9 +820,7 @@ class AmiUtilityService {
             '///',
             '//',
             "{$destination}"
-          ) . $this->fileSystem->basename(
-            $parsed_url['path']
-          );
+          ) . basename($parsed_url['path']);
       }
       else {
         $path = $destination;
@@ -886,7 +878,7 @@ class AmiUtilityService {
         return FALSE;
       }
     }
-    catch (\Exception $exception) {
+    catch (\Exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to extract file @uri from ZIP @zip to local @path. Verify ZIP exists, its readable and destination is writable.',
@@ -921,7 +913,7 @@ class AmiUtilityService {
     $zip_realpath = NULL;
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = basename($parsed_url['path']);
       $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
       $path = $this->streamWrapperManager->normalizeUri($basename);
     }
@@ -932,9 +924,7 @@ class AmiUtilityService {
             '///',
             '//',
             "{$destination}"
-          ) . $this->fileSystem->basename(
-            $parsed_url['path']
-          );
+          ) . basename($parsed_url['path']);
       }
       else {
         $path = $destination;
@@ -990,7 +980,7 @@ class AmiUtilityService {
         return FALSE;
       }
     }
-    catch (\Exception $exception) {
+    catch (\Exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to find file @uri from ZIP @zip. Verify ZIP exists and its readable.',
@@ -1144,7 +1134,7 @@ class AmiUtilityService {
       // the original name!
       if (strlen($localpath) > 255) {
         $path_length = strlen($localpath);
-        $filename = $this->fileSystem->basename($localpath);
+        $filename = basename($localpath);
         $prefix_and_wrapper_length = ($path_length - strlen($filename));
         $max_file_length = 255 - $prefix_and_wrapper_length;
         $max_part_length = floor($max_file_length / 2);
@@ -1178,7 +1168,7 @@ class AmiUtilityService {
         $localpath = $new_uri;
       }
       else {
-        $filename = $this->fileSystem->basename($localpath);
+        $filename = basename($localpath);
       }
       /** @var File $file */
       $file = $this->entityTypeManager->getStorage('file')->create(
@@ -1209,7 +1199,7 @@ class AmiUtilityService {
       $file->save();
       return $file;
     }
-    catch (FileException $e) {
+    catch (FileException) {
       return FALSE;
     }
   }
@@ -1225,7 +1215,7 @@ class AmiUtilityService {
   protected function getFilenameFromDisposition(string $value) {
     $value = trim($value);
 
-    if (strpos($value, ';') === false) {
+    if (!str_contains($value, ';')) {
       return NULL;
     }
 
@@ -1235,7 +1225,7 @@ class AmiUtilityService {
     $attributes = [];
 
     foreach ($attr_parts as $part) {
-      if (strpos($part, '=') === false) {
+      if (!str_contains($part, '=')) {
         continue;
       }
 
@@ -1258,10 +1248,10 @@ class AmiUtilityService {
       return NULL;
     }
 
-    if ($isUtf8 && strpos($filename, "utf-8''") === 0 && $filename = substr($filename, strlen("utf-8''"))) {
+    if ($isUtf8 && str_starts_with($filename, "utf-8''") && $filename = substr($filename, strlen("utf-8''"))) {
       return rawurldecode($filename);
     }
-    if (substr($filename, 0, 1) === '"' && substr($filename, -1, 1) === '"') {
+    if (str_starts_with($filename, '"') && str_ends_with($filename, '"')) {
       $filename = substr($filename, 1, -1) ?? NULL;
     }
 
@@ -1302,7 +1292,7 @@ class AmiUtilityService {
     }
     else {
       // if not there go with our standard naming convention.
-      $filename = $filename ?? $this->currentUser->id() . '-' . uniqid() . '.csv';
+      $filename ??= $this->currentUser->id() . '-' . uniqid() . '.csv';
       $uri = $path . '/' . $filename;
       // Ensure the directory
       if (!$this->fileSystem->prepareDirectory(
@@ -1780,7 +1770,7 @@ class AmiUtilityService {
     $unique = [];
     $all = array_column($data['data'], $key);
     $unique = array_map(function($value) {
-      $value = $value ?? '';
+      $value ??= '';
       return trim($value);
     }, $all);
     $unique = array_unique($unique, SORT_STRING);
@@ -1862,7 +1852,7 @@ class AmiUtilityService {
         $options = array_merge($options, $webform_option->getOptions());
       }
     }
-    catch (\Exception $e) {
+    catch (\Exception) {
       // Return some basic defaults in case there are no Options.
       // @TODO tell the user to create a few.
       $options = ['Document' => 'Document', 'Photograph' => 'Photograph', 'Book' => 'Book', 'Article' => 'Article', 'Thing' => 'Thing', 'Video' => 'Video', 'Audio' => 'Audio'];
@@ -1948,7 +1938,7 @@ class AmiUtilityService {
       );
       return $access_handler->createAccess($bundle, $account, [], TRUE);
     }
-    catch (\Exception $exception) {
+    catch (\Exception) {
       // Means the Bundles does not exist?
       // User is wrong?
       // etc. Simply no access is easier to return
@@ -2042,7 +2032,7 @@ class AmiUtilityService {
             try {
               $zipfile = $file_repository->move($zipfile, $target_directory, FileExists::Rename);
             }
-            catch (InvalidStreamWrapperException $e) {
+            catch (InvalidStreamWrapperException) {
               $zipfail = TRUE;
             }
             if (!$zipfile) {
@@ -2112,8 +2102,7 @@ class AmiUtilityService {
     $config['data']['headers'] = $file_data_all['headers'];
     // In old times we totally depended on position, now we are going to do something different, we will combine
     // Headers and keys.
-    $data->mapping->type_key = isset($data->mapping->type_key)
-      ? $data->mapping->type_key : 'type';
+    $data->mapping->type_key ??= 'type';
 
     // Keeps track of all parents and child that don't have a PID assigned.
     $parent_hash = [];
@@ -2170,7 +2159,7 @@ class AmiUtilityService {
         elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
           // This allows single value and or ; and trims. Neat?
           $parent_ados_array = array_map(function($value) {
-            $value = $value ?? '';
+            $value ??= '';
             return trim($value);
           }, explode(';', $parent_ados_expanded));
         }
@@ -2268,7 +2257,7 @@ class AmiUtilityService {
               ) {
                 // This allows single value and or ; and trims. Neat?
                 $parentup_array = array_map(function($value) {
-                  $value = $value ?? '';
+                  $value ??= '';
                   return trim($value);
                 }, explode(';', $parentup_expanded));
               }
@@ -2435,8 +2424,7 @@ class AmiUtilityService {
     $config['data']['headers'] = $file_data_all['headers'];
     // In old times we totally depended on position, now we are going to do something different, we will combine
     // Headers and keys.
-    $data->mapping->type_key = isset($data->mapping->type_key)
-      ? $data->mapping->type_key : 'type';
+    $data->mapping->type_key ??= 'type';
 
     // Keeps track of all parents and child that don't have a PID assigned.
     $parent_hash = [];
@@ -2498,7 +2486,7 @@ class AmiUtilityService {
         elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
           // This allows single value and or ; and trims. Neat?
           $parent_ados_array = array_map(function($value) {
-            $value = $value ?? '';
+            $value ??= '';
             return trim($value);
           }, explode(';', $parent_ados_expanded));
         }
@@ -2596,7 +2584,7 @@ class AmiUtilityService {
               ) {
                 // This allows single value and or ; and trims. Neat?
                 $parentup_array = array_map(function($value) {
-                  $value = $value ?? '';
+                  $value ??= '';
                   return trim($value);
                 }, explode(';', $parentup_expanded));
               }
@@ -2761,7 +2749,7 @@ class AmiUtilityService {
       }
       // We use internally Lower case Headers.
       $required_headers = array_map(function($value) {
-        $value = $value ?? '';
+        $value ??= '';
         return strtolower($value);
       }, $required_headers);
 
@@ -2904,7 +2892,7 @@ class AmiUtilityService {
     }
     elseif (Uuid::isValid(trim($parent_ado)))  {
       // fetch the actual ROW id using the
-      $parent_numeric = isset($uuid_to_row_index_hash[trim($parent_ado)]) ? $uuid_to_row_index_hash[trim($parent_ado)] : NULL;
+      $parent_numeric = $uuid_to_row_index_hash[trim($parent_ado)] ?? NULL;
     }
     return  $parent_numeric;
   }
@@ -2932,7 +2920,7 @@ class AmiUtilityService {
     }
     elseif (Uuid::isValid(trim($parent_ado)))  {
       // fetch the actual ROW id using the
-      $parent_numeric = isset($uuid_to_row_index_hash[trim($parent_ado)]) ? $uuid_to_row_index_hash[trim($parent_ado)] : NULL;
+      $parent_numeric = $uuid_to_row_index_hash[trim($parent_ado)] ?? NULL;
     }
     return  $parent_numeric;
   }
@@ -2960,13 +2948,13 @@ class AmiUtilityService {
 
         if (is_string($value) &&
           (
-            (strpos(ltrim($value), '{') === 0) ||
-            (strpos(ltrim($value), '[') === 0)
+            (str_starts_with(ltrim($value), '{')) ||
+            (str_starts_with(ltrim($value), '['))
           )
         ) {
           // Ok, it actually starts with a {}
           // try to clean up.
-          $quotes = array(
+          $quotes = [
             "\xC2\xAB"     => '"', // « (U+00AB) in UTF-8
             "\xC2\xBB"     => '"', // » (U+00BB) in UTF-8
             "\xE2\x80\x98" => "'", // ‘ (U+2018) in UTF-8
@@ -2979,7 +2967,7 @@ class AmiUtilityService {
             "\xE2\x80\x9F" => '"', // ‟ (U+201F) in UTF-8
             "\xE2\x80\xB9" => "'", // ‹ (U+2039) in UTF-8
             "\xE2\x80\xBA" => "'", // › (U+203A) in UTF-8
-          );
+          ];
           $possiblejson  = strtr($value, $quotes);
           $expanded = json_decode($possiblejson, TRUE);
           $json_error = json_last_error();
@@ -2988,8 +2976,8 @@ class AmiUtilityService {
           if ($json_error == JSON_ERROR_NONE) {
             $value = $expanded;
           }
-          elseif (substr( $colum, 0, 3 ) === "as:" ||
-            substr( $colum, 0, 3 ) === "ap:"
+          elseif (str_starts_with($colum, "as:") ||
+            str_starts_with($colum, "ap:")
           ) {
             // We can not allow wrong JSON to permeate into controlled
             // by us properties
@@ -3205,7 +3193,7 @@ class AmiUtilityService {
                   foreach ($lod_for_label as $approach => $lod) {
                     if (isset($lod['lod'])) {
                       $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
-                      $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
+                      $serialized = array_map(serialize(...), $context_lod[$source_column][$approach]);
                       $unique = array_unique($serialized);
                       $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
                       $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
@@ -3240,9 +3228,7 @@ class AmiUtilityService {
         try {
           $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
             new RenderContext(),
-            function() use ($context, $metadatadisplay_entity) {
-              return $metadatadisplay_entity->renderNative($context);
-            }
+            fn() => $metadatadisplay_entity->renderNative($context)
           );
         }
         catch (\Throwable $t) {
@@ -3324,8 +3310,8 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $all_isstring= array_filter($all, 'is_string');
-    $all_notJson = array_filter($all_isstring,  array($this, 'isNotJson'));
+    $all_isstring= array_filter($all, is_string(...));
+    $all_notJson = array_filter($all_isstring,  [$this, 'isNotJson']);
     $all_entries = [];
     // The difficulty. In case of multiple delimiters we need to see which one
     // works/works better. But if none, assume it may be also right since a single
@@ -3348,7 +3334,7 @@ class AmiUtilityService {
       }
     }
     $unique = array_map(function($value) {
-      $value = $value ?? '';
+      $value ??= '';
       return trim($value);
     }, $all_entries);
 
@@ -3395,7 +3381,7 @@ class AmiUtilityService {
           if (is_scalar($entry)) {
             if (!array_is_list($entries_decoded)) {
               foreach ($valid_sub_keys as $pattern) {
-                if (stripos($main_key, $pattern) !== FALSE) {
+                if (stripos($main_key, (string) $pattern) !== FALSE) {
                   $all_entries[] = $entry;
                 }
               }
@@ -3406,9 +3392,7 @@ class AmiUtilityService {
           }
           elseif (is_array($entry)) {
             if (array_is_list($entry)) {
-              $posible_entry = array_map(function($value) {
-                return is_scalar($value);
-              }, $entry);
+              $posible_entry = array_map(fn($value) => is_scalar($value), $entry);
               $all_entries = array_merge($all_entries, $posible_entry);
             }
             else {
@@ -3420,7 +3404,7 @@ class AmiUtilityService {
               );
               foreach ($flattened as $subkey => $subentry) {
                 foreach ($valid_sub_keys as $pattern) {
-                  if (stripos($subkey, $pattern) !== FALSE) {
+                  if (stripos($subkey, (string) $pattern) !== FALSE) {
                     if (is_scalar($subentry)) {
                       $all_entries[] = $subentry;
                     }
@@ -3441,7 +3425,7 @@ class AmiUtilityService {
     }
 
     $unique = array_map(function($value) {
-      $value = $value ?? '';
+      $value ??= '';
       return trim($value);
     }, $all_entries);
     $unique = array_filter($unique);
@@ -3480,7 +3464,7 @@ class AmiUtilityService {
         return FALSE;
       }
     }
-    catch (\Throwable $e) {
+    catch (\Throwable) {
       return FALSE;
     }
   }
@@ -3541,7 +3525,7 @@ class AmiUtilityService {
   public static function checkAmiSetDeleteAdosAccess(EntityInterface $entity): bool {
     // Deny access to delete processed ADOs when the AMI set is configured for update rather than create.
     $cache_id = 'amiset_deleteados_access_' . $entity->id();
-    $deleteados_access = &drupal_static(__CLASS__ . __METHOD__ . $cache_id);
+    $deleteados_access = &drupal_static(self::class . __METHOD__ . $cache_id);
     if (!isset($deleteados_access)) {
       if ($deleteados_access_cache = \Drupal::cache()->get($cache_id)) {
         return $deleteados_access_cache->data;
