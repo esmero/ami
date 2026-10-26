@@ -148,7 +148,7 @@ class ImporterAdapter extends ConfigEntityBase implements ImporterAdapterInterfa
    *   True if active.
    */
   public function isActive(): bool {
-    return isset($this->active) ? $this->active : FALSE;
+    return $this->active ?? FALSE;
   }
 
   /**
