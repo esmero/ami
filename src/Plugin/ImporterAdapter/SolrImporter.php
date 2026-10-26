@@ -148,7 +148,7 @@ class SolrImporter extends SpreadsheetImporter {
       '#tree' => TRUE,
       '#type' => 'fieldset',
       '#title' => 'Solr Server Configuration',
-      '#element_validate' => [[get_class($this), 'validateSolrConfig']],
+      '#element_validate' => [[static::class, 'validateSolrConfig']],
       'islandora_collection' => [
         '#type' => 'textarea',
         '#required' => TRUE,
@@ -552,7 +552,7 @@ class SolrImporter extends SpreadsheetImporter {
         $query = $client->createSelect();
         $helper = $query->getHelper();
         /* @TODO we should save the config this way too */
-        $pids = array_map('trim', explode("\n", $input));
+        $pids = array_map(trim(...), explode("\n", $input));
         $pids = array_filter($pids);
         foreach ($pids as &$pid) {
           $pid = $helper->escapePhrase('info:fedora/' . $pid);
@@ -604,9 +604,7 @@ class SolrImporter extends SpreadsheetImporter {
         $allheaders_array = str_getcsv($allheaders);
         $allheaders_array = array_map([$this, 'multipleToSingleFieldName'], $allheaders_array);
         // Remove this non sense of mods_*_authority_marcrelator
-        array_filter($allheaders_array, function ($value) {
-          return $this->endsWith($value, 'authority_marcrelator');
-        });
+        array_filter($allheaders_array, fn($value) => $this->endsWith($value, 'authority_marcrelator'));
 
         // Reuse the query now
         $query->setResponseWriter(SolariumAbstractQuery::WT_JSON);
@@ -660,7 +658,7 @@ class SolrImporter extends SpreadsheetImporter {
       $headers['type'] = 'type';
       $headers['ismemberof'] = 'ismemberof';
       $headers['ispartof'] = 'ispartof';
-      $allheaders_array = array_map('strtolower', $allheaders_array);
+      $allheaders_array = array_map(strtolower(...), $allheaders_array);
       foreach ($allheaders_array as $headerkey) {
         $headers[$headerkey] = $headerkey;
       }
@@ -674,7 +672,7 @@ class SolrImporter extends SpreadsheetImporter {
             $fieldname = $field;
             $fieldname = $this->multipleToSingleFieldName($field);
             // Exclude this non-sense fields
-            if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+            if (str_contains($field, '_roleTerm_')) {
               continue;
             }
             if ($this->endsWith($fieldname, 'authority_marcrelator')) {
@@ -692,7 +690,7 @@ class SolrImporter extends SpreadsheetImporter {
           }
           $sp_data[$resultset_iterator->key()]['type'] = $config['solarium_mapping']['cmodel_mapping'][$sp_data[$resultset_iterator->key()]['rels_ext_hasmodel_uri']] ?? 'Thing';
         }
-        catch (\Exception $exception) {
+        catch (\Exception) {
           continue;
         }
       }
@@ -852,7 +850,7 @@ class SolrImporter extends SpreadsheetImporter {
         // in this case phrase escaping is used (most common) but you can also do term escaping, see the manual
         // also note that the same can be done using the placeholder syntax, see example 6.3
         $helper = $query->getHelper();
-        $pids = array_map('trim', explode("\n", $input));
+        $pids = array_map(trim(...), explode("\n", $input));
         $pids = array_filter($pids);
         foreach ($pids as &$pid) {
           $pid = $helper->escapePhrase('info:fedora/' . $pid);
@@ -928,7 +926,7 @@ class SolrImporter extends SpreadsheetImporter {
           $document = $resultset_iterator->current();
           foreach ($document as $field => $value) {
             // Exclude this non-sense fields
-            if (strpos($field, '_roleTerm_', 0) !== FALSE) {
+            if (str_contains($field, '_roleTerm_')) {
               continue;
             }
             $fieldname = $this->multipleToSingleFieldName($field);
@@ -962,7 +960,7 @@ class SolrImporter extends SpreadsheetImporter {
           // Call getData recursevely?
 
         }
-        catch (\Exception $exception) {
+        catch (\Exception) {
           continue;
         }
       }
@@ -1137,7 +1135,7 @@ class SolrImporter extends SpreadsheetImporter {
         foreach ($document as $field => $value) {
           $fieldname = $this->multipleToSingleFieldName($field);
           // Exclude this non-sense fields
-          if (strpos($fieldname, '_roleTerm_', 0) !== FALSE) {
+          if (str_contains($fieldname, '_roleTerm_')) {
             continue;
           }
           if ($this->endsWith($fieldname, 'authority_marcrelator')) {
@@ -1179,7 +1177,7 @@ class SolrImporter extends SpreadsheetImporter {
             );
           }
         }
-      } catch (\Exception $exception) {
+      } catch (\Exception) {
         // @TODO log the error here.
         continue;
       }
@@ -1278,7 +1276,7 @@ class SolrImporter extends SpreadsheetImporter {
   protected function multipleToSingleFieldName($field) {
     // this converts multi valued fields to a comma-separated string
     foreach (static::SOLR_FIELD_SUFFIX as $suffix) {
-      $suffix_offset = strpos($field , $suffix , strlen($field) - strlen($suffix) -1);
+      $suffix_offset = strpos($field , (string) $suffix , strlen($field) - strlen($suffix) -1);
       if ($suffix_offset!== false) {
         $field = substr($field, 0, $suffix_offset);
         break 1;
@@ -1317,7 +1315,7 @@ class SolrImporter extends SpreadsheetImporter {
       $original_value = explode('|@|', $original_value) ?? [];
       $value = array_unique(array_merge($original_value, $value));
     }
-    $value = array_map('trim', $value);
+    $value = array_map(trim(...), $value);
     return implode('|@|', array_unique($value));
   }
 
