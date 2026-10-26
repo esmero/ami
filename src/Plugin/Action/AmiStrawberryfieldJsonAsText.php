@@ -192,7 +192,7 @@ class AmiStrawberryfieldJsonAsText extends StrawberryfieldJsonPatch implements V
                   $patched = FALSE;
                 };
               }
-            } catch (JsonDiffException $exception) {
+            } catch (JsonDiffException) {
               $patched = FALSE;
               $this->messenger()->addWarning(
                 $this->t(
