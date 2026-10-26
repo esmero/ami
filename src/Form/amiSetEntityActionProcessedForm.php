@@ -27,16 +27,6 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
   protected $AmiUtilityService;
 
   /**
-   * @var ViewsBulkOperationsActionManager
-   */
-  protected ViewsBulkOperationsActionManager $actionManager;
-
-  /**
-   * @var ViewsBulkOperationsActionProcessorInterface
-   */
-  protected ViewsBulkOperationsActionProcessorInterface $actionProcessor;
-
-  /**
    * Constructs a ContentEntityForm object.
    *
    * @param EntityRepositoryInterface $entity_repository
@@ -49,14 +39,10 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
    * @param ViewsBulkOperationsActionManager $actionManager
    * @param ViewsBulkOperationsActionProcessorInterface $actionProcessor
    */
-  public function __construct(EntityRepositoryInterface $entity_repository, EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, TimeInterface $time = NULL, AmiUtilityService $ami_utility, ViewsBulkOperationsActionManager $actionManager, ViewsBulkOperationsActionProcessorInterface $actionProcessor) {
+  public function __construct(EntityRepositoryInterface $entity_repository, EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, protected ?ViewsBulkOperationsActionManager $actionManager = null, protected ?ViewsBulkOperationsActionProcessorInterface $actionProcessor = null) {
 
     parent::__construct($entity_repository,$entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
-    /** @var ViewsBulkOperationsActionManager $actionManager */
-    $this->actionManager = $actionManager;
-    /** @var ViewsBulkOperationsActionProcessorInterface $actionProcessor */
-    $this->actionProcessor = $actionProcessor;
   }
 
   /**
@@ -244,7 +230,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
         }
       }
       $ajax = [
-        'callback' => [get_class($this), 'ajaxCallback'],
+        'callback' => [static::class, 'ajaxCallback'],
         'wrapper' => 'action-ajax-container',
       ];
       $action_options = [];
@@ -291,7 +277,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
         , $batch_size, $batch_number);
       $context['results'][] = sizeof($batch_data_uuid);
     }
-    catch (EntityStorageException $e) {
+    catch (EntityStorageException) {
       $context['message'] = sprintf("Exception while processing Action %s on ADOs per batch. Batch #%s"
         , $batch_size, $batch_number);
       $context['results'][] = 0;
