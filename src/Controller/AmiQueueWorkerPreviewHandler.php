@@ -127,13 +127,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
   ];
 
   /**
-   * The event dispatcher.
-   *
-   * @var EventDispatcherInterface
-   */
-  protected EventDispatcherInterface $eventDispatcher;
-
-  /**
    * @var \Drupal\Core\TempStore\PrivateTempStoreFactory
    */
   protected PrivateTempStoreFactory $privateStoreFactory;
@@ -167,7 +160,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
    * @param MessengerInterface $messenger
    * @param StrawberryfieldFilePersisterService $strawberry_filepersister
    * @param PrivateTempStoreFactory $temp_store_factory
-   * @param EventDispatcherInterface $event_dispatcher
+   * @param EventDispatcherInterface $eventDispatcher
    * @param AccountSwitcherInterface $accountSwitcher
    * @param \Drupal\Core\Render\RendererInterface $renderer
    */
@@ -179,7 +172,10 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     MessengerInterface $messenger,
     StrawberryfieldFilePersisterService $strawberry_filepersister,
     PrivateTempStoreFactory $temp_store_factory,
-    EventDispatcherInterface $event_dispatcher,
+    /**
+     * The event dispatcher.
+     */
+    protected EventDispatcherInterface $eventDispatcher,
     AccountSwitcherInterface $accountSwitcher,
     RendererInterface $renderer,
   ) {
@@ -192,7 +188,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
     $this->store = $temp_store_factory->get('ami_queue_worker_file');
     $this->statusStore = $temp_store_factory->get('ami_queue_status');
     $this->contextStore = $temp_store_factory->get('ami_action_context');
-    $this->eventDispatcher = $event_dispatcher;
     $this->accountSwitcher = $accountSwitcher;
     $this->renderer = $renderer;
   }
@@ -684,7 +679,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         if (isset($data->info['row']['data'][$file_column]) && is_string($data->info['row']['data'][$file_column]) && strlen(trim($data->info['row']['data'][$file_column])) >= 5) {
           $filenames = trim($data->info['row']['data'][$file_column]);
           $filenames = array_map(function($value) {
-            $value = $value ?? '';
+            $value ??= '';
             $value = is_string($value) ? $value : '';
             return trim($value);
           }, explode(';', $filenames));
@@ -781,7 +776,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
           if (isset($data->info['row']['data'][$file_csv_column]) && strlen(trim($data->info['row']['data'][$file_csv_column])) >= 5) {
             $filenames = trim($data->info['row']['data'][$file_csv_column]);
             $filenames = array_map(function($value) {
-              $value = $value ?? '';
+              $value ??= '';
               return trim($value);
             }, explode(';', $filenames));
             $filenames = array_filter($filenames);
@@ -1037,28 +1032,16 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
                     // We will exclude a bunch of keys from appending since
                     // we already did a smart-ish processing moving them to
                     // processed_metadata
-                    /* @TODO remove this once PHP 7 is deprecated
-                     * // Symfony\Polyfill\Php80 alread implements somthing similar.
-                     */
-                    if (!function_exists('str_starts_with')) {
-                      function str_starts_with($haystack, $needle) {
-                        return (string) $needle !== '' && strncmp($haystack, $needle, strlen($needle)) === 0;
-                      }
-                    }
                     // New in 0.9.0. Also protect "label" and "type" those are always strings.
                     // We should never add to them.
-                    $contract_keys = array_filter($processed_metadata_keys, function($value) {
-                      return (
-                        str_starts_with($value, "as:") ||
-                        str_starts_with($value, "ap:") ||
-                        $value == "label" ||
-                        $value == "type"
-                      );
-                    }
+                    $contract_keys = array_filter($processed_metadata_keys, fn($value) => str_starts_with($value, "as:") ||
+                    str_starts_with($value, "ap:") ||
+                    $value == "label" ||
+                    $value == "type"
                     );
                     $processed_metadata_keys = array_diff($processed_metadata_keys, $contract_keys);
                     function _update_append_array_unique_multidimensional($input) {
-                      $serialized = array_map('serialize', $input);
+                      $serialized = array_map(serialize(...), $input);
                       $unique = array_unique($serialized);
                       return array_intersect_key($input, $unique);
                     }
@@ -1127,7 +1110,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
 
                   if (isset($processed_metadata['ap:tasks']) && is_array($processed_metadata['ap:tasks'])) {
                     // basically reuse what is there (which at this stage will be a mix of original data and new or default to the $sort file defined before
-                    $processed_metadata['ap:tasks']['ap:sortfiles'] = $processed_metadata['ap:tasks']['ap:sortfiles'] ?? $sort_files;
+                    $processed_metadata['ap:tasks']['ap:sortfiles'] ??= $sort_files;
                   }
                   else {
                     // Only set if after all the options it was removed at all.
@@ -1251,7 +1234,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
       }
       $patch = $r->getPatch()->jsonSerialize();
     }
-    catch (\Swaggest\JsonDiff\Exception $exception) {
+    catch (\Swaggest\JsonDiff\Exception) {
       // We do not want to make processing slower. Just return '{}';
       return '{}';
     }
@@ -1433,9 +1416,9 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
       $set_id = $data->info['set_id'] ?? NULL;
       if (!empty($set_id)) {
         $processed_set_status = $this->statusStore->get('set_' . $set_id);
-        $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
-        $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
-        $processed_set_status['total'] = $processed_set_status['total'] ?? 0;
+        $processed_set_status['processed'] ??= 0;
+        $processed_set_status['errored'] ??= 0;
+        $processed_set_status['total'] ??= 0;
         if ($status != amiSetEntity::STATUS_PROCESSING) {
           $processed_set_status['errored'] = $processed_set_status['errored']
             + 1;
@@ -1554,9 +1537,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
       unset($build_array['#cache']);
       $errored = FALSE;
       $context = new RenderContext();
-      $build = $this->renderer->executeInRenderContext($context, function() use ($build_array) {
-        return $this->renderer->render($build_array);
-      });
+      $build = $this->renderer->executeInRenderContext($context, fn() => $this->renderer->render($build_array));
 
       if (!$context->isEmpty()) {
         // Bubbled metadata is captured inside $context instead of crashing the site
@@ -1598,9 +1579,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         unset($build_existing['#cache']);
         try {
           $context = new RenderContext();
-          $build_existing = $this->renderer->executeInRenderContext($context, function() use ($build_existing) {
-            return $this->renderer->render($build_existing);
-          });
+          $build_existing = $this->renderer->executeInRenderContext($context, fn() => $this->renderer->render($build_existing));
 
           if (!$context->isEmpty()) {
             // Bubbled metadata is captured inside $context instead of crashing the site
