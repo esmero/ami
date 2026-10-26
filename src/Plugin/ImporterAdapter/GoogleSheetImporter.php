@@ -104,27 +104,27 @@ class GoogleSheetImporter extends SpreadsheetImporter {
       '#default_value' =>  $form_state->getValue(array_merge($parents , ['op'])),
       '#empty_option' => $this->t('- Please select an Operation -'),
     ];
-    $form['google_api']= array(
+    $form['google_api']= [
       '#prefix' => '<div id="ami-googleapi">',
       '#suffix' => '</div>',
       '#tree' => TRUE,
-      'spreadsheet_id' => array(
+      'spreadsheet_id' => [
         '#type' => 'textfield',
         '#required' => TRUE,
         '#title' => $this->t('ID of your Google Sheet'),
         '#description' => 'Example: https://docs.google.com/spreadsheets/d/aaBAccEEFfC_aBC-aBc0d1EF/edit, use that same full URL',
         '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_id'])),
-        '#element_validate' => [[get_class($this), 'validateSpreadsheetId']]
-      ),
-      'spreadsheet_range' => array(
+        '#element_validate' => [[static::class, 'validateSpreadsheetId']]
+      ],
+      'spreadsheet_range' => [
         '#type' => 'textfield',
         '#required' => TRUE,
         '#title' =>  $this->t('Cell Range'),
         '#description' => t('Cell Range for your Google Sheet, in the form of SheetName!A1:B10'),
         '#default_value' => $form_state->getValue(array_merge($parents , ['google_api','spreadsheet_range'])),
-        '#element_validate' => [[get_class($this), 'validateRange']]
-      ),
-    );
+        '#element_validate' => [[static::class, 'validateRange']]
+      ],
+    ];
 
     return $form;
   }
@@ -222,8 +222,8 @@ class GoogleSheetImporter extends SpreadsheetImporter {
       foreach($rowHeaders_utf8 as &$header) {
         $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : utf8_encode($header);
       }
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(strtolower(...), $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(trim(...), $rowHeaders_utf8);
 
       $headercount = count($rowHeaders);
 
