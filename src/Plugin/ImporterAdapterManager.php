@@ -32,7 +32,7 @@ class ImporterAdapterManager extends DefaultPluginManager {
    */
   public function __construct(\Traversable $namespaces, CacheBackendInterface $cache_backend, ModuleHandlerInterface $module_handler, EntityTypeManagerInterface $entityTypeManager) {
     parent::__construct('Plugin/ImporterAdapter', $namespaces, $module_handler,
-      'Drupal\ami\Plugin\ImporterAdapterInterface', 'Drupal\ami\Annotation\ImporterAdapter');
+      \Drupal\ami\Plugin\ImporterAdapterInterface::class, \Drupal\ami\Annotation\ImporterAdapter::class);
 
     $this->alterInfo('ami_importeradapter_info');
     $this->setCacheBackend($cache_backend, 'ami_importeradapter_plugins');
