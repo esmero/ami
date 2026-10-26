@@ -86,7 +86,7 @@ class AmiBatchQueue {
         // Done processing if can not claim.
         $context['finished'] = 1;
       }
-    } catch (RequeueException $e) {
+    } catch (RequeueException) {
       if (isset($item)) {
         $queue->releaseItem($item);
       }
