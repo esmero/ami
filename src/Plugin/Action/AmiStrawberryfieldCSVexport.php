@@ -106,20 +106,6 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   protected $logger;
 
   /**
-   * The streamWrapperManager
-   *
-   * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
-   */
-  private $streamWrapperManager;
-
-  /**
-   * The renderer
-   *
-   * @var \Drupal\Core\Render\RendererInterface
-   */
-  private $renderer;
-
-  /**
    * AmiStrawberryfieldCSVexport constructor.
    *
    * @param array $configuration
@@ -135,15 +121,19 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
    * @param \Drupal\ami\AmiUtilityService $ami_utility
    *
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager, PrivateTempStoreFactory $temp_store_factory, AccountInterface $current_user, StrawberryfieldUtilityService $strawberryfield_utility_service, LoggerInterface $logger,  RendererInterface $renderer, StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entity_type_manager, PrivateTempStoreFactory $temp_store_factory, AccountInterface $current_user, StrawberryfieldUtilityService $strawberryfield_utility_service, LoggerInterface $logger,  /**
+   * The renderer
+   */
+  private RendererInterface $renderer, /**
+   * The streamWrapperManager
+   */
+  private StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
     parent::__construct($configuration, $plugin_id, $plugin_definition);
     $this->entityTypeManager = $entity_type_manager;
     $this->currentUser = $current_user;
     $this->tempStore = $temp_store_factory->get('amiaction_csv_export');
     $this->strawberryfieldUtility = $strawberryfield_utility_service;
     $this->logger = $logger;
-    $this->renderer = $renderer;
-    $this->streamWrapperManager = $streamWrapperManager;
     $this->AmiUtilityService = $ami_utility;
   }
 
@@ -249,7 +239,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
               if (isset($fullvalues['ap:entitymapping']['entity:node']) && is_array($fullvalues['ap:entitymapping']['entity:node'])) {
                 foreach ($fullvalues['ap:entitymapping']['entity:node'] as $jsonkey_with_nodeids) {
                   if ($this->configuration['create_ami_set']) {
-                    $this->context['sandbox']['parent_columns'] = $this->context['sandbox']['parent_columns'] ?? [];
+                    $this->context['sandbox']['parent_columns'] ??= [];
                     $this->context['sandbox']['parent_columns'][] = $jsonkey_with_nodeids;
                     $this->context['sandbox']['parent_columns'] = array_unique($this->context['sandbox']['parent_columns']);
                   }
@@ -282,7 +272,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
             }
             // If two types have different bundles only one will win. Do not do that ok?
             if ($this->configuration['create_ami_set'] && $this->context['sandbox']['ado_type_exists']) {
-              $this->context['sandbox']['type_bundle'] = $this->context['sandbox']['type_bundle'] ?? [];
+              $this->context['sandbox']['type_bundle'] ??= [];
               $this->context['sandbox']['type_bundle'][$fullvalues['type']] = $entity->bundle().':'.$field_name;
             }
 
@@ -314,7 +304,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
                         $fullvalues[$mediaentry['dr:for']] =  empty($fullvalues[$mediaentry['dr:for']]) ? $link : $fullvalues[$mediaentry['dr:for']] . ';' . $link;
                         if ($this->configuration['create_ami_set']) {
                           // set context for all accumulated file columns
-                          $this->context['sandbox']['file_columns'] = $this->context['sandbox']['file_columns'] ?? [];
+                          $this->context['sandbox']['file_columns'] ??= [];
                           $this->context['sandbox']['file_columns'][] = $mediaentry['dr:for'];
                           $this->context['sandbox']['file_columns'] = array_unique($this->context['sandbox']['file_columns']);
                         }
@@ -343,9 +333,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
       if ($chunk) {
         $keys = $this->context['sandbox']['headers'];
         $template = array_fill_keys($keys, NULL);
-        $new_chunk = array_map(function($item) use ($template) {
-          return array_merge($template, $item);
-        }, $chunk);
+        $new_chunk = array_map(fn($item) => array_merge($template, $item), $chunk);
         $rows = array_merge($rows, $new_chunk);
         $this->tempStore->delete($this->context['sandbox']['cid_prefix'] . $i);
       }
@@ -569,12 +557,10 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
    */
   protected function getCid() {
     // a CID can only short. We take all the pieces and apply an MD5, 32Hex max.
-    if (!isset($this->context['sandbox']['cid_prefix'])) {
-      $this->context['sandbox']['cid_prefix'] = md5(
-          $this->context['view_id'] . ':'
-          . $this->context['display_id'] . ':' . $this->context['action_id']
-         . serialize(array_keys($this->context['list']))) . ':';
-    }
+    $this->context['sandbox']['cid_prefix'] ??= md5(
+        $this->context['view_id'] . ':'
+        . $this->context['display_id'] . ':' . $this->context['action_id']
+       . serialize(array_keys($this->context['list']))) . ':';
 
     return $this->context['sandbox']['cid_prefix'] . $this->context['sandbox']['current_batch'];
   }
