@@ -18,17 +18,11 @@ class simpleXMLtoArrayEAD {
     'keepPrefix' => TRUE // Don't user prefixes for elements. As simple as that.
   ];
 
-  /**
-   * @var SimpleXMLElement
-   */
-  private $subject;
-
   public function __construct(
-    SimpleXMLElement $element,
+    private readonly SimpleXMLElement $subject,
     $options = []
   ) {
     $this->options = array_merge($options, $this->options);
-    $this->subject = $element;
 
   }
 
@@ -37,17 +31,13 @@ class simpleXMLtoArrayEAD {
     // relative to a piece of text won't be preserved.
     // Idea. If a tag has both data (text) and tags inside. Don't iterate. Just return the XML. We will treat as HTML
     // Later on.
-    if ($element === null) {
-      $element = $this->subject;
-    }
+    $element ??= $this->subject;
 
     $namespaces_doc = $element->getDocNamespaces();
     $namespaces =  $element->getNamespaces();
     $namespaces = array_unique(array_merge($namespaces,$namespaces_doc));
 
-    if (!isset($namespaces[''] )) {
-      $namespaces['']  = null;
-    }
+    $namespaces[''] ??= null;
     // Local override for Bad bad EAD.
     $namespaces[''] = null;
 
@@ -78,7 +68,7 @@ class simpleXMLtoArrayEAD {
         //recurse into child nodes
         $childArray = $this->xmlToArray($childXml);
         // We can not use each() anymore, deprecated since PHP 7.2
-        list($childTagName, $childProperties) = [ key($childArray), current($childArray) ];
+        [$childTagName, $childProperties] = [ key($childArray), current($childArray) ];
         next($childArray);
         //replace characters in tag name
         if ($this->options['keySearch']) $childTagName =
