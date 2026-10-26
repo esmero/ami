@@ -150,7 +150,7 @@ class EADImporter extends SpreadsheetImporter {
         '#required' => TRUE,
       ];
       foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
-        if (strpos($key,'#') !== 0 && is_array($settings)) {
+        if (!str_starts_with($key, '#') && is_array($settings)) {
           if ($settings['metadata']['#default_value'] ?? NULL) {
             $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
             $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
@@ -177,7 +177,7 @@ class EADImporter extends SpreadsheetImporter {
         '#disabled' => TRUE,
       ];
       foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
-        if (strpos($key,'#') !== 0 && is_array($settings)) {
+        if (!str_starts_with($key, '#') && is_array($settings)) {
           if ($settings['metadata']['#default_value'] ?? NULL) {
             $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
             $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
