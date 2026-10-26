@@ -247,7 +247,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
                 foreach ($children_csvs as $child_csv) {
                   if (strlen(trim($child_csv ?? '')) >= 5) {
                     $filenames = array_map(function($value) {
-                      $value = $value ?? '';
+                      $value ??= '';
                       $value = is_string($value) ? $value : '';
                       return trim($value);
                     }, explode(';', $child_csv));
@@ -321,9 +321,9 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           ]);
         }
         $processed_set_status = $this->statusStore->get('set_' . $data->info['set_id']);
-        $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
-        $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
-        $processed_set_status['total'] = $processed_set_status['total'] ?? 0 + count($added);
+        $processed_set_status['processed'] ??= 0;
+        $processed_set_status['errored'] ??= 0;
+        $processed_set_status['total'] ??= 0 + count($added);
         $this->statusStore->set('set_' . $data->info['set_id'], $processed_set_status);
         return;
       }
