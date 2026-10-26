@@ -68,13 +68,13 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       '#type' => 'select',
       '#title' => $this->t('Select which Webform you want to use'),
       '#options' => $webform,
-      '#default_value' => $form_state->getValue('webform')? $form_state->getValue('webform') : NULL,
+      '#default_value' => $form_state->getValue('webform') ?: NULL,
       '#empty_option' => $this->t('- Please select a webform -'),
-      '#ajax' => array(
+      '#ajax' => [
         'callback' => [$this, 'webformAjaxCallback'],
         'wrapper' => 'webform-elements-wrapper',
         'event' => 'change',
-      ),
+      ],
     ];
 
     $form['webform_elements'] = [
@@ -127,11 +127,11 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       '#options' => count($webform_element_options) ? $webform_element_options:  [],
       '#default_value' => NULL,
       '#empty_option' => $this->t('- Please select an element -'),
-      '#ajax' => array(
+      '#ajax' => [
         'callback' => [$this,'webformElementAjaxCallback'],
         'wrapper' => 'webform-elements-render-wrapper',
         'event' => 'change',
-      ),
+      ],
     ];
     $chosen_element = $form_state->getValue(['webform_elements','elements_for_this_form'], NULL);
     if (!$chosen_element) {
