@@ -74,7 +74,6 @@ class SpreadsheetImporter extends ImporterAdapterBase {
    * {@inheritdoc}
    */
   public function interactiveForm(array $parents, FormStateInterface $form_state):array {
-    $form = [];
     $form = parent::interactiveForm($parents,$form_state);
     $form['file'] = [
       '#type' => 'managed_file',
