@@ -201,11 +201,6 @@ class AmiLoDService {
   ];
 
   /**
-   * @var \Drupal\webform_strawberryfield\Plugin\CustomLoDendpointManager
-   */
-  protected CustomLoDendpointManager $customLoDendpointPluginManager;
-
-  /**
    * AmiLoDService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
@@ -222,7 +217,7 @@ class AmiLoDService {
    * @param \Drupal\strawberryfield\StrawberryfieldUtilityService $strawberryfield_utility_service
    * @param \GuzzleHttp\ClientInterface $http_client
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
-   * @param \Drupal\webform_strawberryfield\Plugin\CustomLoDendpointManager $custom_lod_endpoint_manager
+   * @param \Drupal\webform_strawberryfield\Plugin\CustomLoDendpointManager $customLoDendpointPluginManager
    */
   public function __construct(
     FileSystemInterface $file_system,
@@ -239,7 +234,7 @@ class AmiLoDService {
     StrawberryfieldUtilityService $strawberryfield_utility_service,
     ClientInterface $http_client,
     KeyValueFactoryInterface $key_value,
-    CustomLoDendpointManager $custom_lod_endpoint_manager
+    protected CustomLoDendpointManager $customLoDendpointPluginManager
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
@@ -261,7 +256,6 @@ class AmiLoDService {
     $this->currentUser = $current_user;
     $this->httpClient = $http_client;
     $this->keyValue = $key_value;
-    $this->customLoDendpointPluginManager = $custom_lod_endpoint_manager;
   }
 
   /**
@@ -382,7 +376,7 @@ class AmiLoDService {
       // But localhost does not resolve internally to the right IP.
       // @TODO make this configurable since we can also use esmero-web, but that won't work for multisites
       // OR SSL certs. So better this way. We could also check if IP actually matches localhost? (127.0.0.1 or 0.0.0.0)
-      if (substr($controller_path, 0, 21) === "http://localhost:8001") {
+      if (str_starts_with($controller_path, "http://localhost:8001")) {
         $controller_path = str_replace("http://localhost:8001",
           $_SERVER['REQUEST_SCHEME'] . '://' . $_SERVER['SERVER_ADDR'] . ':' . $_SERVER['SERVER_PORT'],
           $controller_path);
@@ -505,15 +499,15 @@ class AmiLoDService {
           'display_name' => $response_encoded[0]->label ?? NULL,
           'osm_id' => $response_encoded[0]->value->properties->osm_id ?? NULL,
           'osm_type' => $response_encoded[0]->value->properties->osm_type ?? NULL,
-          'neighbourhood' => isset($normalized_address['neighbourhood']) ? $normalized_address['neighbourhood'] : '',
-          'locality' => isset($normalized_address['locality']) ? $normalized_address['locality'] : '',
-          'city' => isset($normalized_address['city']) ? $normalized_address['city'] : '',
-          'county' => isset($normalized_address['county']) ? $normalized_address['county'] : '',
-          'state_district' => isset($normalized_address['state_district']) ? $normalized_address['state_district'] : '',
-          'state' => isset($normalized_address['state']) ? $normalized_address['state'] : '',
-          'postcode' => isset($normalized_address['postcode']) ? $normalized_address['postcode'] : '',
-          'country' => isset($normalized_address['country']) ? $normalized_address['country'] : '',
-          'country_code' => isset($normalized_address['country_code']) ? $normalized_address['country_code'] : '',
+          'neighbourhood' => $normalized_address['neighbourhood'] ?? '',
+          'locality' => $normalized_address['locality'] ?? '',
+          'city' => $normalized_address['city'] ?? '',
+          'county' => $normalized_address['county'] ?? '',
+          'state_district' => $normalized_address['state_district'] ?? '',
+          'state' => $normalized_address['state'] ?? '',
+          'postcode' => $normalized_address['postcode'] ?? '',
+          'country' => $normalized_address['country'] ?? '',
+          'country_code' => $normalized_address['country_code'] ?? '',
         ];
       }
     }

@@ -3,12 +3,14 @@
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
 use Drupal\ami\AmiUtilityService;
+use Drupal\ami\Attribute\ImporterAdapter;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Plugin\ImporterAdapterBase;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\TempStore\PrivateTempStore;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
@@ -16,14 +18,13 @@ use Drupal\file\Entity\File;
 
 /**
  * ADO importer for EADs from Spreadsheet format and XML too.
- *
- * @ImporterAdapter(
- *   id = "ead",
- *   label = @Translation("EAD Importer"),
- *   remote = false,
- *   batch = false,
- * )
  */
+#[ImporterAdapter(
+  id: 'ead',
+  label: new TranslatableMarkup('EAD Importer'),
+  remote: false,
+  batch: false
+)]
 class EADImporter extends SpreadsheetImporter {
 
 
@@ -150,7 +151,7 @@ class EADImporter extends SpreadsheetImporter {
         '#required' => TRUE,
       ];
       foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
-        if (strpos($key,'#') !== 0 && is_array($settings)) {
+        if (!str_starts_with($key, '#') && is_array($settings)) {
           if ($settings['metadata']['#default_value'] ?? NULL) {
             $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
             $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];
@@ -177,7 +178,7 @@ class EADImporter extends SpreadsheetImporter {
         '#disabled' => TRUE,
       ];
       foreach ($form['ingestsetup']['custommapping'] ?? [] as $key => &$settings) {
-        if (strpos($key,'#') !== 0 && is_array($settings)) {
+        if (!str_starts_with($key, '#') && is_array($settings)) {
           if ($settings['metadata']['#default_value'] ?? NULL) {
             $form['ingestsetup']['custommapping'][$key]['metadata']['#default_value'] = 'template';
             $form['ingestsetup']['custommapping'][$key]['metadata']['#options'] = ['template' => 'Template'];

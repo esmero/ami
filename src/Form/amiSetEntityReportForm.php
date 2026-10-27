@@ -70,7 +70,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
   public function __construct(
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, AmiUtilityService $ami_utility, FileSystemInterface $file_system) {
+    TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, ?FileSystemInterface $file_system = null) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
     $this->fileSystem = $file_system;
@@ -126,7 +126,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
     $store = \Drupal::service('tempstore.private')->get('ami_queue_status');
     $last_status = $store->get('set_'.$this->entity->id());
     // $last_status needs to be countable always
-    $last_status = $last_status ?? [];
+    $last_status ??= [];
 
     foreach ($this->entity->get('set') as $item) {
       /** @var \Drupal\strawberryfield\Plugin\Field\FieldType\StrawberryFieldItem $item */
@@ -172,9 +172,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
           $currentLineExpanded = json_decode($line, TRUE);
           if (json_last_error() == JSON_ERROR_NONE) {
             $our_time_stamp
-              = isset($currentLineExpanded['context']['time_submitted'])
-              ? $currentLineExpanded['context']['time_submitted']
-              : NULL;
+              = $currentLineExpanded['context']['time_submitted'] ?? NULL;
           }
           if ($our_time_stamp == NULL) {
             $timestamp_offset--;
@@ -197,9 +195,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
             $currentLineExpanded = json_decode($line, TRUE);
             if (json_last_error() == JSON_ERROR_NONE) {
               $current_time_stamp
-                = isset($currentLineExpanded['context']['time_submitted'])
-                ? $currentLineExpanded['context']['time_submitted']
-                : $prev_time_stamp;
+                = $currentLineExpanded['context']['time_submitted'] ?? $prev_time_stamp;
               // But we can not bail yet here! We are reading from older to newer so this could be a page (still) where the
               // First records are not of this set but later on they are! Damn Diego
               if ($prev_time_stamp != NULL
@@ -384,13 +380,13 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
       ];
     }
     // Add a submit button that handles the submission of the form.
-    $form['actions']['submit'] = array(
+    $form['actions']['submit'] = [
       '#type' => 'submit',
       '#value' => $this->t('Submit'),
       '#attributes' => [
         'class' => ['js-hide'],
       ],
-    );
+    ];
 
     // Because this form has no real submissions and the entity itself is not changing
     // we had users seen stale (no reports) but other user loging in can see them

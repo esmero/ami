@@ -11,51 +11,33 @@ use Drupal\Core\Entity\EntityInterface;
 class AmiCrudEvent extends Event{
 
   /**
-   * The Entity.
-   *
-   * @var \Drupal\Core\Entity\EntityInterface
-   */
-  private $entity;
-
-  /**
-   * The SBF field machine names.
-   *
-   * @array;
-   */
-  private $fields;
-
-  /**
-   * The event type.
-   *
-   * @var \Drupal\ami\AmiEventType
-   */
-  private $eventType;
-
-  /**
-   * Which Subscribers processed this Event
-   *
-   * @var array
-   *
-   */
-  private $processedby = [];
-
-  /**
    * Construct a new entity event.
    *
-   * @param string                              $event_type
+   * @param string $eventType
    *   The event type.
    * @param \Drupal\Core\Entity\EntityInterface $entity
    *   The entity which caused the event.
-   * @param array                               $sbfFields
+   * @param array $fields
    * @param array                               $processedby
    */
-  public function __construct($event_type, EntityInterface $entity,
-    array $sbfFields, array $processedby = []
-  ) {
-    $this->entity = $entity;
-    $this->eventType = $event_type;
-    $this->fields = $sbfFields;
-    $this->processedby = $processedby;
+  public function __construct(
+      /**
+       * The event type.
+       */
+      private $eventType,
+      /**
+       * The Entity.
+       */
+      private readonly EntityInterface $entity,
+      private readonly array $fields,
+      /**
+       * Which Subscribers processed this Event
+       *
+       *
+       */
+      private array $processedby = []
+  )
+  {
   }
 
   /**

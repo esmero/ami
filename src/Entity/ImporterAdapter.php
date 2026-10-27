@@ -2,51 +2,54 @@
 
 namespace Drupal\ami\Entity;
 
+use Drupal\ami\Form\ImporterAdapterDeleteForm;
+use Drupal\ami\Form\ImporterAdapterForm;
+use Drupal\ami\ImporterAdapterListBuilder;
 use Drupal\Core\Config\Entity\ConfigEntityBase;
+use Drupal\Core\Entity\Routing\AdminHtmlRouteProvider;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Url;
+use Drupal\Core\Entity\Attribute\ConfigEntityType;
 
 /**
  * Defines the ImporterAdapter Config entity.
- *
- * @ConfigEntityType(
- *   id = "importeradapter",
- *   label = @Translation("AMI Importer Adapter"),
- *   handlers = {
- *     "list_builder" = "Drupal\ami\ImporterAdapterListBuilder",
- *     "form" = {
- *       "add" = "Drupal\ami\Form\ImporterAdapterForm",
- *       "edit" = "Drupal\ami\Form\ImporterAdapterForm",
- *       "delete" = "Drupal\ami\Form\ImporterAdapterDeleteForm"
- *     },
- *     "route_provider" = {
- *       "html" = "Drupal\Core\Entity\Routing\AdminHtmlRouteProvider",
- *     },
- *   },
- *   config_prefix = "importeradapter",
- *   admin_permission = "administer site configuration",
- *   entity_keys = {
- *     "id" = "id",
- *     "label" = "label",
- *     "uuid" = "uuid"
- *   },
- *   links = {
- *     "add-form" = "/admin/structure/importeradapter/add",
- *     "edit-form" = "/admin/structure/importeradapter/{importeradapter}/edit",
- *     "delete-form" = "/admin/structure/importeradapter/{importeradapter}/delete",
- *     "collection" = "/admin/structure/importeradapter"
- *   },
- *   config_export = {
- *     "id",
- *     "label",
- *     "plugin",
- *     "update_existing",
- *     "target_entity_types",
- *     "active",
- *     "plugin_configuration"
- *
- *   }
- * )
  */
+#[ConfigEntityType(
+  id: 'importeradapter',
+  label: new TranslatableMarkup('AMI Importer Adapter'),
+  config_prefix: 'importeradapter',
+  entity_keys: [
+    'id' => 'id',
+    'label' => 'label',
+    'uuid' => 'uuid'
+  ],
+  handlers: [
+    'list_builder' => ImporterAdapterListBuilder::class,
+    'form' => [
+      'add' => ImporterAdapterForm::class,
+      'edit' => ImporterAdapterForm::class,
+      'delete' => ImporterAdapterDeleteForm::class
+    ],
+    'route_provider' => [
+      'html' => AdminHtmlRouteProvider::class
+    ]
+  ],
+  links: [
+    'add-form' => '/admin/structure/importeradapter/add',
+    'edit-form' => '/admin/structure/importeradapter/{importeradapter}/edit',
+    'delete-form' => '/admin/structure/importeradapter/{importeradapter}/delete',
+    'collection' => '/admin/structure/importeradapter'
+  ],
+  admin_permission: 'administer site configuration',
+  config_export: [
+    'id',
+    'label',
+    'plugin',
+    'update_existing',
+    'target_entity_types',
+    'active',
+    'plugin_configuration'
+  ])]
 class ImporterAdapter extends ConfigEntityBase implements ImporterAdapterInterface {
 
   /**
@@ -148,7 +151,7 @@ class ImporterAdapter extends ConfigEntityBase implements ImporterAdapterInterfa
    *   True if active.
    */
   public function isActive(): bool {
-    return isset($this->active) ? $this->active : FALSE;
+    return $this->active ?? FALSE;
   }
 
   /**

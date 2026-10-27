@@ -3,36 +3,32 @@
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
 use Drupal\ami\AmiUtilityService;
+use Drupal\ami\Attribute\ImporterAdapter;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Plugin\ImporterAdapterBase;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\file\Entity\File;
 
 /**
  * ADO importer from a Spreadsheet format.
- *
- * @ImporterAdapter(
- *   id = "spreadsheet",
- *   label = @Translation("Spreadsheet Importer"),
- *   remote = false,
- *   batch = false,
- * )
  */
+#[ImporterAdapter(
+  id: 'spreadsheet',
+  label: new TranslatableMarkup('Spreadsheet Importer'),
+  remote: false,
+  batch: false
+)]
 class SpreadsheetImporter extends ImporterAdapterBase {
 
 
   use StringTranslationTrait;
   use MessengerTrait;
-
-  /**
-   * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
-   */
-  protected StreamWrapperManagerInterface $streamWrapperManager;
 
   /**
    * @var string|null
@@ -51,9 +47,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
    *
    * @throws \Drupal\Component\Plugin\Exception\PluginException
    */
-  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
+  public function __construct(array $configuration, $plugin_id, $plugin_definition, EntityTypeManagerInterface $entityTypeManager,  protected StreamWrapperManagerInterface $streamWrapperManager, AmiUtilityService $ami_utility) {
     parent::__construct($configuration, $plugin_id, $plugin_definition, $entityTypeManager, $ami_utility);
-    $this->streamWrapperManager = $streamWrapperManager;
     $this->tempFile = NULL;
     register_shutdown_function([$this, 'shutdown']);
   }
@@ -79,7 +74,6 @@ class SpreadsheetImporter extends ImporterAdapterBase {
    * {@inheritdoc}
    */
   public function interactiveForm(array $parents, FormStateInterface $form_state):array {
-    $form = [];
     $form = parent::interactiveForm($parents,$form_state);
     $form['file'] = [
       '#type' => 'managed_file',
@@ -192,8 +186,8 @@ class SpreadsheetImporter extends ImporterAdapterBase {
       foreach($rowHeaders_utf8 as &$header) {
         $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : utf8_encode($header);
       }
-      $rowHeaders_utf8 = array_map('strtolower', $rowHeaders_utf8);
-      $rowHeaders_utf8 = array_map('trim', $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(strtolower(...), $rowHeaders_utf8);
+      $rowHeaders_utf8 = array_map(trim(...), $rowHeaders_utf8);
       $rowHeaders_utf8 = array_filter($rowHeaders_utf8);
       $headercount = count($rowHeaders_utf8);
 

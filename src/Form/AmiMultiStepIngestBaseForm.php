@@ -33,16 +33,6 @@ class AmiMultiStepIngestBaseForm extends FormBase {
   protected $lastStep = 6;
 
   /**
-   * @var \Drupal\Core\Session\SessionManagerInterface
-   */
-  private $sessionManager;
-
-  /**
-   * @var \Drupal\Core\Session\AccountInterface
-   */
-  private $currentUser;
-
-  /**
    * @var \Drupal\Core\TempStore\PrivateTempStore
    */
   protected $store;
@@ -75,16 +65,14 @@ class AmiMultiStepIngestBaseForm extends FormBase {
    * Constructs a AmiMultiStepIngestBaseForm.
    *
    * @param \Drupal\Core\TempStore\PrivateTempStoreFactory $temp_store_factory
-   * @param \Drupal\Core\Session\SessionManagerInterface $session_manager
-   * @param \Drupal\Core\Session\AccountInterface $current_user
+   * @param \Drupal\Core\Session\SessionManagerInterface $sessionManager
+   * @param \Drupal\Core\Session\AccountInterface $currentUser
    * @param \Drupal\ami\Plugin\ImporterAdapterManager $importerManager
    * @param \Drupal\ami\AmiUtilityService $ami_utility
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    * @param \Drupal\Component\Transliteration\TransliterationInterface $transliteration
    */
-  public function __construct(PrivateTempStoreFactory $temp_store_factory, SessionManagerInterface $session_manager, AccountInterface $current_user, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility,  EntityTypeManagerInterface $entity_type_manager, TransliterationInterface $transliteration) {
-    $this->sessionManager = $session_manager;
-    $this->currentUser = $current_user;
+  public function __construct(PrivateTempStoreFactory $temp_store_factory, private readonly SessionManagerInterface $sessionManager, private readonly AccountInterface $currentUser, ImporterAdapterManager $importerManager, AmiUtilityService $ami_utility,  EntityTypeManagerInterface $entity_type_manager, TransliterationInterface $transliteration) {
     $this->store = $temp_store_factory->get('ami_multistep_data');
     $this->importerManager = $importerManager;
     $this->entityTypeManager = $entity_type_manager;
@@ -120,40 +108,40 @@ class AmiMultiStepIngestBaseForm extends FormBase {
    */
   public function buildForm(array $form, FormStateInterface $form_state) {
 
-    $form = array();
+    $form = [];
     $form['#prefix'] = '<div id="ami_multistep_form">';
     $form['#suffix'] = '</div>';
     $form['actions']['#type'] = 'actions';
 
     if ($this->step > 1 && $this->step != $this->lastStep) {
-      $form['actions']['prev'] = array(
+      $form['actions']['prev'] = [
         '#type' => 'submit',
         '#name' => 'prev',
         '#value' => t('Back'),
         '#limit_validation_errors' => [],
         '#submit' => ['::submitForm'],
-        '#ajax' => array(
+        '#ajax' => [
           // We pass in the wrapper we created at the start of the form
           'wrapper' => 'ami_multistep_form',
           // We pass a callback function we will use later to render the form for the user
           'callback' => '::ami_multistep_form_ajax_callback',
           'event' => 'click',
-        ),
-      );
+        ],
+      ];
     }
     if ($this->step != $this->lastStep) {
-      $form['actions']['next'] = array(
+      $form['actions']['next'] = [
         '#type' => 'submit',
         '#name' => 'next',
         '#value' => t('Next'),
-        '#ajax' => array(
+        '#ajax' => [
           // We pass in the wrapper we created at the start of the form
           'wrapper' => 'ami_multistep_form',
           // We pass a callback function we will use later to render the form for the user
           'callback' => '::ami_multistep_form_ajax_callback',
           'event' => 'click',
-        ),
-      );
+        ],
+      ];
     }
     if ($this->step +1 == $this->lastStep) {
       $form['actions']['next'] = [

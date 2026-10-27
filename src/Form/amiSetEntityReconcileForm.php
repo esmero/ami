@@ -49,7 +49,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
   public function __construct(
     EntityRepositoryInterface $entity_repository,
     EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, AmiUtilityService $ami_utility, AmiLoDService $ami_lod) {
+    TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, ?AmiLoDService $ami_lod = null) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
     $this->AmiLoDService = $ami_lod;
@@ -154,7 +154,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
               $lod_file->getFileUri()
             );
           }
-          catch (InvalidStreamWrapperException $e) {
+          catch (InvalidStreamWrapperException) {
             $lod_file_url = NULL;
           }
           if ($lod_file_url) {
@@ -458,7 +458,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
       $headers = ['original','csv_columns', 'checked'];
       foreach($values_per_column as $column => $labels) {
         foreach($labels as $label) {
-          $inverted[$label] = $inverted[$label] ?? [];
+          $inverted[$label] ??= [];
           $headers = array_unique(array_merge($headers,$mappings[$column]));
           $inverted[$label] = array_unique(array_merge($inverted[$label], $mappings[$column]));
           $column_map_inverted[$label][] = $column;
@@ -594,7 +594,7 @@ class amiSetEntityReconcileForm extends ContentEntityConfirmFormBase {
     $batch = [
       'title' => $this->t('Batch processing LoD Reconciling'),
       'operations' => [],
-      'finished' => ['\Drupal\ami\AmiLoDBatchQueue', 'finish'],
+      'finished' => [\Drupal\ami\AmiLoDBatchQueue::class, 'finish'],
       'progress_message' => t('Processing Set @current of @total.'),
     ];
     $batch['operations'][] = [

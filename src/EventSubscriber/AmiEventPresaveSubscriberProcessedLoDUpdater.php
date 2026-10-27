@@ -218,7 +218,7 @@ class AmiEventPresaveSubscriberProcessedLoDUpdater extends AmiEventPresaveSubscr
         }
       }
     }
-    $current_class = get_called_class();
+    $current_class = static::class;
     $event->setProcessedBy($current_class, TRUE);
   }
 }

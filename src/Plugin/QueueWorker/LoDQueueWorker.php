@@ -8,19 +8,20 @@ use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Logger\LoggerChannelFactoryInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Plugin\ContainerFactoryPluginInterface;
+use Drupal\Core\Queue\Attribute\QueueWorker;
 use Drupal\Core\Queue\QueueWorkerBase;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strawberryfield\StrawberryfieldUtilityService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Process each passed label against a set of LoD Urls.
- *
- * @QueueWorker(
- *   id = "ami_lod_ado",
- *   title = @Translation("AMI LoD Reconciling Queue Worker")
- * )
  */
+#[QueueWorker(
+  id: 'ami_lod_ado',
+  title: new TranslatableMarkup('AMI LoD Reconciling Queue Worker')
+)]
 class LoDQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginInterface {
 
   use StringTranslationTrait;

@@ -2,37 +2,34 @@
 
 namespace Drupal\ami\Plugin\Action;
 
+use Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver;
 use Drupal\Component\Diff\Diff;
 use Drupal\Component\Diff\DiffFormatter;
-use Drupal\Core\Ajax\AjaxResponse;
-use Drupal\Core\Ajax\HtmlCommand;
+use Drupal\Core\Action\Attribute\Action;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
-use Drupal\Core\TempStore\PrivateTempStoreFactory;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\views\ViewExecutable;
 use Drupal\views_bulk_operations\Traits\ViewsBulkOperationsActionCompletedTrait;
 use Drupal\webform\Plugin\WebformElement\WebformManagedFileBase;
-use Drupal\webform\Plugin\WebformElementEntityReferenceInterface;
 use Swaggest\JsonDiff\Exception as JsonDiffException;
 use Swaggest\JsonDiff\JsonDiff;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
-use Symfony\Component\HttpFoundation\RedirectResponse;
 
 
 /**
  * Provides an action that can Modify Entity attached SBFs via JSON Patch.
- *
- * @Action(
- *   id = "entity:ami_jsonwebform_action",
- *   action_label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
- *   label = @Translation("Webform find-and-replace Metadata for Archipelago Digital Objects"),
- *   category = @Translation("AMI Metadata"),
- *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
- *   type = "node",
- *   confirm = "true"
- * )
  */
+#[Action(
+  id: 'entity:ami_jsonwebform_action',
+  label: new TranslatableMarkup('Webform find-and-replace Metadata for Archipelago Digital Objects'),
+  action_label: new TranslatableMarkup('Webform find-and-replace Metadata for Archipelago Digital Objects'),
+  category: new TranslatableMarkup('AMI Metadata'),
+  deriver: EntitySbfActionDeriver::class,
+  confirm_form_route_name: 'views_bulk_operations.confirm',
+  type: 'node'
+)]
 class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
 
   use ViewsBulkOperationsActionCompletedTrait;
@@ -68,13 +65,13 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       '#type' => 'select',
       '#title' => $this->t('Select which Webform you want to use'),
       '#options' => $webform,
-      '#default_value' => $form_state->getValue('webform')? $form_state->getValue('webform') : NULL,
+      '#default_value' => $form_state->getValue('webform') ?: NULL,
       '#empty_option' => $this->t('- Please select a webform -'),
-      '#ajax' => array(
+      '#ajax' => [
         'callback' => [$this, 'webformAjaxCallback'],
         'wrapper' => 'webform-elements-wrapper',
         'event' => 'change',
-      ),
+      ],
     ];
 
     $form['webform_elements'] = [
@@ -127,11 +124,11 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       '#options' => count($webform_element_options) ? $webform_element_options:  [],
       '#default_value' => NULL,
       '#empty_option' => $this->t('- Please select an element -'),
-      '#ajax' => array(
+      '#ajax' => [
         'callback' => [$this,'webformElementAjaxCallback'],
         'wrapper' => 'webform-elements-render-wrapper',
         'event' => 'change',
-      ),
+      ],
     ];
     $chosen_element = $form_state->getValue(['webform_elements','elements_for_this_form'], NULL);
     if (!$chosen_element) {
@@ -158,7 +155,6 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
       $form['elements_rendered']['jsonreplace_element_'.$chosen_element]= $cleanelement;
       $form['elements_rendered']['jsonreplace_element_'.$chosen_element]['#title'] = $this->t('Value to replace with in <em>@elementkey</em> JSON key', [ '@elementkey' => $chosen_element]);
     }
-
 
     $form['simulate'] = [
       '#title' => $this->t('only simulate and debug affected JSON'),

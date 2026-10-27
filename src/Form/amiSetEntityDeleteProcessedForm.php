@@ -35,7 +35,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
    *   The time service.
    * @param \Drupal\ami\AmiUtilityService $ami_utility
    */
-  public function __construct(EntityRepositoryInterface $entity_repository, EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, TimeInterface $time = NULL, AmiUtilityService $ami_utility) {
+  public function __construct(EntityRepositoryInterface $entity_repository, EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null) {
 
     parent::__construct($entity_repository,$entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
@@ -173,11 +173,11 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
           , [$batch_data_uuid]];
       }
       // Setup and define batch information.
-      $batch = array(
+      $batch = [
         'title' => t('Deleting ADOs in batch...'),
         'operations' => $operations,
         'finished' => '\Drupal\ami\Form\amiSetEntityDeleteProcessedForm::batchFinished',
-      );
+      ];
       $this->entity->setStatus(amiSetEntity::STATUS_ENTITIES_DELETED);
       $this->entity->save();
       $form_state->setRedirectUrl($this->getCancelUrl());
@@ -265,7 +265,7 @@ class amiSetEntityDeleteProcessedForm extends ContentEntityConfirmFormBase {
         , $batch_size, $batch_number);
       $context['results'][] = sizeof($batch_data_uuid);
     }
-    catch (EntityStorageException $e) {
+    catch (EntityStorageException) {
       $context['message'] = sprintf("Exception while deleting %s ADOs per batch. Batch #%s"
         , $batch_size, $batch_number);
       $context['results'][] = 0;
