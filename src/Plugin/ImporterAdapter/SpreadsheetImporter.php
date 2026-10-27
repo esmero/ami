@@ -3,26 +3,27 @@
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
 use Drupal\ami\AmiUtilityService;
+use Drupal\ami\Attribute\ImporterAdapter;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Messenger\MessengerTrait;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
 use Drupal\Core\StringTranslation\StringTranslationTrait;
 use Drupal\ami\Plugin\ImporterAdapterBase;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Drupal\file\Entity\File;
 
 /**
  * ADO importer from a Spreadsheet format.
- *
- * @ImporterAdapter(
- *   id = "spreadsheet",
- *   label = @Translation("Spreadsheet Importer"),
- *   remote = false,
- *   batch = false,
- * )
  */
+#[ImporterAdapter(
+  id: 'spreadsheet',
+  label: new TranslatableMarkup('Spreadsheet Importer'),
+  remote: false,
+  batch: false
+)]
 class SpreadsheetImporter extends ImporterAdapterBase {
 
 

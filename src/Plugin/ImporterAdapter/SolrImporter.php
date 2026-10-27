@@ -2,6 +2,8 @@
 
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
+use Drupal\ami\Attribute\ImporterAdapter;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Solarium\QueryType\Select\Result\Document;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
 use Drupal\Core\Form\FormStateInterface;
@@ -22,14 +24,13 @@ use Drupal\file\Entity\File;
 
 /**
  * ADO importer from a remote Solr (fedora) instance.
- *
- * @ImporterAdapter(
- *   id = "solr",
- *   label = @Translation("Islandora 7 Solr Importer"),
- *   remote = true,
- *   batch = true
- * )
  */
+#[ImporterAdapter(
+  id: 'solr',
+  label: new TranslatableMarkup('Islandora 7 Solr Importer'),
+  remote: true,
+  batch: true
+)]
 class SolrImporter extends SpreadsheetImporter {
 
   use StringTranslationTrait;

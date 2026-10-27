@@ -2,10 +2,12 @@
 
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
+use Drupal\ami\Attribute\ImporterAdapter;
 use Drupal\ami\Plugin\ImporterAdapter\SpreadsheetImporter;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Messenger\MessengerInterface;
 use Drupal\Core\Messenger\MessengerTrait;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\google_api_client\GoogleApiClientInterface;
 use Drupal\google_api_client\Service\GoogleApiClientService;
 use Google_Service_Sheets;
@@ -20,14 +22,13 @@ use Google_Service_Exception;
 
 /**
  * ADO importer from a remote Google Spreadsheet.
- *
- * @ImporterAdapter(
- *   id = "googlesheet",
- *   label = @Translation("Google Sheets Importer"),
- *   remote = false,
- *   batch = false,
- * )
  */
+#[ImporterAdapter(
+  id: 'googlesheet',
+  label: new TranslatableMarkup('Google Sheets Importer'),
+  remote: false,
+  batch: false
+)]
 class GoogleSheetImporter extends SpreadsheetImporter {
 
   use StringTranslationTrait;

@@ -2,6 +2,8 @@
 
 namespace Drupal\ami\Plugin\ImporterAdapter;
 
+use Drupal\ami\Attribute\ImporterAdapter;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\strawberryfield\Tools\StrawberryfieldJsonHelper;
 use Drupal\ami\AmiUtilityService;
 use Drupal\ami\Plugin\ImporterAdapterInterface as ImporterPluginAdapterInterface;
@@ -22,14 +24,13 @@ use Ramsey\Uuid\Uuid;
 
 /**
  * ADO importer from EAD XMLs with SYNC .
- *
- * @ImporterAdapter(
- *   id = "ead_sync",
- *   label = @Translation("EAD Syncronizer from XML files"),
- *   remote = false,
- *   batch = true,
- * )
  */
+#[ImporterAdapter(
+  id: 'ead_sync',
+  label: new TranslatableMarkup('EAD Syncronizer from XML files'),
+  remote: false,
+  batch: true
+)]
 class EADSyncImporter extends SpreadsheetImporter {
 
 
