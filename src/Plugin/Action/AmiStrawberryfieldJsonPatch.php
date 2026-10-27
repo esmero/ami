@@ -2,8 +2,11 @@
 
 namespace Drupal\ami\Plugin\Action;
 
+use Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver;
+use Drupal\Core\Action\Attribute\Action;
 use Drupal\Core\Form\FormStateInterface;
 use Drupal\Core\Session\AccountInterface;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\views\ViewExecutable;
 use Drupal\views_bulk_operations\Traits\ViewsBulkOperationsActionCompletedTrait;
 use Drupal\views_bulk_operations\Action\ViewsBulkOperationsActionInterface;
@@ -13,17 +16,16 @@ use Drupal\views_bulk_operations\Action\ViewsBulkOperationsPreconfigurationInter
 
 /**
  * Provides an action that can Modify Entity attached SBFs via JSON Patch.
- *
- * @Action(
- *   id = "entity:ami_jsonpatch_action",
- *   action_label = @Translation("JSON Patch Metadata for Archipelago Digital Objects"),
- *   label = @Translation("JSON Patch Metadata for Archipelago Digital Objects"),
- *   category = @Translation("AMI Metadata"),
- *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
- *   type = "node",
- *   confirm = "true"
- * )
  */
+#[Action(
+  id: 'entity:ami_jsonpatch_action',
+  label: new TranslatableMarkup('JSON Patch Metadata for Archipelago Digital Objects'),
+  action_label: new TranslatableMarkup('JSON Patch Metadata for Archipelago Digital Objects'),
+  category: new TranslatableMarkup('AMI Metadata'),
+  deriver: EntitySbfActionDeriver::class,
+  confirm_form_route_name: 'views_bulk_operations.confirm',
+  type: 'node'
+)]
 class AmiStrawberryfieldJsonPatch extends StrawberryfieldJsonPatch implements ViewsBulkOperationsActionInterface, ViewsBulkOperationsPreconfigurationInterface, PluginFormInterface {
 
   use ViewsBulkOperationsActionCompletedTrait;

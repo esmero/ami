@@ -2,8 +2,11 @@
 
 namespace Drupal\ami\Plugin\Action;
 
+use Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver;
+use Drupal\Core\Action\Attribute\Action;
 use Drupal\Core\Render\RendererInterface;
 use Drupal\Core\StreamWrapper\StreamWrapperManagerInterface;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\Core\Url;
 use Drupal\Core\Access\AccessResult;
 use Drupal\Core\Action\ConfigurableActionBase;
@@ -26,19 +29,16 @@ use Symfony\Component\DependencyInjection\ContainerInterface;
 
 /**
  * Provides an action that export SBFs to CSV.
- *
- * @Action(
- *   id = "entity:ami_csvexport_action",
- *   action_label = @Translation("Export Archipelago Digital Objects to CSV"),
- *   label = @Translation("Text based find and replace Metadata for Archipelago Digital Objects"),
- *   category = @Translation("AMI Metadata"),
- *   deriver = "Drupal\ami\Plugin\Action\Derivative\EntitySbfActionDeriver",
- *   type = "node",
- *   pass_context = TRUE,
- *   pass_view = TRUE,
- *   confirm = "true"
- * )
  */
+#[Action(
+  id: 'entity:ami_csvexport_action',
+  label: new TranslatableMarkup('Text based find and replace Metadata for Archipelago Digital Objects'),
+  action_label: new TranslatableMarkup('Export Archipelago Digital Objects to CSV'),
+  category: new TranslatableMarkup('AMI Metadata'),
+  deriver: EntitySbfActionDeriver::class,
+  confirm_form_route_name: 'views_bulk_operations.confirm',
+  type: 'node'
+)]
 class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements DependentPluginInterface, ContainerFactoryPluginInterface, ViewsBulkOperationsActionInterface, ViewsBulkOperationsPreconfigurationInterface, PluginFormInterface {
 
   use ViewsBulkOperationsActionCompletedTrait;
