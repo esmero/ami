@@ -3,6 +3,7 @@
 namespace Drupal\ami\Plugin\QueueWorker;
 
 use Drupal\Core\Entity\EntityInterface;
+use Drupal\Core\Queue\Attribute\QueueWorker;
 use Drupal\file\Entity\File;
 use Drupal\ami\AmiLoDService;
 use Drupal\ami\AmiUtilityService;
@@ -37,12 +38,11 @@ use Drupal\Core\Action\ActionInterface;
 
 /**
  * Processes, Ingests and Run Actions on each AMI Set CSV row.
- *
- * @QueueWorker(
- *   id = "ami_ingest_ado",
- *   title = @Translation("AMI Digital Object Ingester & Action Queue Worker")
- * )
  */
+#[QueueWorker(
+  id: 'ami_ingest_ado',
+  title: new TranslatableMarkup('AMI Digital Object Ingester & Action Queue Worker')
+)]
 class IngestADOQueueWorker extends QueueWorkerBase implements ContainerFactoryPluginInterface {
 
   use StringTranslationTrait;

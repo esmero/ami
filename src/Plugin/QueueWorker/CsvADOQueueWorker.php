@@ -2,6 +2,8 @@
 
 namespace Drupal\ami\Plugin\QueueWorker;
 
+use Drupal\Core\Queue\Attribute\QueueWorker;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\file\FileInterface;
 use Drupal\ami\Entity\amiSetEntity;
 use Monolog\Handler\StreamHandler;
@@ -10,12 +12,11 @@ use Monolog\Formatter\JsonFormatter;
 
 /**
  * Processes CSVs generating in turn Other ADO Queue worker entries.
- *
- * @QueueWorker(
- *   id = "ami_csv_ado",
- *   title = @Translation("AMI CSV Expander and ADO Enqueuer Queue Worker")
- * )
  */
+#[QueueWorker(
+  id: 'ami_csv_ado',
+  title: new TranslatableMarkup('AMI CSV Expander and ADO Enqueuer Queue Worker')
+)]
 class CsvADOQueueWorker extends IngestADOQueueWorker
 {
   /**
