@@ -3392,7 +3392,7 @@ class AmiUtilityService {
           }
           elseif (is_array($entry)) {
             if (array_is_list($entry)) {
-              $posible_entry = array_map(fn($value) => is_scalar($value), $entry);
+              $posible_entry = array_map(is_scalar(...), $entry);
               $all_entries = array_merge($all_entries, $posible_entry);
             }
             else {
