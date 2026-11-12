@@ -333,7 +333,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             if (!count($info)) {
               //@TODO tell the user which CSV failed please?
               $message = $this->t('So sorry. CSV @csv for @setid produced no ADOs. Please correct your source CSV data', [
-                '@setid' => $data_ado->info['set_id'] ?? 'Undefined AMI set',
+                '@setid' => $data_csv->info['set_id'] ?? 'Undefined AMI set',
                 '@csv' => $csv_file->getFilename() ?? 'Unknown CSV File',
               ]);
               $this->messenger->addError($message);
@@ -531,7 +531,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         $file_csv_columns = array_values(get_object_vars($csv_file_object));
       }
 
-      $should_process_simulated = $this->canProcess($data);
+     $this->canProcess($data);
       // On the actual queue worker we would bail out ::canProcess returning false. But here we want to accumulate the messages
       // and give the user feedback while stile trying to at least render a representation even if
       // actual processing would fail when done for real.
@@ -541,7 +541,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         $parents = array_filter($parents);
         foreach ($parents as $parent_property => $parent_uuid) {
           $parent_uuids = (array) $parent_uuid;
-          // We should validate each member to be an UUID here (again). Just in case?
+          // We should validate each member to be a UUID here (again). Just in case?
           $existing = $this->entityTypeManager->getStorage('node')
             ->loadByProperties(['uuid' => $parent_uuids]);
 
@@ -578,7 +578,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
             '@setid' => $data->info['set_id']
           ]);
           $this->messenger->addError($message);
-          // Here we actuall return FALSE BC there is no possible rendering situation.
+          // Here we actually return FALSE BC there is no possible rendering situation.
           return FALSE;
         }
       }
