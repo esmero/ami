@@ -500,7 +500,7 @@ class AmiUtilityService {
           $localfile = $this->streamWrapperManager->normalizeUri(
             $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
           );
-          if (!file_exists($localfile) || $force) {
+          if (!file_exists($localfile)) {
             $zip_file_exists = $this->check_fromzip_file($uri, $zip_file);
             if ($zip_file_exists) {
               $finaluri = $localfile;
@@ -535,7 +535,7 @@ class AmiUtilityService {
         $localfile = $path;
       }
       // Actual remote headers via HEAD
-      if (!file_exists($localfile) || $force) {
+      if (!file_exists($localfile)) {
         // use HEAD instead of GET
         $stream_context = stream_context_create(
           [
