@@ -11,7 +11,6 @@ namespace Drupal\ami;
 
 use Drupal\strawberryfield\Field\StrawberryFieldItemList;
 use Drupal\Component\Transliteration\TransliterationInterface;
-use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
@@ -42,6 +41,10 @@ use SplFileObject;
 use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 use Drupal\Core\File\FileExists;
 use Normalizer;
+use Aws\S3\S3Client;
+use Aws\Exception\AwsException;
+use Aws\S3\S3UriParser;
+use GuzzleHttp\Psr7\Uri;
 
 class AmiUtilityService {
 
@@ -83,13 +86,6 @@ class AmiUtilityService {
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
    */
   protected $streamWrapperManager;
-
-  /**
-   * The archiver manager.
-   *
-   * @var \Drupal\Core\Archiver\ArchiverManager
-   */
-  protected $archiverManager;
 
   /**
    * The Storage Destination Scheme.
@@ -187,13 +183,19 @@ class AmiUtilityService {
   private ConfigFactoryInterface $config_factory;
 
   /**
+   * If the no UI override to attempt to request Signed S3 is enabled.
+   *
+   * @var bool
+   */
+  private bool $global_s3_signing;
+
+  /**
    * StrawberryfieldFilePersisterService constructor.
    *
    * @param \Drupal\Core\File\FileSystemInterface $file_system
    * @param \Drupal\file\FileUsage\FileUsageInterface $file_usage
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    * @param \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface $stream_wrapper_manager
-   * @param \Drupal\Core\Archiver\ArchiverManager $archiver_manager
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
    * @param \Drupal\Core\Session\AccountInterface $current_user
    * @param \Drupal\Core\Language\LanguageManagerInterface $language_manager
@@ -214,7 +216,6 @@ class AmiUtilityService {
     FileUsageInterface $file_usage,
     EntityTypeManagerInterface $entity_type_manager,
     StreamWrapperManagerInterface $stream_wrapper_manager,
-    ArchiverManager $archiver_manager,
     ConfigFactoryInterface $config_factory,
     AccountInterface $current_user,
     LanguageManagerInterface $language_manager,
@@ -234,7 +235,6 @@ class AmiUtilityService {
     $this->fileUsage = $file_usage;
     $this->entityTypeManager = $entity_type_manager;
     $this->streamWrapperManager = $stream_wrapper_manager;
-    $this->archiverManager = $archiver_manager;
     //@TODO evaluate creating a ServiceFactory instead of reading this on construct.
     $this->destinationScheme = $config_factory->get(
       'strawberryfield.storage_settings'
@@ -255,6 +255,7 @@ class AmiUtilityService {
     $this->keyValue = $key_value;
     $this->strawberryfieldFileMetadataService = $strawberryfield_file_metadata_service;
     $this->config_factory = $config_factory;
+    $this->global_s3_signing = (bool) ($this->config_factory->get('ami.general')->get('s3_signing') ?? FALSE);
   }
 
 
@@ -603,6 +604,12 @@ class AmiUtilityService {
     $uri,
     $destination = NULL
   ) {
+
+    if ($this->isGlobalS3Signing()) {
+      $uri = $this->uriToSignedS3($uri) ?? $uri;
+    }
+
+
     // pre set a failure
     $parsed_url = parse_url($uri);
     $basename = basename(urldecode($parsed_url['path']));
@@ -634,14 +641,7 @@ class AmiUtilityService {
       if ($max_time == 0) {
         $max_time = 720.00;
       }
-      // Do a HEAD request first. Be sure we don't have anything in the 4XX or 5xx range
-      $head = $this->httpClient->head($uri, ['timeout' => round($max_time,2)]);
-      // Note. This will never run per se. Because the client is setup to throw an exception, but...
-      // If Drupal changes the client base setup in the future we won't know and we won't catch it
-      // So keeping it.
-      if ($head->getStatusCode() >= 400) {
-        return FALSE;
-      }
+
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
       // Edge case... in a fraction of time, someone closes the file from the remote source. We can still cancel
       // Same as with the HEAD. In this current setup this won't run and that is ok, the catch deals with it.
@@ -689,7 +689,7 @@ class AmiUtilityService {
         '@time' => $max_time,
         '@code' => $t->getCode()
       ];
-      $message = 'Unable to download remote file from @uri to local @path with HTTP code @code and error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible and destination is writable.';
+      $message = 'Unable to download remote file from @uri to local @path with HTTP code @code and error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible, the URL is not a redirect, and destination is writable.';
       $this->loggerFactory->get('ami')->error($message, $message_vars);
       // in case the sink did download the file/we delete it here.
       if (file_exists($path)) {
@@ -2897,6 +2897,10 @@ class AmiUtilityService {
     return  $parent_numeric;
   }
 
+  public function isGlobalS3Signing(): bool {
+    return $this->global_s3_signing ?? FALSE;
+  }
+
   /**
    * Callback to get the Index number in the CSV File of a parent numeric id
    * or uuid. This literally searches the CSV File itself.
@@ -3634,5 +3638,54 @@ class AmiUtilityService {
     // Closes the SPL File Object.
     $fh = NULL;
     return $needs_review;
+  }
+
+  /**
+   * Attempts to request a Pre Signed S3 URL from a simple S3 AWS URI
+   * If it fails or not originally AWS, then it returns NULL;
+   *
+   * @param string $uri
+   *
+   * @return string|null
+   */
+  public function uriToSignedS3(string $uri):string|null {
+    // Attempt at S3 parsing: NYPR workaround
+    $uri_s3 = NULL;
+    $parser = new S3UriParser();
+    $parsed = $parser->parse(new Uri($uri));
+
+    $bucket = $parsed['bucket'] ;
+    $region = $parsed['region'];
+    $key = $parsed['key'];
+
+    if ($bucket && $region && $key) {
+      try {
+        $s3Client = new S3Client([
+          'version'           => 'latest',
+          'region'            => $region,
+          'signature_version' => 'v4'
+        ]);
+
+        $s3cmd = $s3Client->getCommand('GetObject', [
+          'Bucket' => $bucket,
+          'Key'    => $key,
+        ]);
+
+        $request = $s3Client->createPresignedRequest($s3cmd, '+1 hour');
+        $uri_s3 = (string) $request->getUri();
+        // This here is in case $request->getUri(); throws an error
+        // that way we only assign $uri back if all went well
+      }
+      catch (AwsException $e) {
+        $message_vars = [
+          '@uri' => $uri,
+          '@error' => $e->getMessage(),
+          '@bucket' => $bucket,
+        ];
+        $message = 'Unable to generate Signed URL from @uri to local with error: @error. Verify your AWS IAM user has access to sign URLs for bucket @bucket.';
+        $this->loggerFactory->get('ami')->error($message, $message_vars);
+      }
+    }
+    return $uri_s3;
   }
 }
