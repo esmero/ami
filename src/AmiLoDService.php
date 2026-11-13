@@ -11,7 +11,6 @@ namespace Drupal\ami;
 
 use Drupal\Component\Transliteration\TransliterationInterface;
 use Drupal\Component\Utility\Xss;
-use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityTypeManagerInterface;
 use Drupal\Core\Extension\ModuleHandlerInterface;
@@ -70,13 +69,6 @@ class AmiLoDService {
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
    */
   protected $streamWrapperManager;
-
-  /**
-   * The archiver manager.
-   *
-   * @var \Drupal\Core\Archiver\ArchiverManager
-   */
-  protected $archiverManager;
 
   /**
    * The Storage Destination Scheme.
@@ -207,7 +199,6 @@ class AmiLoDService {
    * @param \Drupal\file\FileUsage\FileUsageInterface $file_usage
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    * @param \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface $stream_wrapper_manager
-   * @param \Drupal\Core\Archiver\ArchiverManager $archiver_manager
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
    * @param \Drupal\Core\Session\AccountInterface $current_user
    * @param \Drupal\Core\Language\LanguageManagerInterface $language_manager
@@ -224,7 +215,6 @@ class AmiLoDService {
     FileUsageInterface $file_usage,
     EntityTypeManagerInterface $entity_type_manager,
     StreamWrapperManagerInterface $stream_wrapper_manager,
-    ArchiverManager $archiver_manager,
     ConfigFactoryInterface $config_factory,
     AccountInterface $current_user,
     LanguageManagerInterface $language_manager,
@@ -240,8 +230,6 @@ class AmiLoDService {
     $this->fileUsage = $file_usage;
     $this->entityTypeManager = $entity_type_manager;
     $this->streamWrapperManager = $stream_wrapper_manager;
-    $this->archiverManager = $archiver_manager;
-    //@TODO evaluate creating a ServiceFactory instead of reading this on construct.
     $this->destinationScheme = $config_factory->get(
       'strawberryfield.storage_settings'
     )->get('file_scheme');
