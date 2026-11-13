@@ -447,12 +447,13 @@ class AmiUtilityService {
    *   The URL of the file to grab.
    *
    * @param \Drupal\file\Entity\File|NULL $zip_file
+   * @param bool $force
    *
    * @return bool
    *    TRUE if it exists or is available to be fetched (URL)
    *    FALSE if not.
    */
-  public function file_check_availability($uri, File $zip_file = NULL) {
+  public function file_check_availability($uri, File $zip_file = NULL, $force = FALSE, string &$reason = '') {
     $uri = trim($uri);
 
     $parsed_url = parse_url($uri);
@@ -474,6 +475,7 @@ class AmiUtilityService {
       if ($scheme) {
         // Try also with our internal S3 check-if-its-there-function
         if (!file_exists($uri) && !$this->strawberryfieldFilePersisterService->fileS3Exists($uri)) {
+          $reason = "Local stream wrapped Path based on {$scheme} does not exist";
           return FALSE;
         }
         $finaluri = $uri;
@@ -484,15 +486,15 @@ class AmiUtilityService {
         $localfile = $this->fileSystem->realpath($uri);
 
         if (!$localfile && !$zip_file) {
+          $reason = 'Source file Path does not exist in the server.';
           return FALSE;
         }
         elseif ($localfile) {
           // We can not allow DIRS. C'mon
           if (is_dir($localfile)) {
+            $reason = 'Source file Path can not be a server Directory.';
             return FALSE;
           }
-          // Means the file is there already locally. Just assign.
-          $finaluri = $localfile;
         }
         elseif (!$localfile && $zip_file) {
           // Means no local file but we can check inside a ZIP.
@@ -503,8 +505,9 @@ class AmiUtilityService {
           );
           if (!file_exists($localfile)) {
             $zip_file_exists = $this->check_fromzip_file($uri, $zip_file);
-            if ($zip_file_exists) {
-              $finaluri = $localfile;
+            if (!$zip_file_exists) {
+              $reason = "Path does not exist in attached ZIP file";
+             return FALSE;
             }
           }
         }
@@ -531,12 +534,19 @@ class AmiUtilityService {
 
       if (is_array($isthere) && count($isthere) == 1) {
         // Ups its here
-        // Use path here instead of the first entry to keep the streamwrapper
+        // Use path here instead of the first entry to keep the stream wrapper
         // around for future use
         $localfile = $path;
       }
       // Actual remote headers via HEAD
-      if (!file_exists($localfile)) {
+      if (!file_exists($localfile) || $force) {
+        if ($this->couldBePresignedS3($uri)) {
+          $reason = "File could exist, but the URI is a Presigned S3 URL which we can not verify upfront, only download";
+          return FALSE;
+          // Bail out on presigned URLs. WE can't do a HEAD
+        }
+
+
         // use HEAD instead of GET
         $stream_context = stream_context_create(
           [
@@ -566,8 +576,13 @@ class AmiUtilityService {
             // We use the localfile/simulated one here. Does not matter if we have not yet fetched it.
             $finaluri = $localfile;
           }
+          else {
+            $reason = "Remote URL responded with a {$response_code} code to a HEAD request. We can't ensure a full future GET might work";
+            return FALSE;
+          }
         }
         else {
+          $reason = "Remote URL failed on a HEAD request. Might not be there";
           return FALSE;
         }
       }
@@ -579,6 +594,7 @@ class AmiUtilityService {
     if ($finaluri) {
       return TRUE;
     }
+    $reason = "Passed File path is invalid";
     return FALSE;
   }
 
@@ -609,8 +625,6 @@ class AmiUtilityService {
       $uri = $this->uriToSignedS3($uri) ?? $uri;
     }
 
-
-    // pre set a failure
     $parsed_url = parse_url($uri);
     $basename = basename(urldecode($parsed_url['path']));
     if (!isset($destination)) {
@@ -655,7 +669,6 @@ class AmiUtilityService {
       $filename_from_remote = $basename;
       $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
       $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
-      $extension_from_mime = NULL;
       $extension = NULL;
       $content_disposition = $response->getHeader('Content-Disposition');
       if (!empty($content_disposition)) {
@@ -3687,5 +3700,37 @@ class AmiUtilityService {
       }
     }
     return $uri_s3;
+  }
+
+  /**
+   * Naive check to see if it could be a signed URL.
+   * Does not validate, returns on the first required param.
+   *
+   * @param $uri
+   *
+   * @return bool
+   */
+  public function couldBePresignedS3($uri):bool {
+    $url_parts = parse_url($uri);
+    if (!isset($url_parts['query'])) {
+      return FALSE;
+    }
+    $queryParams = [];
+    parse_str($url_parts['query'], $queryParams);
+    $AwsParams = [
+      'X-Amz-Algorithm',
+      'X-Amz-Credential',
+      'X-Amz-Date',
+      'X-Amz-Expires',
+      'X-Amz-SignedHeaders',
+      'X-Amz-Signature'
+    ];
+
+    foreach ($AwsParams as $param) {
+      if (isset($queryParams[$param])) {
+        return TRUE;
+      }
+    }
+    return FALSE;
   }
 }

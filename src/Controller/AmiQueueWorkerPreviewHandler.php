@@ -737,7 +737,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
               $file_exists = $this->checkFileAvailability($data_file);
               if (!$file_exists) {
                 $allfiles = FALSE;
-                $message = $this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn would not be processed. We would Skip. Please check your CSV for set @setid.',
+                $message = $this->t('Sorry, for ADO with UUID:@uuid, File @filename at column @filecolumn would not be processed. We would Skip. Please check your CSV for AMI SET with ID @setid.',
                   [
                     '@uuid' => $data->info['row']['uuid'] ?? 'Undefined UUID',
                     '@setid' => $data->info['set_id'] ?? 'Undefined AMI set ID',
@@ -1250,8 +1250,9 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
   protected function checkFileAvailability($data) {
     try {
       $zip_file_id = is_object($data->info['zip_file']) && $data->info['zip_file'] instanceof FileInterface ? (string) $data->info['zip_file']->id() : '0';
+      $reasons = '';
       $file_exists = $this->AmiUtilityService->file_check_availability(trim($data->info['filename'] ?? ''),
-        $data->info['zip_file'], $data->info['force_file_process']);
+        $data->info['zip_file'], $data->info['force_file_process'], $reasons);
       if ($file_exists) {
         $message = $this->t('The referenced file @filename from Set @setid was found!',
           [
@@ -1262,10 +1263,11 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         return TRUE;
       }
       else {
-        $message = $this->t('Ups. The referenced file @filename from Set @setid could not be found.',
+        $message = $this->t('Ups. The referenced file @filename from Set @setid could not be found. @reason',
           [
             '@setid' => $data->info['set_id'] ?? 'Unknown Set',
-            '@filename' => $data->info['filename']
+            '@filename' => $data->info['filename'],
+            '@reason' => $reasons,
           ]);
         $this->messenger->addError($message);
         return FALSE;
