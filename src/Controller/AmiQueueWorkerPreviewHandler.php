@@ -751,7 +751,6 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
         }
       }
 
-
       if (!empty($data->info['ops_skip_onmissing_file'] && $data->info['ops_skip_onmissing_file'] == TRUE && !$allfiles)) {
         $message = $this->t('We would skip ADO with UUID:@uuid because one or more files could not be processed and <em>Skip ADO processing on missing File</em> is enabled',
           [
