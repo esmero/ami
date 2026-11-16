@@ -184,7 +184,7 @@ class SpreadsheetImporter extends ImporterAdapterBase {
 
       $rowHeaders_utf8 = array_map($cleanStrings, $rowHeaders[0] ?? []);
       foreach($rowHeaders_utf8 as &$header) {
-        $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : utf8_encode($header);
+        $header = function_exists('mb_convert_encoding') ? mb_convert_encoding($header, 'UTF-8', mb_list_encodings()) : mb_convert_encoding($header, 'UTF-8', 'ISO-8859-1');
       }
       $rowHeaders_utf8 = array_map(strtolower(...), $rowHeaders_utf8);
       $rowHeaders_utf8 = array_map(trim(...), $rowHeaders_utf8);

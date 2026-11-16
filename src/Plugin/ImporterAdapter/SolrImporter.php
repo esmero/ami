@@ -602,7 +602,7 @@ class SolrImporter extends SpreadsheetImporter {
         ]);
         $resultset = $client->select($query);
         $allheaders = $resultset->getResponse()->getBody();
-        $allheaders_array = str_getcsv($allheaders);
+        $allheaders_array = str_getcsv($allheaders, escape: '\\');
         $allheaders_array = array_map([$this, 'multipleToSingleFieldName'], $allheaders_array);
         // Remove this non sense of mods_*_authority_marcrelator
         array_filter($allheaders_array, fn($value) => $this->endsWith($value, 'authority_marcrelator'));
@@ -1311,7 +1311,7 @@ class SolrImporter extends SpreadsheetImporter {
    *
    * @return string
    */
-  protected function concatValues(array $value, string $original_value = NULL): string {
+  protected function concatValues(array $value, ?string $original_value = NULL): string {
     if (!empty($original_value)) {
       $original_value = explode('|@|', $original_value) ?? [];
       $value = array_unique(array_merge($original_value, $value));
