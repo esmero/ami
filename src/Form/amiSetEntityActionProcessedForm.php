@@ -39,7 +39,7 @@ class amiSetEntityActionProcessedForm extends ContentEntityConfirmFormBase {
    * @param ViewsBulkOperationsActionManager $actionManager
    * @param ViewsBulkOperationsActionProcessorInterface $actionProcessor
    */
-  public function __construct(EntityRepositoryInterface $entity_repository, EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, protected ?ViewsBulkOperationsActionManager $actionManager = null, protected ?ViewsBulkOperationsActionProcessorInterface $actionProcessor = null) {
+  public function __construct(EntityRepositoryInterface $entity_repository, ?EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL, ?TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, protected ?ViewsBulkOperationsActionManager $actionManager = null, protected ?ViewsBulkOperationsActionProcessorInterface $actionProcessor = null) {
 
     parent::__construct($entity_repository,$entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;

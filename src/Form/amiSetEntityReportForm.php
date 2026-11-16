@@ -34,7 +34,7 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
   /**
    * @var
    */
-  private CONST LOG_LEVELS = [
+  private CONST array LOG_LEVELS = [
     'all'       => 'All Levels (all time)',
     'INFO'      => 'INFO (Last time processed)',
     'WARNING'   => 'WARNING (Last time processed)',
@@ -69,8 +69,8 @@ class amiSetEntityReportForm extends ContentEntityConfirmFormBase {
    */
   public function __construct(
     EntityRepositoryInterface $entity_repository,
-    EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, ?FileSystemInterface $file_system = null) {
+    ?EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
+    ?TimeInterface $time = NULL, ?AmiUtilityService $ami_utility = null, ?FileSystemInterface $file_system = null) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiUtilityService = $ami_utility;
     $this->fileSystem = $file_system;

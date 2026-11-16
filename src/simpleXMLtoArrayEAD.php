@@ -26,7 +26,7 @@ class simpleXMLtoArrayEAD {
 
   }
 
-  public function xmlToArray(SimpleXMLElement $element = null) {
+  public function xmlToArray(?SimpleXMLElement $element = null) {
     // This here will allow us to reconstruct from JSON bc the position of the inner tags
     // relative to a piece of text won't be preserved.
     // Idea. If a tag has both data (text) and tags inside. Don't iterate. Just return the XML. We will treat as HTML

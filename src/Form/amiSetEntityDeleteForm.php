@@ -38,8 +38,8 @@ class amiSetEntityDeleteForm extends ContentEntityConfirmFormBase {
    */
   public function __construct(
     EntityRepositoryInterface $entity_repository,
-    EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL, ?AmiLoDService $ami_lod = null) {
+    ?EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
+    ?TimeInterface $time = NULL, ?AmiLoDService $ami_lod = null) {
     parent::__construct($entity_repository, $entity_type_bundle_info, $time);
     $this->AmiLoDService = $ami_lod;
   }

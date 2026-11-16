@@ -506,7 +506,7 @@ class AmiStrawberryfieldCSVexport extends ConfigurableActionBase implements Depe
   /**
    * {@inheritdoc}
    */
-  public function access($object, AccountInterface $account = NULL, $return_as_object = FALSE) {
+  public function access($object, ?AccountInterface $account = NULL, $return_as_object = FALSE) {
 
     /** @var \Drupal\Core\Entity\EntityInterface $object */
     $result = $object->access('view', $account, TRUE)

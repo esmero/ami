@@ -482,7 +482,7 @@ class AmiStrawberryfieldJsonAsWebform extends AmiStrawberryfieldJsonAsText {
   /**
    * {@inheritdoc}
    */
-  public function access($object, AccountInterface $account = NULL, $return_as_object = FALSE) {
+  public function access($object, ?AccountInterface $account = NULL, $return_as_object = FALSE) {
     return $object->access('update', $account, $return_as_object);
   }
 

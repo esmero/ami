@@ -56,8 +56,8 @@ class amiSetEntityProcessForm extends ContentEntityConfirmFormBase {
    */
   public function __construct(
     EntityRepositoryInterface $entity_repository,
-    EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
-    TimeInterface $time = NULL,
+    ?EntityTypeBundleInfoInterface $entity_type_bundle_info = NULL,
+    ?TimeInterface $time = NULL,
     ?AmiUtilityService $ami_utility = null,
     ?PrivateTempStoreFactory $temp_store_factory = null,
     ?StrawberryfieldUtilityService $strawberryfield_utility_service = null,

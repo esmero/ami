@@ -1297,7 +1297,7 @@ class AmiQueueWorkerPreviewHandler extends ControllerBase {
       $data->info['zip_file'] ?? NULL, TRUE);
     if ($file) {
       $event_type = StrawberryfieldEventType::TEMP_FILE_CREATION;
-      $current_timestamp = (new DrupalDateTime())->getTimestamp();
+      $current_timestamp = new DrupalDateTime()->getTimestamp();
       $event = new StrawberryfieldFileEvent($event_type, 'ami', $file->getFileUri(), $current_timestamp);
       // This will allow the extracted CSV from the zip to be composted, even if it was not a CSV.
       // IN a queue by \Drupal\strawberryfield\EventSubscriber\StrawberryfieldEventCompostBinSubscriber

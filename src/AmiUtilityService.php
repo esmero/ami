@@ -304,7 +304,7 @@ class AmiUtilityService {
    *   - If not remote and exists a Drupal file object
    *   - If it does not exist boolean FALSE
    */
-  public function file_get($uri, File $zip_file = NULL, $force = FALSE) {
+  public function file_get($uri, ?File $zip_file = NULL, $force = FALSE) {
     $uri = trim($uri);
 
     $parsed_url = parse_url($uri);
@@ -453,7 +453,7 @@ class AmiUtilityService {
    *    TRUE if it exists or is available to be fetched (URL)
    *    FALSE if not.
    */
-  public function file_check_availability($uri, File $zip_file = NULL, $force = FALSE, string &$reason = '') {
+  public function file_check_availability($uri, ?File $zip_file = NULL, $force = FALSE, string &$reason = '') {
     $uri = trim($uri);
 
     $parsed_url = parse_url($uri);
@@ -815,7 +815,7 @@ class AmiUtilityService {
    *   - If it succeeds a Path to a managed file object
    *   - If it fails or NULL, FALSE.
    */
-  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, File $zip_file = NULL) {
+  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, ?File $zip_file = NULL) {
     if (!$zip_file) {
       return FALSE;
     }
@@ -919,7 +919,7 @@ class AmiUtilityService {
    *   - If it succeeds a Path to a managed file object
    *   - If it fails or NULL, FALSE.
    */
-  public function check_fromzip_file($uri, File $zip_file = NULL) {
+  public function check_fromzip_file($uri, ?File $zip_file = NULL) {
     if (!$zip_file) {
       return FALSE;
     }
@@ -1285,7 +1285,7 @@ class AmiUtilityService {
    *
    * @return int|string|null
    */
-  public function csv_touch(string $filename = NULL, ?string $subpath = NULL, bool $temp = FALSE): int|string|null {
+  public function csv_touch(?string $filename = NULL, ?string $subpath = NULL, bool $temp = FALSE): int|string|null {
     if ($temp) {
       $wrapper =  'temporary://';
     }
@@ -1632,7 +1632,7 @@ class AmiUtilityService {
     $i = 1;
     $data = [];
     while (!$spl->eof()) {
-      $data = $spl->fgetcsv();
+      $data = $spl->fgetcsv(escape: '\\');
       if ($i == 1) {
         $removecolumns = array_diff($data, $headerwithdata);
         foreach ($removecolumns as $column) {
@@ -1944,7 +1944,7 @@ class AmiUtilityService {
    *
    * @return \Drupal\Core\Access\AccessResultInterface|bool
    */
-  public function checkBundleAccess(string $bundle, AccountInterface $account = NULL) {
+  public function checkBundleAccess(string $bundle, ?AccountInterface $account = NULL) {
     try {
       $access_handler = $this->entityTypeManager->getAccessControlHandler(
         'node'
@@ -1970,7 +1970,7 @@ class AmiUtilityService {
    * @return array
    *    A list of Fields where Edit access is allowed.
    */
-  public function checkFieldAccess($bundle, AccountInterface $account = NULL) {
+  public function checkFieldAccess($bundle, ?AccountInterface $account = NULL) {
     $fields = [];
     $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
     $field_definitions = $this->strawberryfieldUtility->getStrawberryfieldDefinitionsForBundle($bundle);
@@ -3725,12 +3725,6 @@ class AmiUtilityService {
       'X-Amz-SignedHeaders',
       'X-Amz-Signature'
     ];
-
-    foreach ($AwsParams as $param) {
-      if (isset($queryParams[$param])) {
-        return TRUE;
-      }
-    }
-    return FALSE;
+    return array_any($AwsParams, fn($param) => isset($queryParams[$param]));
   }
 }
