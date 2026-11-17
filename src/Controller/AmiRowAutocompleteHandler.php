@@ -152,7 +152,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
     if (!empty($form_state->getValues()['ado_amiset_preview'])) {
       $form_state->setValue('ado_amiset_row_context_preview', $row);
       $id = $form_state->getValues()['ado_amiset_preview'] ?? NULL;
-      $id = $id ?? EntityAutocomplete::extractEntityIdFromAutocompleteInput($form_state->getUserInput()['ado_amiset_preview']);
+      $id ??= EntityAutocomplete::extractEntityIdFromAutocompleteInput($form_state->getUserInput()['ado_amiset_preview']);
       $form_state->setValue('ado_amiset_preview', $id);
       /** @var \Drupal\node\NodeInterface $preview_node */
       $preview_ami_set = \Drupal::entityTypeManager()
@@ -190,7 +190,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
           $mimetype = !empty($mimetype) ? $mimetype[0]['value'] : 'text/html';
           $show_render_native = $form_state->getValue('render_native');
           if ($show_render_native) {
-            set_error_handler('_format_strawberryfield_metadata_preview_error_handler');
+            set_error_handler(_format_strawberryfield_metadata_preview_error_handler(...));
           }
 
           //@TODO there is code duplication here, we do this already at \Drupal\ami\AmiUtilityService::processMetadataDisplay
@@ -203,7 +203,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
             foreach ($lod_mappings as $source_column => $destination) {
               if (is_array($destination)) {
                 foreach ($destination as $pos_approach) {
-                  $context_lod[$source_column][$pos_approach] = $context_lod[$source_column][$pos_approach] ?? [];
+                  $context_lod[$source_column][$pos_approach] ??= [];
                 }
               }
               if (isset($jsondata[$source_column])) {
@@ -227,7 +227,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
                       if (isset($lod['lod'])) {
                         $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [],
                           $lod['lod']);
-                        $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
+                        $serialized = array_map(serialize(...), $context_lod[$source_column][$approach]);
                         $unique = array_unique($serialized);
                         $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
                         $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
@@ -491,7 +491,7 @@ class AmiRowAutocompleteHandler extends ControllerBase {
   public static function rowAjaxCallback($form, FormStateInterface $form_state) {
     $response = new AjaxResponse();
     $id = $form_state->getValues()['ado_amiset_preview'] ?? NULL;
-    $id = $id ?? EntityAutocomplete::extractEntityIdFromAutocompleteInput($form_state->getUserInput()['ado_amiset_preview']);
+    $id ??= EntityAutocomplete::extractEntityIdFromAutocompleteInput($form_state->getUserInput()['ado_amiset_preview']);
     $form['preview']['#open'] = TRUE;
     if ($id) {
       $form['preview']['ado_amiset_row_context_preview']['#autocomplete_route_parameters'] = ['ami_set_entity' => $id];

@@ -18,7 +18,7 @@ class TwigExtension extends AbstractExtension {
   /**
    * @inheritDoc
    */
-  public function getFunctions() {
+  public function getFunctions(): array {
     return [
       new TwigFunction('ami_lod_reconcile',
         $this->amiLodReconcile(...)),
@@ -87,7 +87,7 @@ class TwigExtension extends AbstractExtension {
     catch (\Exception $exception) {
       $message = t('@exception_type thrown in @file:@line while querying for @entity_type entity ids matching "@label". Message: @response',
         [
-          '@exception_type' => get_class($exception),
+          '@exception_type' => $exception::class,
           '@file' => $exception->getFile(),
           '@line' => $exception->getLine(),
           '@label' => $label,

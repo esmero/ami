@@ -24,10 +24,10 @@ class amiSetEntityListBuilder extends EntityListBuilder {
    */
   public function render() {
     $build['description'] = [
-      '#markup' => $this->t('AMI provides Sets. You can manage the fields on the <a href="@adminlink">AMI provides Sets admin page</a>.', array(
+      '#markup' => $this->t('AMI provides Sets. You can manage the fields on the <a href="@adminlink">AMI provides Sets admin page</a>.', [
         '@adminlink' => \Drupal::urlGenerator()
           ->generateFromRoute('ami.amisetentity_settings'),
-      )),
+      ]),
     ];
 
     $build += parent::render();

@@ -62,13 +62,6 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
   protected $AmiUtilityService;
 
   /**
-   * The entity manager service.
-   *
-   * @var \Drupal\Core\Entity\EntityTypeManagerInterface
-   */
-  protected EntityTypeManagerInterface $entityTypeManager;
-
-  /**
    * The request stack.
    *
    * @var \Symfony\Component\HttpFoundation\RequestStack
@@ -98,7 +91,7 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
    * @param \Drupal\Core\Session\AccountInterface               $account
    * @param \Drupal\Core\Logger\LoggerChannelFactoryInterface   $logger_factory
    * @param \Drupal\ami\AmiUtilityService                       $ami_utility
-   * @param \Drupal\Core\Entity\EntityTypeManagerInterface      $entity_type_manager
+   * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entityTypeManager
    * @param \Symfony\Component\HttpFoundation\RequestStack      $request_stack
    * @param \Drupal\Core\Render\RendererInterface               $renderer
    * @param \Drupal\Core\Config\ConfigFactoryInterface          $config_factory
@@ -109,7 +102,10 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
     LoggerChannelFactoryInterface $logger_factory,
     AccountInterface $account,
     AmiUtilityService $ami_utility,
-    EntityTypeManagerInterface $entity_type_manager,
+    /**
+     * The entity manager service.
+     */
+    protected EntityTypeManagerInterface $entityTypeManager,
     RequestStack $request_stack,
     RendererInterface $renderer,
     ConfigFactoryInterface $config_factory
@@ -119,7 +115,6 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
     $this->loggerFactory = $logger_factory;
     $this->account = $account;
     $this->AmiUtilityService = $ami_utility;
-    $this->entityTypeManager = $entity_type_manager;
     $this->requestStack = $request_stack;
     $this->renderer = $renderer;
     $this->configFactory = $config_factory;
@@ -220,9 +215,7 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
             try {
               $cacheabledata = $this->renderer->executeInRenderContext(
                 new RenderContext(),
-                function () use ($context, $metadatadisplay_entity) {
-                  return $metadatadisplay_entity->renderNative($context);
-                }
+                fn() => $metadatadisplay_entity->renderNative($context)
               );
               if (count($cacheabledata)) {
                 $jsonstring = $cacheabledata->__toString();
@@ -276,7 +269,7 @@ class AmiStrawberryfieldEventPresaveSubscriberJsonTransform extends Strawberryfi
         }
       }
     }
-    $current_class = get_called_class();
+    $current_class = static::class;
     $event->setProcessedBy($current_class, TRUE);
   }
 

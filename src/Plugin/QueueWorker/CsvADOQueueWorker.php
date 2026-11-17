@@ -2,6 +2,8 @@
 
 namespace Drupal\ami\Plugin\QueueWorker;
 
+use Drupal\Core\Queue\Attribute\QueueWorker;
+use Drupal\Core\StringTranslation\TranslatableMarkup;
 use Drupal\file\FileInterface;
 use Drupal\ami\Entity\amiSetEntity;
 use Monolog\Handler\StreamHandler;
@@ -10,12 +12,11 @@ use Monolog\Formatter\JsonFormatter;
 
 /**
  * Processes CSVs generating in turn Other ADO Queue worker entries.
- *
- * @QueueWorker(
- *   id = "ami_csv_ado",
- *   title = @Translation("AMI CSV Expander and ADO Enqueuer Queue Worker")
- * )
  */
+#[QueueWorker(
+  id: 'ami_csv_ado',
+  title: new TranslatableMarkup('AMI CSV Expander and ADO Enqueuer Queue Worker')
+)]
 class CsvADOQueueWorker extends IngestADOQueueWorker
 {
   /**
@@ -247,7 +248,7 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
                 foreach ($children_csvs as $child_csv) {
                   if (strlen(trim($child_csv ?? '')) >= 5) {
                     $filenames = array_map(function($value) {
-                      $value = $value ?? '';
+                      $value ??= '';
                       $value = is_string($value) ? $value : '';
                       return trim($value);
                     }, explode(';', $child_csv));
@@ -321,9 +322,9 @@ class CsvADOQueueWorker extends IngestADOQueueWorker
           ]);
         }
         $processed_set_status = $this->statusStore->get('set_' . $data->info['set_id']);
-        $processed_set_status['processed'] = $processed_set_status['processed'] ?? 0;
-        $processed_set_status['errored'] = $processed_set_status['errored'] ?? 0;
-        $processed_set_status['total'] = $processed_set_status['total'] ?? 0 + count($added);
+        $processed_set_status['processed'] ??= 0;
+        $processed_set_status['errored'] ??= 0;
+        $processed_set_status['total'] ??= 0 + count($added);
         $this->statusStore->set('set_' . $data->info['set_id'], $processed_set_status);
         return;
       }

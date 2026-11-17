@@ -1,0 +1,8 @@
+ami.general:
+  type: config_object
+  label: General AMI Module settings
+  mapping:
+    sign_s3_urls:
+      type: boolean
+      label: "When true, any AWS S3 (https://) direct URL to an Object, when mapped as file source in an AMI set, will get an attempt of requesting a short lived pre-signed URL. The repository’s already configured AWS credentials will be used, which implies the remote S3 bucket must already have ACLs allowing that. Do not enable on production if you do not know what you are doing."
+      default: false

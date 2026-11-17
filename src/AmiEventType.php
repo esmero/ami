@@ -22,10 +22,8 @@ final class AmiEventType {
    * @see ami_ami_set_entity_presave()
    * @see \Drupal\ami\Event\AmiCrudEvent
    * @see \Drupal\ami\EventSubscriber\AmiEventPresaveSubscriberProcessedLoDUpdater
-   *
-   * @var string
    */
-  const PRESAVE = 'ami.ami_set_entity.presave';
+  const string PRESAVE = 'ami.ami_set_entity.presave';
 
 
 }

@@ -111,10 +111,10 @@ class ImporterAdapterForm extends EntityForm {
       '#description' => $this->t('The plugin to be used with this importer.'),
       '#required' => TRUE,
       '#empty_option' => $this->t('Please select a plugin'),
-      '#ajax' => array(
+      '#ajax' => [
         'callback' => [$this, 'pluginConfigAjaxCallback'],
         'wrapper' => 'plugin-configuration-wrapper'
-      ),
+      ],
     ];
 
     $form['plugin_configuration'] = [
@@ -169,18 +169,14 @@ class ImporterAdapterForm extends EntityForm {
     $importer->set('plugin_configuration', $importer->getPluginConfiguration()['plugin']);
     $status = $importer->save();
 
-    switch ($status) {
-      case SAVED_NEW:
-        $this->messenger->addMessage($this->t('Created the %label Importer.', [
+    match ($status) {
+        SAVED_NEW => $this->messenger->addMessage($this->t('Created the %label Importer.', [
           '%label' => $importer->label(),
-        ]));
-        break;
-
-      default:
-        $this->messenger->addMessage($this->t('Saved the %label Importer.', [
+        ])),
+        default => $this->messenger->addMessage($this->t('Saved the %label Importer.', [
           '%label' => $importer->label(),
-        ]));
-    }
+        ])),
+    };
 
     $form_state->setRedirectUrl($importer->toUrl('collection'));
   }

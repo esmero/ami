@@ -11,7 +11,6 @@ namespace Drupal\ami;
 
 use Drupal\strawberryfield\Field\StrawberryFieldItemList;
 use Drupal\Component\Transliteration\TransliterationInterface;
-use Drupal\Core\Archiver\ArchiverManager;
 use Drupal\Core\Config\ConfigFactoryInterface;
 use Drupal\Core\Entity\EntityInterface;
 use Drupal\Core\Entity\EntityTypeBundleInfoInterface;
@@ -42,6 +41,10 @@ use SplFileObject;
 use Drupal\Core\File\Exception\InvalidStreamWrapperException;
 use Drupal\Core\File\FileExists;
 use Normalizer;
+use Aws\S3\S3Client;
+use Aws\Exception\AwsException;
+use Aws\S3\S3UriParser;
+use GuzzleHttp\Psr7\Uri;
 
 class AmiUtilityService {
 
@@ -83,13 +86,6 @@ class AmiUtilityService {
    * @var \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface
    */
   protected $streamWrapperManager;
-
-  /**
-   * The archiver manager.
-   *
-   * @var \Drupal\Core\Archiver\ArchiverManager
-   */
-  protected $archiverManager;
 
   /**
    * The Storage Destination Scheme.
@@ -187,9 +183,11 @@ class AmiUtilityService {
   private ConfigFactoryInterface $config_factory;
 
   /**
-   * @var \Drupal\strawberryfield\StrawberryfieldFilePersisterService
+   * If the no UI override to attempt to request Signed S3 is enabled.
+   *
+   * @var bool
    */
-  private StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService;
+  private bool $global_s3_signing;
 
   /**
    * StrawberryfieldFilePersisterService constructor.
@@ -198,7 +196,6 @@ class AmiUtilityService {
    * @param \Drupal\file\FileUsage\FileUsageInterface $file_usage
    * @param \Drupal\Core\Entity\EntityTypeManagerInterface $entity_type_manager
    * @param \Drupal\Core\StreamWrapper\StreamWrapperManagerInterface $stream_wrapper_manager
-   * @param \Drupal\Core\Archiver\ArchiverManager $archiver_manager
    * @param \Drupal\Core\Config\ConfigFactoryInterface $config_factory
    * @param \Drupal\Core\Session\AccountInterface $current_user
    * @param \Drupal\Core\Language\LanguageManagerInterface $language_manager
@@ -212,14 +209,13 @@ class AmiUtilityService {
    * @param \Drupal\ami\AmiLoDService $ami_lod
    * @param \Drupal\Core\KeyValueStore\KeyValueFactoryInterface $key_value
    * @param \Drupal\strawberryfield\StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service
-   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberryfield_file_persister_service
+   * @param \Drupal\strawberryfield\StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService
    */
   public function __construct(
     FileSystemInterface $file_system,
     FileUsageInterface $file_usage,
     EntityTypeManagerInterface $entity_type_manager,
     StreamWrapperManagerInterface $stream_wrapper_manager,
-    ArchiverManager $archiver_manager,
     ConfigFactoryInterface $config_factory,
     AccountInterface $current_user,
     LanguageManagerInterface $language_manager,
@@ -233,13 +229,12 @@ class AmiUtilityService {
     AmiLoDService $ami_lod,
     KeyValueFactoryInterface $key_value,
     StrawberryfieldFileMetadataService $strawberryfield_file_metadata_service,
-    StrawberryfieldFilePersisterService $strawberryfield_file_persister_service
+    private StrawberryfieldFilePersisterService $strawberryfieldFilePersisterService
   ) {
     $this->fileSystem = $file_system;
     $this->fileUsage = $file_usage;
     $this->entityTypeManager = $entity_type_manager;
     $this->streamWrapperManager = $stream_wrapper_manager;
-    $this->archiverManager = $archiver_manager;
     //@TODO evaluate creating a ServiceFactory instead of reading this on construct.
     $this->destinationScheme = $config_factory->get(
       'strawberryfield.storage_settings'
@@ -260,7 +255,7 @@ class AmiUtilityService {
     $this->keyValue = $key_value;
     $this->strawberryfieldFileMetadataService = $strawberryfield_file_metadata_service;
     $this->config_factory = $config_factory;
-    $this->strawberryfieldFilePersisterService = $strawberryfield_file_persister_service;
+    $this->global_s3_signing = (bool) ($this->config_factory->get('ami.general')->get('s3_signing') ?? FALSE);
   }
 
 
@@ -289,7 +284,7 @@ class AmiUtilityService {
    * @return bool
    */
   public function getIdfromPrefixedEntityNode($key) {
-    if (strpos($key, 'entity:node:', 0) !== FALSE) {
+    if (str_contains($key, 'entity:node:')) {
       return substr($key, strlen("entity:node:"));
     }
     return FALSE;
@@ -309,7 +304,7 @@ class AmiUtilityService {
    *   - If not remote and exists a Drupal file object
    *   - If it does not exist boolean FALSE
    */
-  public function file_get($uri, File $zip_file = NULL, $force = FALSE) {
+  public function file_get($uri, ?File $zip_file = NULL, $force = FALSE) {
     $uri = trim($uri);
 
     $parsed_url = parse_url($uri);
@@ -394,7 +389,7 @@ class AmiUtilityService {
           '///',
           '//',
           "{$destination}"
-        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+        ) . basename(urldecode($parsed_url['path']));
       $localfile = $this->streamWrapperManager->normalizeUri($path);
       $escaped_path = str_replace(' ', '\ ', $path);
       // This is very naive since the remote file might be different than
@@ -452,12 +447,13 @@ class AmiUtilityService {
    *   The URL of the file to grab.
    *
    * @param \Drupal\file\Entity\File|NULL $zip_file
+   * @param bool $force
    *
    * @return bool
    *    TRUE if it exists or is available to be fetched (URL)
    *    FALSE if not.
    */
-  public function file_check_availability($uri, File $zip_file = NULL) {
+  public function file_check_availability($uri, ?File $zip_file = NULL, $force = FALSE, string &$reason = '') {
     $uri = trim($uri);
 
     $parsed_url = parse_url($uri);
@@ -479,6 +475,7 @@ class AmiUtilityService {
       if ($scheme) {
         // Try also with our internal S3 check-if-its-there-function
         if (!file_exists($uri) && !$this->strawberryfieldFilePersisterService->fileS3Exists($uri)) {
+          $reason = "Local stream wrapped Path based on {$scheme} does not exist";
           return FALSE;
         }
         $finaluri = $uri;
@@ -489,15 +486,15 @@ class AmiUtilityService {
         $localfile = $this->fileSystem->realpath($uri);
 
         if (!$localfile && !$zip_file) {
+          $reason = 'Source file Path does not exist in the server.';
           return FALSE;
         }
         elseif ($localfile) {
           // We can not allow DIRS. C'mon
           if (is_dir($localfile)) {
+            $reason = 'Source file Path can not be a server Directory.';
             return FALSE;
           }
-          // Means the file is there already locally. Just assign.
-          $finaluri = $localfile;
         }
         elseif (!$localfile && $zip_file) {
           // Means no local file but we can check inside a ZIP.
@@ -506,10 +503,11 @@ class AmiUtilityService {
           $localfile = $this->streamWrapperManager->normalizeUri(
             $destination . $zip_file->uuid() . '/' . urldecode($parsed_url['path'])
           );
-          if (!file_exists($localfile) || $force) {
+          if (!file_exists($localfile)) {
             $zip_file_exists = $this->check_fromzip_file($uri, $zip_file);
-            if ($zip_file_exists) {
-              $finaluri = $localfile;
+            if (!$zip_file_exists) {
+              $reason = "Path does not exist in attached ZIP file";
+             return FALSE;
             }
           }
         }
@@ -526,7 +524,7 @@ class AmiUtilityService {
           '///',
           '//',
           "{$destination}"
-        ) . $this->fileSystem->basename(urldecode($parsed_url['path']));
+        ) . basename(urldecode($parsed_url['path']));
       $localfile = $this->streamWrapperManager->normalizeUri($path);
       $escaped_path = str_replace(' ', '\ ', $path);
       // This is very naive since the remote file might be different than
@@ -536,21 +534,28 @@ class AmiUtilityService {
 
       if (is_array($isthere) && count($isthere) == 1) {
         // Ups its here
-        // Use path here instead of the first entry to keep the streamwrapper
+        // Use path here instead of the first entry to keep the stream wrapper
         // around for future use
         $localfile = $path;
       }
       // Actual remote headers via HEAD
       if (!file_exists($localfile) || $force) {
+        if ($this->couldBePresignedS3($uri)) {
+          $reason = "File could exist, but the URI is a Presigned S3 URL which we can not verify upfront, only download";
+          return FALSE;
+          // Bail out on presigned URLs. WE can't do a HEAD
+        }
+
+
         // use HEAD instead of GET
         $stream_context = stream_context_create(
           [
-            'http' => array(
+            'http' => [
               'method' => 'HEAD'
-            )
+            ]
           ]
         );
-        $remote_response_headers = @get_headers($uri,1, $stream_context);
+        $remote_response_headers = @get_headers($uri,true, $stream_context);
         if (is_array($remote_response_headers)) {
           /* Something like this but could have redirects. So we should parse [0] as either an string or an array
           // and find anything that is less than 400.
@@ -565,14 +570,19 @@ class AmiUtilityService {
     [Connection] => close
     [Content-Type] => text/html
            */
-          $remote_response_headers = $remote_response_headers[max(array_filter(array_keys($remote_response_headers), 'is_int'))] ?? '';
+          $remote_response_headers = $remote_response_headers[max(array_filter(array_keys($remote_response_headers), is_int(...)))] ?? '';
           $response_code = explode(" ", $remote_response_headers ?? '')[1];
           if (intval($response_code) >= 200 && intval($response_code) < 400) {
             // We use the localfile/simulated one here. Does not matter if we have not yet fetched it.
             $finaluri = $localfile;
           }
+          else {
+            $reason = "Remote URL responded with a {$response_code} code to a HEAD request. We can't ensure a full future GET might work";
+            return FALSE;
+          }
         }
         else {
+          $reason = "Remote URL failed on a HEAD request. Might not be there";
           return FALSE;
         }
       }
@@ -584,6 +594,7 @@ class AmiUtilityService {
     if ($finaluri) {
       return TRUE;
     }
+    $reason = "Passed File path is invalid";
     return FALSE;
   }
 
@@ -609,9 +620,13 @@ class AmiUtilityService {
     $uri,
     $destination = NULL
   ) {
-    // pre set a failure
+
+    if ($this->isGlobalS3Signing()) {
+      $uri = $this->uriToSignedS3($uri) ?? $uri;
+    }
+
     $parsed_url = parse_url($uri);
-    $basename = $this->fileSystem->basename(urldecode($parsed_url['path']));
+    $basename = basename(urldecode($parsed_url['path']));
     if (!isset($destination)) {
       $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
       $path = $this->streamWrapperManager->normalizeUri($basename);
@@ -627,7 +642,7 @@ class AmiUtilityService {
       }
       else {
         $path = $destination;
-        $basename = $this->fileSystem->basename($destination);
+        $basename = basename($destination);
       }
     }
     /* @var \Psr\Http\Message\ResponseInterface $response */
@@ -640,14 +655,7 @@ class AmiUtilityService {
       if ($max_time == 0) {
         $max_time = 720.00;
       }
-      // Do a HEAD request first. Be sure we don't have anything in the 4XX or 5xx range
-      $head = $this->httpClient->head($uri, ['timeout' => round($max_time,2)]);
-      // Note. This will never run per se. Because the client is setup to throw an exception, but...
-      // If Drupal changes the client base setup in the future we won't know and we won't catch it
-      // So keeping it.
-      if ($head->getStatusCode() >= 400) {
-        return FALSE;
-      }
+
       $response = $this->httpClient->get($uri, ['sink' => $path, 'timeout' => round($max_time,2)]);
       // Edge case... in a fraction of time, someone closes the file from the remote source. We can still cancel
       // Same as with the HEAD. In this current setup this won't run and that is ok, the catch deals with it.
@@ -661,7 +669,6 @@ class AmiUtilityService {
       $filename_from_remote = $basename;
       $filename_from_remote_without_extension = pathinfo($filename_from_remote, PATHINFO_FILENAME);
       $extensions_from_remote = pathinfo($filename_from_remote, PATHINFO_EXTENSION);
-      $extension_from_mime = NULL;
       $extension = NULL;
       $content_disposition = $response->getHeader('Content-Disposition');
       if (!empty($content_disposition)) {
@@ -695,7 +702,7 @@ class AmiUtilityService {
         '@time' => $max_time,
         '@code' => $t->getCode()
       ];
-      $message = 'Unable to download remote file from @uri to local @path with HTTP code @code and error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible and destination is writable.';
+      $message = 'Unable to download remote file from @uri to local @path with HTTP code @code and error: @error. Verify URL exists, file can be downloaded in @time seconds, its openly accessible, the URL is not a redirect, and destination is writable.';
       $this->loggerFactory->get('ami')->error($message, $message_vars);
       // in case the sink did download the file/we delete it here.
       if (file_exists($path)) {
@@ -808,14 +815,14 @@ class AmiUtilityService {
    *   - If it succeeds a Path to a managed file object
    *   - If it fails or NULL, FALSE.
    */
-  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, File $zip_file = NULL) {
+  public function retrieve_fromzip_file($uri, $destination = NULL, $replace = FileExists::Rename, ?File $zip_file = NULL) {
     if (!$zip_file) {
       return FALSE;
     }
     $zip_realpath = NULL;
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = basename($parsed_url['path']);
       $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
       $path = $this->streamWrapperManager->normalizeUri($basename);
     }
@@ -826,9 +833,7 @@ class AmiUtilityService {
             '///',
             '//',
             "{$destination}"
-          ) . $this->fileSystem->basename(
-            $parsed_url['path']
-          );
+          ) . basename($parsed_url['path']);
       }
       else {
         $path = $destination;
@@ -886,7 +891,7 @@ class AmiUtilityService {
         return FALSE;
       }
     }
-    catch (\Exception $exception) {
+    catch (\Exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to extract file @uri from ZIP @zip to local @path. Verify ZIP exists, its readable and destination is writable.',
@@ -914,14 +919,14 @@ class AmiUtilityService {
    *   - If it succeeds a Path to a managed file object
    *   - If it fails or NULL, FALSE.
    */
-  public function check_fromzip_file($uri, File $zip_file = NULL) {
+  public function check_fromzip_file($uri, ?File $zip_file = NULL) {
     if (!$zip_file) {
       return FALSE;
     }
     $zip_realpath = NULL;
     $parsed_url = parse_url($uri);
     if (!isset($destination)) {
-      $basename = $this->fileSystem->basename($parsed_url['path']);
+      $basename = basename($parsed_url['path']);
       $basename = \Drupal::config('system.file')->get('default_scheme') . '://' . $basename;
       $path = $this->streamWrapperManager->normalizeUri($basename);
     }
@@ -932,9 +937,7 @@ class AmiUtilityService {
             '///',
             '//',
             "{$destination}"
-          ) . $this->fileSystem->basename(
-            $parsed_url['path']
-          );
+          ) . basename($parsed_url['path']);
       }
       else {
         $path = $destination;
@@ -990,7 +993,7 @@ class AmiUtilityService {
         return FALSE;
       }
     }
-    catch (\Exception $exception) {
+    catch (\Exception) {
       $this->messenger()->addError(
         $this->t(
           'Unable to find file @uri from ZIP @zip. Verify ZIP exists and its readable.',
@@ -1144,7 +1147,7 @@ class AmiUtilityService {
       // the original name!
       if (strlen($localpath) > 255) {
         $path_length = strlen($localpath);
-        $filename = $this->fileSystem->basename($localpath);
+        $filename = basename($localpath);
         $prefix_and_wrapper_length = ($path_length - strlen($filename));
         $max_file_length = 255 - $prefix_and_wrapper_length;
         $max_part_length = floor($max_file_length / 2);
@@ -1178,7 +1181,7 @@ class AmiUtilityService {
         $localpath = $new_uri;
       }
       else {
-        $filename = $this->fileSystem->basename($localpath);
+        $filename = basename($localpath);
       }
       /** @var File $file */
       $file = $this->entityTypeManager->getStorage('file')->create(
@@ -1209,7 +1212,7 @@ class AmiUtilityService {
       $file->save();
       return $file;
     }
-    catch (FileException $e) {
+    catch (FileException) {
       return FALSE;
     }
   }
@@ -1225,7 +1228,7 @@ class AmiUtilityService {
   protected function getFilenameFromDisposition(string $value) {
     $value = trim($value);
 
-    if (strpos($value, ';') === false) {
+    if (!str_contains($value, ';')) {
       return NULL;
     }
 
@@ -1235,7 +1238,7 @@ class AmiUtilityService {
     $attributes = [];
 
     foreach ($attr_parts as $part) {
-      if (strpos($part, '=') === false) {
+      if (!str_contains($part, '=')) {
         continue;
       }
 
@@ -1258,10 +1261,10 @@ class AmiUtilityService {
       return NULL;
     }
 
-    if ($isUtf8 && strpos($filename, "utf-8''") === 0 && $filename = substr($filename, strlen("utf-8''"))) {
+    if ($isUtf8 && str_starts_with($filename, "utf-8''") && $filename = substr($filename, strlen("utf-8''"))) {
       return rawurldecode($filename);
     }
-    if (substr($filename, 0, 1) === '"' && substr($filename, -1, 1) === '"') {
+    if (str_starts_with($filename, '"') && str_ends_with($filename, '"')) {
       $filename = substr($filename, 1, -1) ?? NULL;
     }
 
@@ -1282,7 +1285,7 @@ class AmiUtilityService {
    *
    * @return int|string|null
    */
-  public function csv_touch(string $filename = NULL, ?string $subpath = NULL, bool $temp = FALSE): int|string|null {
+  public function csv_touch(?string $filename = NULL, ?string $subpath = NULL, bool $temp = FALSE): int|string|null {
     if ($temp) {
       $wrapper =  'temporary://';
     }
@@ -1302,7 +1305,7 @@ class AmiUtilityService {
     }
     else {
       // if not there go with our standard naming convention.
-      $filename = $filename ?? $this->currentUser->id() . '-' . uniqid() . '.csv';
+      $filename ??= $this->currentUser->id() . '-' . uniqid() . '.csv';
       $uri = $path . '/' . $filename;
       // Ensure the directory
       if (!$this->fileSystem->prepareDirectory(
@@ -1629,7 +1632,7 @@ class AmiUtilityService {
     $i = 1;
     $data = [];
     while (!$spl->eof()) {
-      $data = $spl->fgetcsv();
+      $data = $spl->fgetcsv(escape: '\\');
       if ($i == 1) {
         $removecolumns = array_diff($data, $headerwithdata);
         foreach ($removecolumns as $column) {
@@ -1780,7 +1783,7 @@ class AmiUtilityService {
     $unique = [];
     $all = array_column($data['data'], $key);
     $unique = array_map(function($value) {
-      $value = $value ?? '';
+      $value ??= '';
       return trim($value);
     }, $all);
     $unique = array_unique($unique, SORT_STRING);
@@ -1862,7 +1865,7 @@ class AmiUtilityService {
         $options = array_merge($options, $webform_option->getOptions());
       }
     }
-    catch (\Exception $e) {
+    catch (\Exception) {
       // Return some basic defaults in case there are no Options.
       // @TODO tell the user to create a few.
       $options = ['Document' => 'Document', 'Photograph' => 'Photograph', 'Book' => 'Book', 'Article' => 'Article', 'Thing' => 'Thing', 'Video' => 'Video', 'Audio' => 'Audio'];
@@ -1941,14 +1944,14 @@ class AmiUtilityService {
    *
    * @return \Drupal\Core\Access\AccessResultInterface|bool
    */
-  public function checkBundleAccess(string $bundle, AccountInterface $account = NULL) {
+  public function checkBundleAccess(string $bundle, ?AccountInterface $account = NULL) {
     try {
       $access_handler = $this->entityTypeManager->getAccessControlHandler(
         'node'
       );
       return $access_handler->createAccess($bundle, $account, [], TRUE);
     }
-    catch (\Exception $exception) {
+    catch (\Exception) {
       // Means the Bundles does not exist?
       // User is wrong?
       // etc. Simply no access is easier to return
@@ -1967,7 +1970,7 @@ class AmiUtilityService {
    * @return array
    *    A list of Fields where Edit access is allowed.
    */
-  public function checkFieldAccess($bundle, AccountInterface $account = NULL) {
+  public function checkFieldAccess($bundle, ?AccountInterface $account = NULL) {
     $fields = [];
     $access_handler = $this->entityTypeManager->getAccessControlHandler('node');
     $field_definitions = $this->strawberryfieldUtility->getStrawberryfieldDefinitionsForBundle($bundle);
@@ -2042,7 +2045,7 @@ class AmiUtilityService {
             try {
               $zipfile = $file_repository->move($zipfile, $target_directory, FileExists::Rename);
             }
-            catch (InvalidStreamWrapperException $e) {
+            catch (InvalidStreamWrapperException) {
               $zipfail = TRUE;
             }
             if (!$zipfile) {
@@ -2112,8 +2115,7 @@ class AmiUtilityService {
     $config['data']['headers'] = $file_data_all['headers'];
     // In old times we totally depended on position, now we are going to do something different, we will combine
     // Headers and keys.
-    $data->mapping->type_key = isset($data->mapping->type_key)
-      ? $data->mapping->type_key : 'type';
+    $data->mapping->type_key ??= 'type';
 
     // Keeps track of all parents and child that don't have a PID assigned.
     $parent_hash = [];
@@ -2170,7 +2172,7 @@ class AmiUtilityService {
         elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
           // This allows single value and or ; and trims. Neat?
           $parent_ados_array = array_map(function($value) {
-            $value = $value ?? '';
+            $value ??= '';
             return trim($value);
           }, explode(';', $parent_ados_expanded));
         }
@@ -2268,7 +2270,7 @@ class AmiUtilityService {
               ) {
                 // This allows single value and or ; and trims. Neat?
                 $parentup_array = array_map(function($value) {
-                  $value = $value ?? '';
+                  $value ??= '';
                   return trim($value);
                 }, explode(';', $parentup_expanded));
               }
@@ -2435,8 +2437,7 @@ class AmiUtilityService {
     $config['data']['headers'] = $file_data_all['headers'];
     // In old times we totally depended on position, now we are going to do something different, we will combine
     // Headers and keys.
-    $data->mapping->type_key = isset($data->mapping->type_key)
-      ? $data->mapping->type_key : 'type';
+    $data->mapping->type_key ??= 'type';
 
     // Keeps track of all parents and child that don't have a PID assigned.
     $parent_hash = [];
@@ -2498,7 +2499,7 @@ class AmiUtilityService {
         elseif (is_string($parent_ados_expanded) || is_integer($parent_ados_expanded)) {
           // This allows single value and or ; and trims. Neat?
           $parent_ados_array = array_map(function($value) {
-            $value = $value ?? '';
+            $value ??= '';
             return trim($value);
           }, explode(';', $parent_ados_expanded));
         }
@@ -2596,7 +2597,7 @@ class AmiUtilityService {
               ) {
                 // This allows single value and or ; and trims. Neat?
                 $parentup_array = array_map(function($value) {
-                  $value = $value ?? '';
+                  $value ??= '';
                   return trim($value);
                 }, explode(';', $parentup_expanded));
               }
@@ -2761,7 +2762,7 @@ class AmiUtilityService {
       }
       // We use internally Lower case Headers.
       $required_headers = array_map(function($value) {
-        $value = $value ?? '';
+        $value ??= '';
         return strtolower($value);
       }, $required_headers);
 
@@ -2904,9 +2905,13 @@ class AmiUtilityService {
     }
     elseif (Uuid::isValid(trim($parent_ado)))  {
       // fetch the actual ROW id using the
-      $parent_numeric = isset($uuid_to_row_index_hash[trim($parent_ado)]) ? $uuid_to_row_index_hash[trim($parent_ado)] : NULL;
+      $parent_numeric = $uuid_to_row_index_hash[trim($parent_ado)] ?? NULL;
     }
     return  $parent_numeric;
+  }
+
+  public function isGlobalS3Signing(): bool {
+    return $this->global_s3_signing ?? FALSE;
   }
 
   /**
@@ -2932,7 +2937,7 @@ class AmiUtilityService {
     }
     elseif (Uuid::isValid(trim($parent_ado)))  {
       // fetch the actual ROW id using the
-      $parent_numeric = isset($uuid_to_row_index_hash[trim($parent_ado)]) ? $uuid_to_row_index_hash[trim($parent_ado)] : NULL;
+      $parent_numeric = $uuid_to_row_index_hash[trim($parent_ado)] ?? NULL;
     }
     return  $parent_numeric;
   }
@@ -2960,13 +2965,13 @@ class AmiUtilityService {
 
         if (is_string($value) &&
           (
-            (strpos(ltrim($value), '{') === 0) ||
-            (strpos(ltrim($value), '[') === 0)
+            (str_starts_with(ltrim($value), '{')) ||
+            (str_starts_with(ltrim($value), '['))
           )
         ) {
           // Ok, it actually starts with a {}
           // try to clean up.
-          $quotes = array(
+          $quotes = [
             "\xC2\xAB"     => '"', // « (U+00AB) in UTF-8
             "\xC2\xBB"     => '"', // » (U+00BB) in UTF-8
             "\xE2\x80\x98" => "'", // ‘ (U+2018) in UTF-8
@@ -2979,7 +2984,7 @@ class AmiUtilityService {
             "\xE2\x80\x9F" => '"', // ‟ (U+201F) in UTF-8
             "\xE2\x80\xB9" => "'", // ‹ (U+2039) in UTF-8
             "\xE2\x80\xBA" => "'", // › (U+203A) in UTF-8
-          );
+          ];
           $possiblejson  = strtr($value, $quotes);
           $expanded = json_decode($possiblejson, TRUE);
           $json_error = json_last_error();
@@ -2988,8 +2993,8 @@ class AmiUtilityService {
           if ($json_error == JSON_ERROR_NONE) {
             $value = $expanded;
           }
-          elseif (substr( $colum, 0, 3 ) === "as:" ||
-            substr( $colum, 0, 3 ) === "ap:"
+          elseif (str_starts_with($colum, "as:") ||
+            str_starts_with($colum, "ap:")
           ) {
             // We can not allow wrong JSON to permeate into controlled
             // by us properties
@@ -3205,7 +3210,7 @@ class AmiUtilityService {
                   foreach ($lod_for_label as $approach => $lod) {
                     if (isset($lod['lod'])) {
                       $context_lod[$source_column][$approach] = array_merge($context_lod[$source_column][$approach] ?? [], $lod['lod']);
-                      $serialized = array_map('serialize', $context_lod[$source_column][$approach]);
+                      $serialized = array_map(serialize(...), $context_lod[$source_column][$approach]);
                       $unique = array_unique($serialized);
                       $context_lod[$source_column][$approach] = array_intersect_key($context_lod[$source_column][$approach], $unique);
                       $context_lod_contextual[$source_column][$label][$approach] = array_merge($context_lod_contextual[$source_column][$label][$approach] ?? [], $lod['lod']);
@@ -3240,9 +3245,7 @@ class AmiUtilityService {
         try {
           $cacheabledata = \Drupal::service('renderer')->executeInRenderContext(
             new RenderContext(),
-            function() use ($context, $metadatadisplay_entity) {
-              return $metadatadisplay_entity->renderNative($context);
-            }
+            fn() => $metadatadisplay_entity->renderNative($context)
           );
         }
         catch (\Throwable $t) {
@@ -3324,8 +3327,8 @@ class AmiUtilityService {
   public function getDifferentValuesfromColumnSplit(array $data, int $key, array $delimiters = ['|@|', ';'] ): array {
     $unique = [];
     $all = array_column($data['data'], $key);
-    $all_isstring= array_filter($all, 'is_string');
-    $all_notJson = array_filter($all_isstring,  array($this, 'isNotJson'));
+    $all_isstring= array_filter($all, is_string(...));
+    $all_notJson = array_filter($all_isstring,  [$this, 'isNotJson']);
     $all_entries = [];
     // The difficulty. In case of multiple delimiters we need to see which one
     // works/works better. But if none, assume it may be also right since a single
@@ -3348,7 +3351,7 @@ class AmiUtilityService {
       }
     }
     $unique = array_map(function($value) {
-      $value = $value ?? '';
+      $value ??= '';
       return trim($value);
     }, $all_entries);
 
@@ -3395,7 +3398,7 @@ class AmiUtilityService {
           if (is_scalar($entry)) {
             if (!array_is_list($entries_decoded)) {
               foreach ($valid_sub_keys as $pattern) {
-                if (stripos($main_key, $pattern) !== FALSE) {
+                if (stripos($main_key, (string) $pattern) !== FALSE) {
                   $all_entries[] = $entry;
                 }
               }
@@ -3406,9 +3409,7 @@ class AmiUtilityService {
           }
           elseif (is_array($entry)) {
             if (array_is_list($entry)) {
-              $posible_entry = array_map(function($value) {
-                return is_scalar($value);
-              }, $entry);
+              $posible_entry = array_map(is_scalar(...), $entry);
               $all_entries = array_merge($all_entries, $posible_entry);
             }
             else {
@@ -3420,7 +3421,7 @@ class AmiUtilityService {
               );
               foreach ($flattened as $subkey => $subentry) {
                 foreach ($valid_sub_keys as $pattern) {
-                  if (stripos($subkey, $pattern) !== FALSE) {
+                  if (stripos($subkey, (string) $pattern) !== FALSE) {
                     if (is_scalar($subentry)) {
                       $all_entries[] = $subentry;
                     }
@@ -3441,7 +3442,7 @@ class AmiUtilityService {
     }
 
     $unique = array_map(function($value) {
-      $value = $value ?? '';
+      $value ??= '';
       return trim($value);
     }, $all_entries);
     $unique = array_filter($unique);
@@ -3480,7 +3481,7 @@ class AmiUtilityService {
         return FALSE;
       }
     }
-    catch (\Throwable $e) {
+    catch (\Throwable) {
       return FALSE;
     }
   }
@@ -3541,7 +3542,7 @@ class AmiUtilityService {
   public static function checkAmiSetDeleteAdosAccess(EntityInterface $entity): bool {
     // Deny access to delete processed ADOs when the AMI set is configured for update rather than create.
     $cache_id = 'amiset_deleteados_access_' . $entity->id();
-    $deleteados_access = &drupal_static(__CLASS__ . __METHOD__ . $cache_id);
+    $deleteados_access = &drupal_static(self::class . __METHOD__ . $cache_id);
     if (!isset($deleteados_access)) {
       if ($deleteados_access_cache = \Drupal::cache()->get($cache_id)) {
         return $deleteados_access_cache->data;
@@ -3650,5 +3651,80 @@ class AmiUtilityService {
     // Closes the SPL File Object.
     $fh = NULL;
     return $needs_review;
+  }
+
+  /**
+   * Attempts to request a Pre Signed S3 URL from a simple S3 AWS URI
+   * If it fails or not originally AWS, then it returns NULL;
+   *
+   * @param string $uri
+   *
+   * @return string|null
+   */
+  public function uriToSignedS3(string $uri):string|null {
+    // Attempt at S3 parsing: NYPR workaround
+    $uri_s3 = NULL;
+    $parser = new S3UriParser();
+    $parsed = $parser->parse(new Uri($uri));
+
+    $bucket = $parsed['bucket'] ;
+    $region = $parsed['region'];
+    $key = $parsed['key'];
+
+    if ($bucket && $region && $key) {
+      try {
+        $s3Client = new S3Client([
+          'version'           => 'latest',
+          'region'            => $region,
+          'signature_version' => 'v4'
+        ]);
+
+        $s3cmd = $s3Client->getCommand('GetObject', [
+          'Bucket' => $bucket,
+          'Key'    => $key,
+        ]);
+
+        $request = $s3Client->createPresignedRequest($s3cmd, '+1 hour');
+        $uri_s3 = (string) $request->getUri();
+        // This here is in case $request->getUri(); throws an error
+        // that way we only assign $uri back if all went well
+      }
+      catch (AwsException $e) {
+        $message_vars = [
+          '@uri' => $uri,
+          '@error' => $e->getMessage(),
+          '@bucket' => $bucket,
+        ];
+        $message = 'Unable to generate Signed URL from @uri to local with error: @error. Verify your AWS IAM user has access to sign URLs for bucket @bucket.';
+        $this->loggerFactory->get('ami')->error($message, $message_vars);
+      }
+    }
+    return $uri_s3;
+  }
+
+  /**
+   * Naive check to see if it could be a signed URL.
+   * Does not validate, returns on the first required param.
+   *
+   * @param $uri
+   *
+   * @return bool
+   */
+  public function couldBePresignedS3($uri):bool {
+    $url_parts = parse_url($uri);
+    if (!isset($url_parts['query'])) {
+      return FALSE;
+    }
+    $queryParams = [];
+    parse_str($url_parts['query'], $queryParams);
+    $AwsParams = [
+      'X-Amz-Algorithm',
+      'X-Amz-Credential',
+      'X-Amz-Date',
+      'X-Amz-Expires',
+      'X-Amz-SignedHeaders',
+      'X-Amz-Signature'
+    ];
+    return array_any($AwsParams, fn($param) => isset($queryParams[$param]));
   }
 }

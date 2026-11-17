@@ -172,7 +172,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
       $newelements_global = $element_conditional;
       foreach ($newelements_global as $key => &$subelement) {
-        $subelement['#default_value'] = isset($mapping['globalmapping_settings']['metadata_config'][$key]) ? $mapping['globalmapping_settings']['metadata_config'][$key]: key(${$key});
+        $subelement['#default_value'] = $mapping['globalmapping_settings']['metadata_config'][$key] ?? key(${$key});
         $subelement['#states'] = [
           'visible' => [
             ':input[name*="globalmapping"]' => ['value' => $key],
@@ -184,7 +184,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $form['ingestsetup']['files'] = [
         '#type' => 'select',
         '#title' => $this->t('Select which columns contain filenames, entities or URLs where we can fetch files'),
-        '#default_value' => isset($mapping['globalmapping_settings']['files']) ? $mapping['globalmapping_settings']['files'] : [],
+        '#default_value' => $mapping['globalmapping_settings']['files'] ?? [],
         '#options' => array_combine($column_keys, $column_keys),
         '#size' => count($column_keys),
         '#multiple' => TRUE,
@@ -198,7 +198,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       ];
 
       $form['ingestsetup']['bundle'] = $element['bundle'];
-      $form['ingestsetup']['bundle']['#default_value'] = isset($mapping['globalmapping_settings']['bundle']) ? $mapping['globalmapping_settings']['bundle'] : key($bundle);
+      $form['ingestsetup']['bundle']['#default_value'] = $mapping['globalmapping_settings']['bundle'] ?? key($bundle);
       $form['ingestsetup']['bundle']['#states'] = [
         'visible' => [
           ':input[name*="globalmapping"]' => ['!value' => 'custom'],
@@ -235,7 +235,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             $form['ingestsetup']['custommapping'][$type]['metadata'] = [
               '#type' => 'select',
               '#title' => $this->t('Select the data transformation approach for @type', ['@type' => $type]),
-              '#default_value' => isset($mapping['custommapping_settings'][$type]['metadata']) ? $mapping['custommapping_settings'][$type]['metadata'] : (key($metadata) ?? NULL),
+              '#default_value' => $mapping['custommapping_settings'][$type]['metadata'] ?? (key($metadata) ?? NULL),
               '#options' => $metadata,
               '#description' => $this->t('How your source data will be transformed into ADOs (JSON) Metadata.'),
               '#required' => TRUE,
@@ -246,7 +246,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             // We need to reassign or if not circular references mess with the render array
             $newelements = $element_conditional;
             foreach ($newelements as $key => &$subelement) {
-              $subelement['#default_value'] = isset($mapping['custommapping_settings'][$type]['metadata_config'][$key]) ? $mapping['custommapping_settings'][$type]['metadata_config'][$key] : key(${$key});
+              $subelement['#default_value'] = $mapping['custommapping_settings'][$type]['metadata_config'][$key] ?? key(${$key});
               $subelement['#states'] = [
                 'visible' => [
                   ':input[data-adotype="metadata_'.$machine_type.'"]' => ['value' => $key],
@@ -260,7 +260,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             $form['ingestsetup']['custommapping'][$type]['metadata_config'] = $newelements;
             $form['ingestsetup']['custommapping'][$type]['bundle'] = $element['bundle'];
 
-            $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = isset($mapping['custommapping_settings'][$type]['bundle']) ? $mapping['custommapping_settings'][$type]['bundle'] : key($bundle);
+            $form['ingestsetup']['custommapping'][$type]['bundle']['#default_value'] = $mapping['custommapping_settings'][$type]['bundle'] ?? key($bundle);
 
             if ($op == 'update' || $op == 'patch') {
               $files_title = $this->t('Select which columns contain filenames or URLs where we can fetch the files for @type replacing/clearing existing ones if there is already data in the same key in your ADO.', ['@type' => $type]);
@@ -274,7 +274,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
             $form['ingestsetup']['custommapping'][$type]['files'] = [
               '#type' => 'select',
               '#title' => $files_title,
-              '#default_value' => isset($mapping['custommapping_settings'][$type]['files']) ? $mapping['custommapping_settings'][$type]['files'] : [],
+              '#default_value' => $mapping['custommapping_settings'][$type]['files'] ?? [],
               '#options' => array_combine($column_keys, $column_keys),
               '#size' => count($column_keys),
               '#multiple' => TRUE,
@@ -318,7 +318,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       $form['ingestsetup']['adomapping']['parents'] = [
         '#type' => 'select',
         '#title' => $this->t('ADO Parent Columns'),
-        '#default_value' => isset($adomapping['parents']) ? $adomapping['parents'] : [],
+        '#default_value' => $adomapping['parents'] ?? [],
         '#options' => array_combine($column_keys, $column_keys),
         '#size' => count($column_keys),
         '#multiple' => TRUE,
@@ -345,7 +345,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
       }
       else {
         $autouuid = $plugin_instance->getPluginDefinition()['batch'] ?? FALSE;
-        $autouuid =  $autouuid == TRUE ? $autouuid: (isset($adomapping['autouuid']) ? $adomapping['autouuid'] : TRUE);
+        $autouuid =  $autouuid == TRUE ? $autouuid: ($adomapping['autouuid'] ?? TRUE);
         $form['ingestsetup']['adomapping']['autouuid'] = [
           '#type' => 'checkbox',
           '#title' => $this->t('Automatically assign UUID'),
@@ -366,7 +366,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#description_display' => 'before',
         '#empty_option' =>  $this->t('- Let AMI decide -'),
         '#empty_value' =>  'node_uuid',
-        '#default_value' =>  $plugin_instance->getPluginDefinition()['batch'] ? 'node_uuid' : (isset($adomapping['uuid']) ? $adomapping['uuid'] : []),
+        '#default_value' =>  $plugin_instance->getPluginDefinition()['batch'] ? 'node_uuid' : ($adomapping['uuid'] ?? []),
         '#required' => FALSE,
         '#source' => [ 'uuid' => 'ADO UUID'],
         '#source__title' => $this->t('ADO mappings'),
@@ -393,7 +393,7 @@ class AmiMultiStepIngest extends AmiMultiStepIngestBaseForm {
         '#description_display' => 'before',
         '#empty_option' =>  $this->t('- Let AMI decide -'),
         '#empty_value' =>  NULL,
-        '#default_value' =>  isset($adomapping['base']) ? $adomapping['base'] : [],
+        '#default_value' =>  $adomapping['base'] ?? [],
         '#required' => true,
         '#source' => $required_maps,
         '#source__title' => $this->t('Base ADO mappings'),
